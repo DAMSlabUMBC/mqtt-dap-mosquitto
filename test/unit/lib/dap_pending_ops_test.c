@@ -248,6 +248,70 @@ static void test_allocate_op_id_shares_counter(void)
     printf("ok - allocate_op_id shares the insert counter\n");
 }
 
+static void test_restore_keeps_op_id_and_matches(void)
+{
+    struct dap_pending_ops map;
+    uint64_t matched = 0;
+
+    dap_pending_ops_init(&map);
+    assert(dap_pending_ops_restore_operation(&map, 7, "pub1", DAP_OP_RESTRICT, 1000,
+                                             "t/a,t/b", "p", "*") == 0);
+    assert(op_count(&map, "pub1") == 1);
+    assert(dap_pending_ops_match(&map, "pub1", "t/b", "p", "sub1", 900, &matched) == DAP_OP_ACTION_RESTRICT);
+    assert(matched == 7);
+    assert(dap_pending_ops_match(&map, "pub1", "t/b", "p", "sub1", 1001, NULL) == DAP_OP_ACTION_NONE);
+
+    dap_pending_ops_destroy(&map);
+    printf("ok - restore keeps the op id, filters and timestamp\n");
+}
+
+static void test_restore_advances_id_counter(void)
+{
+    struct dap_pending_ops map;
+    uint64_t id = 0;
+
+    dap_pending_ops_init(&map);
+    assert(dap_pending_ops_restore_operation(&map, 5, "pub1", DAP_OP_DELETE, 100, "*", "*", "*") == 0);
+    assert(dap_pending_ops_restore_operation(&map, 3, "pub2", DAP_OP_DELETE, 100, "*", "*", "*") == 0);
+    assert(dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_RESTRICT, 100, "*", "*", "*", &id) == 0);
+    assert(id == 6);
+    assert(dap_pending_ops_allocate_op_id(&map) == 7);
+
+    dap_pending_ops_destroy(&map);
+    printf("ok - restore advances the op id counter past restored ids\n");
+}
+
+static void test_restore_rejects_bad_or_duplicate_ids(void)
+{
+    struct dap_pending_ops map;
+
+    dap_pending_ops_init(&map);
+    assert(dap_pending_ops_restore_operation(&map, 0, "pub1", DAP_OP_DELETE, 100, "*", "*", "*") != 0);
+    assert(dap_pending_ops_restore_operation(&map, 4, NULL, DAP_OP_DELETE, 100, "*", "*", "*") != 0);
+    assert(dap_pending_ops_restore_operation(&map, 4, "pub1", DAP_OP_DELETE, 100, "*", "*", "*") == 0);
+    assert(dap_pending_ops_restore_operation(&map, 4, "pub2", DAP_OP_RESTRICT, 100, "*", "*", "*") != 0);
+    assert(op_count(&map, "pub1") == 1);
+    assert(op_count(&map, "pub2") == 0);
+
+    dap_pending_ops_destroy(&map);
+    printf("ok - restore rejects a zero or already-present op id\n");
+}
+
+static void test_reserve_op_id(void)
+{
+    struct dap_pending_ops map;
+
+    dap_pending_ops_init(&map);
+    dap_pending_ops_reserve_op_id(&map, 9);
+    assert(dap_pending_ops_allocate_op_id(&map) == 10);
+    /* Never moves backwards. */
+    dap_pending_ops_reserve_op_id(&map, 2);
+    assert(dap_pending_ops_allocate_op_id(&map) == 11);
+
+    dap_pending_ops_destroy(&map);
+    printf("ok - reserve_op_id keeps new ids above a restored id\n");
+}
+
 int main(void)
 {
     test_empty_map();
@@ -262,6 +326,10 @@ int main(void)
     test_restrict_most_recent_wins();
     test_delete_supersedes_restrict();
     test_remove_operation();
+    test_restore_keeps_op_id_and_matches();
+    test_restore_advances_id_counter();
+    test_restore_rejects_bad_or_duplicate_ids();
+    test_reserve_op_id();
     printf("\nAll dap_pending_ops tests passed.\n");
     return 0;
 }

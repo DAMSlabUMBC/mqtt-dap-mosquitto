@@ -11,6 +11,7 @@
 #include <stdio.h>
 
 #include "dap_topics.h"
+#include "mosquitto/defs.h"
 
 static void test_purpose_management_topics_are_system(void)
 {
@@ -22,22 +23,18 @@ static void test_purpose_management_topics_are_system(void)
 
 static void test_osys_is_system(void)
 {
-    assert(dap_is_op_system_topic("$OSYS") == true);
-    assert(dap_is_op_system_topic("$OSYS/anything") == true);
-    printf("ok - $OSYS status bus is a system topic\n");
+    assert(dap_is_op_system_topic(MOSQ_DAP_TOPIC_OSYS) == true);
+    assert(dap_is_op_system_topic(MOSQ_DAP_TOPIC_OSYS "/anything") == true);
+    printf("ok - " MOSQ_DAP_TOPIC_OSYS " status bus is a system topic\n");
 }
 
 static void test_operation_request_topics_bare_and_keyed(void)
 {
-    assert(dap_is_op_system_topic("OR") == true);
-    assert(dap_is_op_system_topic("OR/sub1") == true);
-    assert(dap_is_op_system_topic("ON") == true);
-    assert(dap_is_op_system_topic("ON/pub1") == true);
-    assert(dap_is_op_system_topic("ORS") == true);
-    assert(dap_is_op_system_topic("ORS/sub1") == true);
-    assert(dap_is_op_system_topic("ONP") == true);
-    assert(dap_is_op_system_topic("ONP/pub1") == true);
-    printf("ok - OR/ON/ORS/ONP bare and keyed are system topics\n");
+    assert(dap_is_op_system_topic(MOSQ_DAP_TOPIC_ORS) == true);
+    assert(dap_is_op_system_topic(MOSQ_DAP_TOPIC_ORS "/sub1") == true);
+    assert(dap_is_op_system_topic(MOSQ_DAP_TOPIC_ONP) == true);
+    assert(dap_is_op_system_topic(MOSQ_DAP_TOPIC_ONP "/pub1") == true);
+    printf("ok - " MOSQ_DAP_TOPIC_ORS "/" MOSQ_DAP_TOPIC_ONP " bare and keyed are system topics\n");
 }
 
 static void test_data_topics_are_not_system(void)
@@ -45,10 +42,10 @@ static void test_data_topics_are_not_system(void)
     assert(dap_is_op_system_topic("sensors/temp") == false);
     assert(dap_is_op_system_topic("op_resp/pub1") == false);
     /* Topics that merely share a prefix with a base must not be exempted. */
-    assert(dap_is_op_system_topic("ORchard") == false);
-    assert(dap_is_op_system_topic("ORSA/x") == false);
-    assert(dap_is_op_system_topic("ONyx") == false);
-    assert(dap_is_op_system_topic("ONPossum") == false);
+    assert(dap_is_op_system_topic(MOSQ_DAP_TOPIC_ORS "x") == false);
+    assert(dap_is_op_system_topic(MOSQ_DAP_TOPIC_ORS "A/x") == false);
+    assert(dap_is_op_system_topic(MOSQ_DAP_TOPIC_ONP "yx") == false);
+    assert(dap_is_op_system_topic(MOSQ_DAP_TOPIC_OSYS "ish") == false);
     printf("ok - data topics and prefix lookalikes are not system topics\n");
 }
 

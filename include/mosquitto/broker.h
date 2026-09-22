@@ -109,6 +109,30 @@ struct mosquitto_base_msg {
 	void *future2[8];
 };
 
+/* A DAP DELETE/RESTRICT op in the pending-op map. */
+struct mosquitto_dap_op {
+	uint64_t op_id;
+	const char *publisher_id;
+	int op_type;                 /* 0 = DELETE, 1 = RESTRICT */
+	time_t timestamp;
+	const char *topic_filters;   /* NULL = any */
+	const char *purpose_filters; /* NULL = any */
+	const char *client_filters;  /* NULL = any */
+	void *future[4];
+};
+
+/* A DAP op awaiting subscriber responses until its deadline. */
+struct mosquitto_dap_tracked_op {
+	uint64_t op_id;
+	const char *publisher_id;          /* requester */
+	time_t deadline;
+	const char *const *expected_subs;
+	const bool *responded;             /* restore only, may be NULL */
+	size_t num_expected;
+	bool settled;                      /* restore only */
+	void *future[4];
+};
+
 struct mosquitto_client_msg {
 	const char *clientid;
 	uint64_t cmsg_id;
@@ -173,6 +197,12 @@ enum mosquitto_plugin_event {
 	MOSQ_EVT_CLIENT_OFFLINE = 28,
 	MOSQ_EVT_PERSIST_WILL_ADD = 29,
 	MOSQ_EVT_PERSIST_WILL_DELETE = 30,
+
+	/* MQTT-DAP; kept clear of upstream event numbers. */
+	MOSQ_EVT_PERSIST_DAP_OP_ADD = 100,
+	MOSQ_EVT_PERSIST_DAP_TRACKED_OP_ADD = 101,
+	MOSQ_EVT_PERSIST_DAP_TRACKED_OP_RESPONSE = 102,
+	MOSQ_EVT_PERSIST_DAP_TRACKED_OP_DELETE = 103,
 };
 
 /* Data for the MOSQ_EVT_RELOAD event */
@@ -377,6 +407,23 @@ struct mosquitto_evt_persist_retain_msg {
 struct mosquitto_evt_persist_will_msg {
 	void *future;
 	struct mosquitto_will_msg data;
+	void *future2[8];
+};
+
+
+/* Data for the MOSQ_EVT_PERSIST_DAP_OP_ADD event */
+struct mosquitto_evt_persist_dap_op {
+	void *future;
+	struct mosquitto_dap_op data;
+	void *future2[8];
+};
+
+
+/* Data for MOSQ_EVT_PERSIST_DAP_TRACKED_OP_*. _RESPONSE sets subscriber_id; _DELETE sets only op_id. */
+struct mosquitto_evt_persist_dap_tracked_op {
+	void *future;
+	struct mosquitto_dap_tracked_op data;
+	const char *subscriber_id;
 	void *future2[8];
 };
 
@@ -1240,6 +1287,22 @@ mosq_EXPORT int mosquitto_persist_retain_msg_set(const char *topic, uint64_t sto
  *   MOSQ_ERR_NOMEM - on out of memory
  */
 mosq_EXPORT int mosquitto_persist_retain_msg_delete(const char *topic);
+
+
+/* Function: mosquitto_persist_dap_op_add
+ *
+ * Restore a DAP DELETE/RESTRICT op with its original id. For persistence plugins
+ * during MOSQ_EVT_PERSIST_RESTORE.
+ */
+mosq_EXPORT int mosquitto_persist_dap_op_add(const struct mosquitto_dap_op *op);
+
+
+/* Function: mosquitto_persist_dap_tracked_op_add
+ *
+ * Restore a DAP op's requester and, unless settled, its deadline tracking. For
+ * persistence plugins during MOSQ_EVT_PERSIST_RESTORE.
+ */
+mosq_EXPORT int mosquitto_persist_dap_tracked_op_add(const struct mosquitto_dap_tracked_op *op);
 
 /* Function: mosquitto_persistence_location
  *

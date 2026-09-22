@@ -24,6 +24,7 @@ Contributors:
 #include "util_mosq.h"
 #include "will_mosq.h"
 #include "utlist.h"
+#include "dap/dap_persist.h"
 #include "will_mosq.h"
 
 #ifdef WITH_TLS
@@ -812,6 +813,8 @@ BROKER_EXPORT int mosquitto_persist_base_msg_add(struct mosquitto_base_msg *msg_
 	msg_add->topic = NULL;
 	base_msg->data.properties = msg_add->properties;
 	msg_add->properties = NULL;
+	base_msg->dap_recv_time = dap_persist__recv_time(base_msg->data.properties);
+	base_msg->dap_restored = true;
 
 	if(msg_add->source_port){
 		for(int i=0; i<db.config->listener_count; i++){

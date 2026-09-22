@@ -54,6 +54,7 @@ Contributors:
 #include "util_mosq.h"
 #include "dap/rights_broker.h"
 #include "dap/dap_deadline_tracker.h"
+#include "dap/dap_persist.h"
 
 extern int g_run;
 
@@ -183,6 +184,7 @@ static void dap_deadline__check(void)
 
 	struct dap_expired_op *expired = dap_deadline_tracker_check_expired(db.dap_deadline_tracker, db.now_real_s);
 	for(struct dap_expired_op *e = expired; e; e = e->next){
+		dap_persist__tracked_op_delete(e->op_id);
 		if(e->num_unresponded > 0){
 			broker_send_deadline_failure(e->op_id, e->publisher_id, e->unresponded_subs, e->num_unresponded);
 		}else{

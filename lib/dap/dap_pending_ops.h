@@ -87,6 +87,19 @@ int dap_pending_ops_insert_operation(struct dap_pending_ops *map,
  */
 uint64_t dap_pending_ops_allocate_op_id(struct dap_pending_ops *map);
 
+/* Insert a restored op with its original id. Fails on id 0 or a duplicate id. */
+int dap_pending_ops_restore_operation(struct dap_pending_ops *map,
+                                      uint64_t op_id,
+                                      const char *pub_id,
+                                      enum dap_op_type type,
+                                      time_t timestamp,
+                                      const char *topic_filter,
+                                      const char *purpose_filter,
+                                      const char *subscriber_filter);
+
+/* Keep the id counter above op_id. */
+void dap_pending_ops_reserve_op_id(struct dap_pending_ops *map, uint64_t op_id);
+
 /* Returns the head of the pending-operation list for pub_id, or NULL if none. */
 struct dap_pending_op *dap_pending_ops_lookup_operations_for_publisher(struct dap_pending_ops *map,
                                                                        const char *pub_id);

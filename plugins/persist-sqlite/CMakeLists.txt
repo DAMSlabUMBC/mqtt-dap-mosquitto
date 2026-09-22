@@ -9,6 +9,7 @@ if(SQLITE3_FOUND)
 		clients.c
 		client_msgs.c
 		common.c
+		dap_ops.c
 		init.c
 		../../common/json_help.c
 		plugin.c

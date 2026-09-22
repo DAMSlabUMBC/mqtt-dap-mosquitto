@@ -12,6 +12,7 @@ OBJS = \
 	clients.o \
 	client_msgs.o \
 	common.o \
+	dap_ops.o \
 	init.o \
 	plugin.o \
 	restore.o \

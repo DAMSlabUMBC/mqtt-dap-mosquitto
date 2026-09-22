@@ -194,6 +194,10 @@ struct plugin__callbacks {
 	struct mosquitto__callback *persist_retain_msg_delete;
 	struct mosquitto__callback *persist_will_add;
 	struct mosquitto__callback *persist_will_delete;
+	struct mosquitto__callback *persist_dap_op_add;
+	struct mosquitto__callback *persist_dap_tracked_op_add;
+	struct mosquitto__callback *persist_dap_tracked_op_response;
+	struct mosquitto__callback *persist_dap_tracked_op_delete;
 };
 
 /* This is owned by mosquitto__config or mosquitto__listener, and only referred
@@ -460,6 +464,7 @@ struct mosquitto__base_msg {
 	bool stored;
 	time_t dap_recv_time; /* DAP receipt timestamp: single reference time for ordering
 	                       * and operation matching, stamped once at PUBLISH receipt */
+	bool dap_restored;    /* restored from persistence, has no DAP stamp */
 	uint64_t dap_recv_time_ns_wall; /* CLOCK_REALTIME at PUBLISH receipt, for the metrics row */
 	uint64_t dap_recv_time_ns_mono; /* CLOCK_MONOTONIC at PUBLISH receipt, for delta computation */
 	int dap_subs_matched;           /* leaves the message fanned out to */

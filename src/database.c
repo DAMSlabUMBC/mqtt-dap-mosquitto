@@ -1634,6 +1634,16 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 
 	enum dap_send_disposition disp = dap_send_decide(has_stamp, is_holding, pending_mid, this_mid, verdict);
 
+	/* Restored messages have no stamp; still apply DELETE. */
+	if(!has_stamp && base_msg->dap_restored && db.dap_pending_ops){
+		const char *purpose = base_msg->data.has_purpose_filter ? base_msg->data.purpose_filter : NULL;
+		if(dap_pending_ops_match(db.dap_pending_ops, base_msg->data.source_id, topic,
+				purpose, client_id, base_msg->dap_recv_time, NULL) == DAP_OP_ACTION_DROP){
+
+			disp = DAP_DISP_DROP;
+		}
+	}
+
 	switch(disp){
 		case DAP_DISP_DELIVER:
 			if(db.config->metadata_operation_handling){
