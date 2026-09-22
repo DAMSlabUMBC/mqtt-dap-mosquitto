@@ -641,8 +641,10 @@ int handle__publish(struct mosquitto *context)
 
 		/* Now process DAP-specific handling */
 
+		/* 2.1: property__process_publish moved user props to base_msg->data.properties. */
+
 		/* Immediately check for consent and disallow if not given */
-		const mosquitto_property *curr_prop_ptr = properties;
+		const mosquitto_property *curr_prop_ptr = base_msg->data.properties;
 		bool consent_given = false;
 		while(curr_prop_ptr)
 		{
@@ -667,6 +669,7 @@ int handle__publish(struct mosquitto *context)
 							"Consent not given for packet from %s, rejecting.",
 							context->id);
 						mosquitto_property_free_all(&properties);
+						db__msg_store_free(base_msg);
 						return MOSQ_ERR_MALFORMED_PACKET;
 					}
 				}
@@ -681,6 +684,7 @@ int handle__publish(struct mosquitto *context)
 				"Consent not given for packet from %s, rejecting.",
 				context->id);
 			mosquitto_property_free_all(&properties);
+			db__msg_store_free(base_msg);
 			return MOSQ_ERR_MALFORMED_PACKET;
 		}
 
@@ -688,7 +692,7 @@ int handle__publish(struct mosquitto *context)
 		if(!strcmp(base_msg->data.topic, MOSQ_DAP_MP_REG_TOPIC))
 		{
 			/* Since there can be multiple user properties, loop through them */
-			const mosquitto_property *curr_prop_ptr = properties;
+			const mosquitto_property *curr_prop_ptr = base_msg->data.properties;
 			while(curr_prop_ptr)
 			{
 				/* Parse the current property name/value */
@@ -707,6 +711,7 @@ int handle__publish(struct mosquitto *context)
 						if (temp == NULL)
 						{
 							mosquitto_property_free_all(&properties);
+							db__msg_store_free(base_msg);
 							return MOSQ_ERR_MALFORMED_PACKET;
 						}
 
@@ -718,7 +723,10 @@ int handle__publish(struct mosquitto *context)
 						topic = mosquitto_malloc(strlen(temp) + 1);
 						if(!filter || !topic)
 						{
+							mosquitto_FREE(filter);
+							mosquitto_FREE(topic);
 							mosquitto_property_free_all(&properties);
+							db__msg_store_free(base_msg);
 							return MOSQ_ERR_NOMEM;
 						}
 
@@ -729,6 +737,8 @@ int handle__publish(struct mosquitto *context)
 
 						/* Register the topic to purpose filter mapping */
 						mp__register_topic(context->id, topic, filter);
+						mosquitto_FREE(filter);
+						mosquitto_FREE(topic);
 					}
 					/* Move to the next property */
 					curr_prop_ptr = curr_prop_ptr->next;
@@ -737,6 +747,7 @@ int handle__publish(struct mosquitto *context)
 
 			/* Do not forward this registration message */
 			mosquitto_property_free_all(&properties);
+			db__msg_store_free(base_msg);
 			return MOSQ_ERR_SUCCESS;
 		}
 		else
@@ -775,7 +786,7 @@ int handle__publish(struct mosquitto *context)
 		if(db.config->metadata_operation_handling)
 		{
 			/* Look through the user properties for DAP-OpType */
-			const mosquitto_property *p = properties;
+			const mosquitto_property *p = base_msg->data.properties;
 			while(p){
 				if(p->identifier == MQTT_PROP_USER_PROPERTY){
 					char *name=NULL, *value=NULL;

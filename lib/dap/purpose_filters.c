@@ -128,6 +128,13 @@ char **parse_purpose_filter(const char *filter, uint32_t *num_results)
         }
         mosquitto_FREE(terms);
 
+        /* combine_expansions copied what it kept. */
+        for(uint32_t i = 0; i < exp_count; i++)
+        {
+            mosquitto_FREE(exp_list[i].str);
+        }
+        mosquitto_FREE(exp_list);
+
         exp_list = new_list;
         exp_count = new_count;
 

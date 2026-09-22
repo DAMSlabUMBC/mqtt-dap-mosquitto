@@ -8,18 +8,34 @@
  * dap_pending_ops_lookup_operations_for_publisher. The full broker is not exercised
  * here. Build and run on its own:
  *
- *   cc -I../../.. -I../../../lib -I../../../include -I../../../libcommon \
+ *   cc -I../../.. -I../../../lib -I../../../lib/dap -I../../../include -I../../../libcommon \
  *      -I../../../src -I../../../common -I../../../deps -I/opt/homebrew/include \
- *      dap_op_request_test.c ../../../lib/dap_op_request.c ../../../lib/dap_pending_ops.c \
+ *      dap_op_request_test.c ../../../lib/dap/dap_op_request.c ../../../lib/dap/dap_pending_ops.c \
  *      ../../../libcommon/memory_common.c -o dap_op_request_test && ./dap_op_request_test
+
  */
 
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 
 #include "dap_op_request.h"
 #include "dap_pending_ops.h"
 #include "mosquitto/defs.h"
+
+/* Wrap the args into the dap__op_property the API now takes. */
+static int request_insert(struct dap_pending_ops *map, const char *pub_id, const char *op_type,
+                          const char *topic_filters, const char *purpose_filters,
+                          const char *client_filters, time_t timestamp, uint64_t *op_id_out)
+{
+    struct dap__op_property props;
+    memset(&props, 0, sizeof(props));
+    props.op_id = (char *)op_type;
+    props.op_topic_filters = (char *)topic_filters;
+    props.op_purpose_filters = (char *)purpose_filters;
+    props.op_client_filters = (char *)client_filters;
+    return dap_op_request_insert(map, pub_id, &props, timestamp, op_id_out);
+}
 
 /* How many ops are currently tracked for a publisher. */
 static size_t count_ops(struct dap_pending_ops *map, const char *pub)
@@ -39,7 +55,7 @@ static void test_erasure_inserts_delete(void)
     dap_pending_ops_init(&map);
 
     uint64_t op_id = 0;
-    assert(dap_op_request_insert(&map, "pub1", MOSQ_DAP_OP_DELETE,
+    assert(request_insert(&map, "pub1", MOSQ_DAP_OP_DELETE,
                                  "sensors/a", "*", "*", 1000, &op_id) == 0);
     assert(op_id != 0);
     assert(count_ops(&map, "pub1") == 1);
@@ -61,7 +77,7 @@ static void test_restriction_inserts_restrict(void)
     dap_pending_ops_init(&map);
 
     uint64_t op_id = 0;
-    assert(dap_op_request_insert(&map, "pub1", MOSQ_DAP_OP_RESTRICT,
+    assert(request_insert(&map, "pub1", MOSQ_DAP_OP_RESTRICT,
                                  "sensors/a", "*", "*", 1000, &op_id) == 0);
     assert(op_id != 0);
 
@@ -82,7 +98,7 @@ static void test_filters_parsed_as_lists(void)
     struct dap_pending_ops map;
     dap_pending_ops_init(&map);
 
-    assert(dap_op_request_insert(&map, "pub1", MOSQ_DAP_OP_DELETE,
+    assert(request_insert(&map, "pub1", MOSQ_DAP_OP_DELETE,
                                  "t/a,t/b,t/c", "*", "sub1,sub2", 1000, NULL) == 0);
 
     /* A middle topic element + a listed subscriber -> applies. */
@@ -105,7 +121,7 @@ static void test_null_filters_match_any(void)
     struct dap_pending_ops map;
     dap_pending_ops_init(&map);
 
-    assert(dap_op_request_insert(&map, "pub1", MOSQ_DAP_OP_DELETE,
+    assert(request_insert(&map, "pub1", MOSQ_DAP_OP_DELETE,
                                  NULL, NULL, NULL, 1000, NULL) == 0);
     assert(dap_pending_ops_match(&map, "pub1", "anything", "anyhow", "anyone", 500, NULL)
            == DAP_OP_ACTION_DROP);
@@ -121,9 +137,9 @@ static void test_non_pending_operations_not_inserted(void)
     struct dap_pending_ops map;
     dap_pending_ops_init(&map);
 
-    assert(dap_op_request_insert(&map, "pub1", MOSQ_DAP_OP_AUDIT,
+    assert(request_insert(&map, "pub1", MOSQ_DAP_OP_AUDIT,
                                  "*", "*", "*", 1000, NULL) != 0);
-    assert(dap_op_request_insert(&map, "pub1", MOSQ_DAP_OP_HISTORY,
+    assert(request_insert(&map, "pub1", MOSQ_DAP_OP_HISTORY,
                                  "*", "*", "*", 1000, NULL) != 0);
     assert(count_ops(&map, "pub1") == 0);
 
@@ -137,11 +153,11 @@ static void test_bad_args(void)
     struct dap_pending_ops map;
     dap_pending_ops_init(&map);
 
-    assert(dap_op_request_insert(NULL, "pub1", MOSQ_DAP_OP_DELETE,
+    assert(request_insert(NULL, "pub1", MOSQ_DAP_OP_DELETE,
                                  "*", "*", "*", 1000, NULL) != 0);
-    assert(dap_op_request_insert(&map, NULL, MOSQ_DAP_OP_DELETE,
+    assert(request_insert(&map, NULL, MOSQ_DAP_OP_DELETE,
                                  "*", "*", "*", 1000, NULL) != 0);
-    assert(dap_op_request_insert(&map, "pub1", NULL,
+    assert(request_insert(&map, "pub1", NULL,
                                  "*", "*", "*", 1000, NULL) != 0);
     assert(count_ops(&map, "pub1") == 0);
 
