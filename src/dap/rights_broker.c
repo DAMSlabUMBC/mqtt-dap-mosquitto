@@ -9,6 +9,7 @@
 #include "dap/dr_registry.h"
 #include "dap/dap_deadline_tracker.h"
 #include "dap/dap_op_requester.h"
+#include "dap/dap_persist.h"
 
 /* Finds a client context by ID by calling db__find_context_by_id(). */
 struct mosquitto *broker_find_context_by_id(const char *client_id)
@@ -413,8 +414,11 @@ void broker_dispatch_pending_operation(const char *publisher_id, struct dr_subli
      * Guard the count against a failed ids allocation so a NULL array is never paired
      * with a non-zero count (the op then tracks no expected subs rather than crashing). */
     if(db.dap_deadline_tracker){
-        dap_deadline_tracker_register_pending_operation(db.dap_deadline_tracker, dap_op_properties->op_id_num,
-            publisher_id, ids, ids ? n : 0, deadline);
+        if(dap_deadline_tracker_register_pending_operation(db.dap_deadline_tracker, dap_op_properties->op_id_num,
+                publisher_id, ids, ids ? n : 0, deadline) == 0){
+            dap_persist__tracked_op_add(dap_op_properties->op_id_num, publisher_id,
+                ids, ids ? n : 0, deadline);
+        }
     }
     mosquitto_FREE(ids);
 

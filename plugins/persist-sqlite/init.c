@@ -510,6 +510,13 @@ int persist_sqlite__init(struct mosquitto_sqlite *ms)
 		return rc;
 	}
 
+	rc = persist_sqlite__dap_init(ms);
+	if(rc){
+		sqlite3_close(ms->db);
+		ms->db = NULL;
+		return MOSQ_ERR_UNKNOWN;
+	}
+
 	sqlite3_exec(ms->db, "BEGIN;", NULL, NULL, NULL);
 	return MOSQ_ERR_SUCCESS;
 fail:
@@ -546,6 +553,7 @@ void persist_sqlite__cleanup(struct mosquitto_sqlite *ms)
 	sqlite3_finalize(ms->retain_msg_remove_stmt);
 	sqlite3_finalize(ms->will_add_stmt);
 	sqlite3_finalize(ms->will_remove_stmt);
+	persist_sqlite__dap_cleanup(ms);
 
 	if(ms->db){
 		int rc = sqlite3_wal_checkpoint_v2(ms->db, NULL, SQLITE_CHECKPOINT_TRUNCATE, NULL, NULL);

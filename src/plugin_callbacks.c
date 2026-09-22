@@ -86,6 +86,14 @@ static const char *get_event_name(enum mosquitto_plugin_event event)
 			return "persist-will-add";
 		case MOSQ_EVT_PERSIST_WILL_DELETE:
 			return "persist-will-delete";
+		case MOSQ_EVT_PERSIST_DAP_OP_ADD:
+			return "persist-dap-op-add";
+		case MOSQ_EVT_PERSIST_DAP_TRACKED_OP_ADD:
+			return "persist-dap-tracked-op-add";
+		case MOSQ_EVT_PERSIST_DAP_TRACKED_OP_RESPONSE:
+			return "persist-dap-tracked-op-response";
+		case MOSQ_EVT_PERSIST_DAP_TRACKED_OP_DELETE:
+			return "persist-dap-tracked-op-delete";
 	}
 	return "";
 }
@@ -166,6 +174,14 @@ static struct mosquitto__callback **plugin__get_callback_base(struct mosquitto__
 			return &security_options->plugin_callbacks.persist_will_add;
 		case MOSQ_EVT_PERSIST_WILL_DELETE:
 			return &security_options->plugin_callbacks.persist_will_delete;
+		case MOSQ_EVT_PERSIST_DAP_OP_ADD:
+			return &security_options->plugin_callbacks.persist_dap_op_add;
+		case MOSQ_EVT_PERSIST_DAP_TRACKED_OP_ADD:
+			return &security_options->plugin_callbacks.persist_dap_tracked_op_add;
+		case MOSQ_EVT_PERSIST_DAP_TRACKED_OP_RESPONSE:
+			return &security_options->plugin_callbacks.persist_dap_tracked_op_response;
+		case MOSQ_EVT_PERSIST_DAP_TRACKED_OP_DELETE:
+			return &security_options->plugin_callbacks.persist_dap_tracked_op_delete;
 	}
 	return NULL;
 }
@@ -231,6 +247,10 @@ BROKER_EXPORT int mosquitto_callback_register(
 			|| event == MOSQ_EVT_PERSIST_CLIENT_MSG_UPDATE
 			|| event == MOSQ_EVT_PERSIST_WILL_ADD
 			|| event == MOSQ_EVT_PERSIST_WILL_DELETE
+			|| event == MOSQ_EVT_PERSIST_DAP_OP_ADD
+			|| event == MOSQ_EVT_PERSIST_DAP_TRACKED_OP_ADD
+			|| event == MOSQ_EVT_PERSIST_DAP_TRACKED_OP_RESPONSE
+			|| event == MOSQ_EVT_PERSIST_DAP_TRACKED_OP_DELETE
 			)){
 		log__printf(NULL, MOSQ_LOG_ERR, "Error: `persistence true` cannot be used with a persistence plugin.");
 		return MOSQ_ERR_INVAL;

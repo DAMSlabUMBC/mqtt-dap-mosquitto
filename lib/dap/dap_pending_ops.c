@@ -98,6 +98,63 @@ static struct dap_pub_entry *dap__find_publisher(struct dap_pending_ops *map, co
     return entry;
 }
 
+/* Add an op with the given id to the head of pub_id's list. */
+static int dap__add_operation(struct dap_pending_ops *map,
+                              uint64_t op_id,
+                              const char *pub_id,
+                              enum dap_op_type type,
+                              time_t timestamp,
+                              const char *topic_filters,
+                              const char *purpose_filters,
+                              const char *subscriber_filters)
+{
+    struct dap_pending_op *op = mosquitto_calloc(1, sizeof(*op));
+    if(!op) return 1;
+    op->op_id     = op_id;
+    op->timestamp = timestamp;
+    op->type      = type;
+    if(dap__parse_filter_list(topic_filters, &op->topic_filters, &op->num_topic_filters)
+            || dap__parse_filter_list(purpose_filters, &op->purpose_filters, &op->num_purpose_filters)
+            || dap__parse_filter_list(subscriber_filters, &op->subscriber_filters, &op->num_subscriber_filters)){
+        dap__free_op(op);
+        return 1;
+    }
+
+    /* Find or create the publisher's entry. */
+    struct dap_pub_entry *entry = dap__find_publisher(map, pub_id);
+    if(!entry){
+        entry = mosquitto_calloc(1, sizeof(*entry));
+        if(!entry){
+            dap__free_op(op);
+            return 1;
+        }
+        entry->pub_id = mosquitto_strdup(pub_id);
+        if(!entry->pub_id){
+            mosquitto_FREE(entry);
+            dap__free_op(op);
+            return 1;
+        }
+        entry->ops = NULL;
+        HASH_ADD_KEYPTR(hh, map->publishers, entry->pub_id, strlen(entry->pub_id), entry);
+    }
+
+    /* Link at the head of the publisher's op list. */
+    op->next = entry->ops;
+    entry->ops = op;
+    return 0;
+}
+
+static bool dap__op_id_present(struct dap_pending_ops *map, uint64_t op_id)
+{
+    struct dap_pub_entry *entry, *tmp;
+    HASH_ITER(hh, map->publishers, entry, tmp){
+        for(struct dap_pending_op *op = entry->ops; op; op = op->next){
+            if(op->op_id == op_id) return true;
+        }
+    }
+    return false;
+}
+
 int dap_pending_ops_insert_operation(struct dap_pending_ops *map,
                                      const char *pub_id,
                                      enum dap_op_type type,
@@ -109,39 +166,43 @@ int dap_pending_ops_insert_operation(struct dap_pending_ops *map,
 {
     if(!map || !pub_id) return 1;
 
-    /* Find or create the publisher's entry. */
-    struct dap_pub_entry *entry = dap__find_publisher(map, pub_id);
-    if(!entry){
-        entry = mosquitto_calloc(1, sizeof(*entry));
-        if(!entry) return 1;
-        entry->pub_id = mosquitto_strdup(pub_id);
-        if(!entry->pub_id){
-            mosquitto_FREE(entry);
-            return 1;
-        }
-        entry->ops = NULL;
-        HASH_ADD_KEYPTR(hh, map->publishers, entry->pub_id, strlen(entry->pub_id), entry);
-    }
-
-    /* Build the new operation, parsing each comma-separated filter into a list. */
-    struct dap_pending_op *op = mosquitto_calloc(1, sizeof(*op));
-    if(!op) return 1;
-    op->timestamp = timestamp;
-    op->type      = type;
-    if(dap__parse_filter_list(topic_filters, &op->topic_filters, &op->num_topic_filters)
-            || dap__parse_filter_list(purpose_filters, &op->purpose_filters, &op->num_purpose_filters)
-            || dap__parse_filter_list(subscriber_filters, &op->subscriber_filters, &op->num_subscriber_filters)){
-        dap__free_op(op);
+    uint64_t op_id = map->next_op_id;
+    if(dap__add_operation(map, op_id, pub_id, type, timestamp,
+                          topic_filters, purpose_filters, subscriber_filters)){
         return 1;
     }
-    op->op_id = map->next_op_id++;
+    map->next_op_id++;
 
-    /* Link at the head of the publisher's op list. */
-    op->next = entry->ops;
-    entry->ops = op;
-
-    if(op_id_out) *op_id_out = op->op_id;
+    if(op_id_out) *op_id_out = op_id;
     return 0;
+}
+
+int dap_pending_ops_restore_operation(struct dap_pending_ops *map,
+                                      uint64_t op_id,
+                                      const char *pub_id,
+                                      enum dap_op_type type,
+                                      time_t timestamp,
+                                      const char *topic_filters,
+                                      const char *purpose_filters,
+                                      const char *subscriber_filters)
+{
+    if(!map || !pub_id || op_id == 0) return 1;
+    if(dap__op_id_present(map, op_id)) return 1;
+
+    if(dap__add_operation(map, op_id, pub_id, type, timestamp,
+                          topic_filters, purpose_filters, subscriber_filters)){
+        return 1;
+    }
+    dap_pending_ops_reserve_op_id(map, op_id);
+    return 0;
+}
+
+void dap_pending_ops_reserve_op_id(struct dap_pending_ops *map, uint64_t op_id)
+{
+    if(!map) return;
+    if(op_id >= map->next_op_id){
+        map->next_op_id = op_id + 1;
+    }
 }
 
 uint64_t dap_pending_ops_allocate_op_id(struct dap_pending_ops *map)

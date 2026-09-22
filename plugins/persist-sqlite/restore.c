@@ -542,6 +542,9 @@ int persist_sqlite__restore_cb(int event, void *event_data, void *userdata)
 	if(will_restore(ms)){
 		return MOSQ_ERR_UNKNOWN;
 	}
+	if(persist_sqlite__dap_restore(ms)){
+		return MOSQ_ERR_UNKNOWN;
+	}
 
 	return 0;
 }

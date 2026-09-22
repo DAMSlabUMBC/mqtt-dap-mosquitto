@@ -33,6 +33,7 @@ Contributors:
 #include "dap/dap_op_request.h"
 #include "dap/dap_deadline_tracker.h"
 #include "dap/dap_op_requester.h"
+#include "dap/dap_persist.h"
 #include "dap/dap_timestamp.h"
 #include "dap/dap_topics.h"
 #include "dap/dap_metrics.h"
@@ -115,11 +116,13 @@ static void handle_dap_status_notification(struct mosquitto *context, struct mos
 			context->id) != 0){
 		return; /* untracked op or unexpected subscriber: relayed above, nothing to settle */
 	}
+	dap_persist__tracked_op_response(dap_op_properties->op_id_num, context->id);
 	if(dap_deadline_tracker_all_responded(db.dap_deadline_tracker, dap_op_properties->op_id_num)){
 		if(requester){
 			broker_send_deadline_success(dap_op_properties->op_id_num, requester);
 		}
 		dap_deadline_tracker_remove(db.dap_deadline_tracker, dap_op_properties->op_id_num);
+		dap_persist__tracked_op_delete(dap_op_properties->op_id_num);
 	}
 }
 
@@ -297,6 +300,10 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 				if(is_pending_op)
 				{
 					dap_op_properties->op_id_num = pending_op_id;
+					dap_persist__op_add(pending_op_id, context->id,
+							strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_DELETE) ? DAP_OP_RESTRICT : DAP_OP_DELETE,
+							stored->dap_recv_time, dap_op_properties->op_topic_filters,
+							dap_op_properties->op_purpose_filters, dap_op_properties->op_client_filters);
 
 					/* Deadline workflow. Relevant subscribers are those that received
 						* data from this publisher matching the operation's topic/purpose/

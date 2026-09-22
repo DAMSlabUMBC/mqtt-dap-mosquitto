@@ -121,7 +121,8 @@ OBJS=	mosquitto.o \
 		websockets.o \
 		will_delay.o \
 		xtreport.o \
-		dap/rights_broker.o
+		dap/rights_broker.o \
+		dap/dap_persist.o
 
 OBJS_EXTERNAL= \
 		acl_check.o \
