@@ -36,7 +36,7 @@ TESTS=(
 	"purpose_filter_copy_test|purpose_filters.c $MEM|-include string.h"
 	"purpose_filter_match_test|purpose_filters.c $MEM|-include string.h"
 	"purpose_version_test|mp_registry.c $MEM|"
-	"dr_relevance_test|dr_registry.c $MEM|"
+	"dr_relevance_test|dr_registry.c purpose_filters.c $TOPIC $MEM|"
 )
 
 pass=0

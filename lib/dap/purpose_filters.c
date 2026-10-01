@@ -212,12 +212,32 @@ void purpose_set_free(char **purposes, uint32_t count)
     mosquitto_FREE(purposes);
 }
 
+char *purpose_set_join(char *const *set, uint32_t n)
+{
+    size_t len = 1;
+    char *joined;
+    char *q;
+
+    for(uint32_t i = 0; i < n; i++){
+        len += strlen(set[i]) + 1;
+    }
+    joined = mosquitto_malloc(len);
+    if(!joined) return NULL;
+    q = joined;
+    for(uint32_t i = 0; i < n; i++){
+        size_t l = strlen(set[i]);
+        if(i > 0) *q++ = '|';
+        memcpy(q, set[i], l);
+        q += l;
+    }
+    *q = '\0';
+    return joined;
+}
+
 int purpose_filter_canonical(const char *filters, char **canonical)
 {
     char **set;
     uint32_t count;
-    size_t len = 1;
-    char *q;
     int rc;
 
     *canonical = NULL;
@@ -229,23 +249,10 @@ int purpose_filter_canonical(const char *filters, char **canonical)
             *canonical = mosquitto_strdup("*");
             return *canonical ? MOSQ_ERR_SUCCESS : MOSQ_ERR_NOMEM;
         }
-        len += strlen(set[i]) + 1;
     }
-    *canonical = mosquitto_malloc(len);
-    if(!*canonical){
-        purpose_set_free(set, count);
-        return MOSQ_ERR_NOMEM;
-    }
-    q = *canonical;
-    for(uint32_t i = 0; i < count; i++){
-        size_t n = strlen(set[i]);
-        if(i > 0) *q++ = '|';
-        memcpy(q, set[i], n);
-        q += n;
-    }
-    *q = '\0';
+    *canonical = purpose_set_join(set, count);
     purpose_set_free(set, count);
-    return MOSQ_ERR_SUCCESS;
+    return *canonical ? MOSQ_ERR_SUCCESS : MOSQ_ERR_NOMEM;
 }
 
 char **parse_purpose_filter(const char *filter, uint32_t *num_results)
@@ -318,6 +325,17 @@ static bool pf__subset(const char *canonical, char *const *sorted, uint32_t n, b
         }
     }
     return true;
+}
+
+bool purpose_set_is(const char *joined, char *const *set, uint32_t n)
+{
+    struct pf_cursor c = {joined, NULL, 0};
+
+    if(!joined) return n == 0;
+    for(uint32_t i = 0; i < n; i++){
+        if(!pf__next(&c) || pf__tokcmp(&c, set[i]) != 0) return false;
+    }
+    return !pf__next(&c);
 }
 
 bool purpose_mp_permits(const char *mp, char *const *sp, uint32_t sp_count)

@@ -7,8 +7,9 @@
  *
  *   cc -I../../.. -I../../../lib -I../../../lib/dap -I../../../include -I../../../libcommon \
  *      -I../../../src -I../../../common -I../../../deps -I/opt/homebrew/include \
- *      dr_relevance_test.c ../../../lib/dap/dr_registry.c \
- *      ../../../libcommon/memory_common.c -o dr_relevance_test && ./dr_relevance_test
+ *      dr_relevance_test.c ../../../lib/dap/dr_registry.c ../../../lib/dap/purpose_filters.c \
+ *      ../../../libcommon/topic_common.c ../../../libcommon/memory_common.c \
+ *      -o dr_relevance_test && ./dr_relevance_test
 
  */
 
@@ -18,6 +19,17 @@
 #include <stdbool.h>
 
 #include "dr_registry.h"
+#include "purpose_filters.h"
+
+/* Record a delivery to a subscription whose SP is the collection sp_filters. */
+static void flow(const char *pub, const char *topic, const char *sub, const char *sp_filters, time_t t)
+{
+    char **sp = NULL;
+    uint32_t n = 0;
+    assert(purpose_set_expand(sp_filters, &sp, &n) == 0);
+    assert(dr__record_flow(pub, topic, sub, sp, n, t) == 0);
+    purpose_set_free(sp, n);
+}
 
 /* Wrap the filter args into the dap__op_property the API now takes. */
 static struct dr_sublist *relevant(const char *pub_id, const char *topic_filters,
@@ -53,12 +65,12 @@ static bool sublist_has(struct dr_sublist *l, const char *sub_id)
  * time (DAP-Timestamp) for the flow, used by the OpBefore/OpAfter bounds test. */
 static void seed(void)
 {
-    dr__record_recipient_with_sp("pubA", "sensors/temp", "subX", "billing", 1000);
-    dr__record_recipient_with_sp("pubA", "sensors/humidity", "subY", "research", 2000);
-    dr__record_recipient_with_sp("pubA", "sensors/temp", "subZ", "ads,research", 3000);
-    dr__record_recipient_with_sp("pubA", "events/x", "subX", "billing", 4000); /* subX again, dedupe */
-    dr__record_recipient_with_sp("pubA", "telemetry", "subW", NULL, 5000);     /* no SP recorded */
-    dr__record_recipient_with_sp("pubB", "sensors/temp", "subX", "billing", 6000); /* other publisher */
+    flow("pubA", "sensors/temp", "subX", "billing", 1000);
+    flow("pubA", "sensors/humidity", "subY", "research", 2000);
+    flow("pubA", "sensors/temp", "subZ", "ads|research", 3000);
+    flow("pubA", "events/x", "subX", "billing", 4000); /* subX again, dedupe */
+    flow("pubA", "telemetry", "subW", NULL, 5000);     /* no SP recorded */
+    flow("pubB", "sensors/temp", "subX", "billing", 6000); /* other publisher */
 }
 
 static void test_all_recipients_when_no_filters(void)
@@ -117,6 +129,15 @@ static void test_topic_filters(void)
     r = relevant("pubA", "sensors/pressure", "*", "*", 0, 0);
     assert(r == NULL);
 
+    /* Topic filters are MQTT topic filters. */
+    r = relevant("pubA", "sensors/#", "*", "*", 0, 0);
+    assert(sublist_count(r) == 3);
+    assert(sublist_has(r, "subX") && sublist_has(r, "subY") && sublist_has(r, "subZ"));
+    dr__free_sublist(r);
+    r = relevant("pubA", "+/x", "*", "*", 0, 0);
+    assert(sublist_count(r) == 1 && sublist_has(r, "subX"));
+    dr__free_sublist(r);
+
     dr_registry_cleanup();
     printf("ok - topic filters select by receipt topic, any element may match\n");
 }
@@ -143,6 +164,12 @@ static void test_purpose_filters(void)
     /* No SP described by these filters. */
     r = relevant("pubA", "*", "nonexistent", "*", 0, 0);
     assert(r == NULL);
+
+    /* DAP-OpPFs is a collection of purpose filters ('|' or ',', braces expanded). */
+    r = relevant("pubA", "*", "{billing,ads}", "*", 0, 0);
+    assert(sublist_count(r) == 2);
+    assert(sublist_has(r, "subX") && sublist_has(r, "subZ"));
+    dr__free_sublist(r);
 
     dr_registry_cleanup();
     printf("ok - purpose filters match against the SP recorded at receipt time\n");
@@ -210,6 +237,49 @@ static void test_time_bounds(void)
     printf("ok - OpBefore/OpAfter bound recipients by receipt time (0 = unbounded)\n");
 }
 
+/* Paper 6.1: relevance uses the SP in force at delivery, so a subscriber stays
+ * relevant for data it received under an SP it has since replaced. */
+static void test_delivery_time_sp(void)
+{
+    dr_registry_init();
+    flow("pubA", "t/a", "subV", "maintenance", 1000);
+    flow("pubA", "t/a", "subV", "maintenance", 1500);
+    flow("pubA", "t/a", "subV", "quality", 2000); /* the SP changed */
+
+    struct dr_sublist *r = relevant("pubA", "*", "maintenance", "*", 0, 0);
+    assert(sublist_count(r) == 1 && sublist_has(r, "subV"));
+    dr__free_sublist(r);
+    r = relevant("pubA", "*", "quality", "*", 0, 0);
+    assert(sublist_count(r) == 1 && sublist_has(r, "subV"));
+    dr__free_sublist(r);
+
+    /* Each (publisher, topic, subscriber, SP) is one flow, spanning its first and
+     * last receipt. */
+    int flows = 0;
+    for(struct dr_entry *e = dr_head; e; e = e->next){
+        for(struct dr_sublist *s = e->sub_list; s; s = s->next){
+            flows++;
+            if(!strcmp(s->sp, "maintenance")){
+                assert(s->first_time == 1000 && s->last_time == 1500);
+            }else{
+                assert(!strcmp(s->sp, "quality"));
+                assert(s->first_time == 2000 && s->last_time == 2000);
+            }
+        }
+    }
+    assert(flows == 2);
+
+    /* The maintenance flow ran from 1000 to 1500, so a window inside it overlaps. */
+    r = relevant("pubA", "*", "maintenance", "*", 1300, 1200);
+    assert(sublist_count(r) == 1);
+    dr__free_sublist(r);
+    r = relevant("pubA", "*", "maintenance", "*", 0, 1600);
+    assert(r == NULL);
+
+    dr_registry_cleanup();
+    printf("ok - a flow keeps the SP in force at delivery\n");
+}
+
 int main(void)
 {
     test_all_recipients_when_no_filters();
@@ -219,6 +289,7 @@ int main(void)
     test_client_filters();
     test_all_four_conditions_combined();
     test_time_bounds();
+    test_delivery_time_sp();
     printf("\nAll dr relevance tests passed.\n");
     return 0;
 }

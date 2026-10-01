@@ -27,6 +27,12 @@ void purpose_set_free(char **purposes, uint32_t count);
 /* Sort a purpose set and free its duplicates. */
 void purpose_set_normalize(char **set, uint32_t *count);
 
+/* A sorted set as one '|'-joined string ("" when empty). NULL on allocation failure. */
+char *purpose_set_join(char *const *set, uint32_t n);
+
+/* True when joined is the '|'-joined form of the sorted set. */
+bool purpose_set_is(const char *joined, char *const *set, uint32_t n);
+
 /* The canonical form of a collection, with purpose_set_expand's return codes. */
 int purpose_filter_canonical(const char *filters, char **canonical);
 

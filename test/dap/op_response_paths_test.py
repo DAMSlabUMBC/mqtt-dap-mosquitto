@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Operation Failure/Success responses must not crash or leak the broker.
 
-Covers an unknown DAP-OpType, a DELETE with no relevant subscribers, and HISTORY
-with offline and online subscribers. Each case runs against a fresh broker,
+Covers an unknown DAP-OpType, a DELETE with no relevant subscribers, HISTORY
+with offline and online subscribers, and how relevance is decided. Each case runs against a fresh broker,
 which must exit cleanly (under make WITH_ASAN=yes a leak fails that check).
 
 Usage: python3 test/dap/op_response_paths_test.py [port]
@@ -189,6 +189,27 @@ def case_history_success(pub):
     return wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Success"}))
 
 
+def case_relevance_uses_delivery_time_sp(pub):
+    # subA receives data under one purpose, then changes its SP to another.
+    pub.publish("$MP_REG", [("DAP-MP", f"{MP}|operations/forecast:{TOPIC}")], qos=0)
+    time.sleep(0.2)
+    sub = subscribers_with_data(pub, ["subA"])[0]
+    sub.subscribe(TOPIC, "operations/forecast")
+    time.sleep(0.2)
+    pub.publish(OSYS, [("DAP-OpType", "DELETE"), ("DAP-OpTFs", TOPIC), ("DAP-OpPFs", MP)])
+    old_purpose = wait_for(lambda: sub.got(f"{OP_REQ}/subA"))
+    pub.publish(OSYS, [("DAP-OpType", "DELETE"), ("DAP-OpTFs", TOPIC), ("DAP-OpPFs", "operations/forecast")])
+    unused_purpose = wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Failure",
+                                                          "DAP-Reason": "No relevant subscribers found"}))
+    return old_purpose and unused_purpose
+
+
+def case_relevance_topic_wildcard(pub):
+    sub = subscribers_with_data(pub, ["subA"])[0]
+    pub.publish(OSYS, [("DAP-OpType", "DELETE"), ("DAP-OpTFs", TOPIC.split("/")[0] + "/#")])
+    return wait_for(lambda: sub.got(f"{OP_REQ}/subA"))
+
+
 def case_failure_to_response_topic(_):
     pub = requester(response_topic="op_resp/pub1")
     pub.publish(OSYS, [("DAP-OpType", "BOGUS")], response_topic="op_resp/pub1")
@@ -213,6 +234,8 @@ CASES = [
     ("HISTORY with an offline subscriber gets a Failure", case_history_subscriber_offline, True),
     ("HISTORY with many offline subscribers lists every one", case_history_many_offline, True),
     ("HISTORY with all subscribers online gets a Success", case_history_success, True),
+    ("relevance uses the SP in force at delivery", case_relevance_uses_delivery_time_sp, True),
+    ("relevance matches DAP-OpTFs as MQTT topic filters", case_relevance_topic_wildcard, True),
     ("Failure goes to the request's ResponseTopic", case_failure_to_response_topic, False),
     ("PUBLISH to $CONTROL frees the request", case_control_publish, False),
 ]

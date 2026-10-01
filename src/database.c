@@ -1701,8 +1701,12 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 			if(db.config->metadata_operation_handling){
 				bool is_op_system = base_msg->data.has_purpose_filter
 					&& !strcmp(base_msg->data.purpose_filter, MOSQ_DAP_OP_PURPOSE);
-				if(!is_op_system){
-					dr__record_recipient(base_msg->data.source_id, topic, client_id, base_msg->dap_recv_time);
+				if(!is_op_system && base_msg->data.source_id){
+					/* Paper 6.1: the flow keeps the SP in force at delivery. A message
+					 * restored without its subscription records an empty SP. */
+					dr__record_flow(base_msg->data.source_id, topic, client_id,
+							leaf ? leaf->purpose_filters : NULL, leaf ? leaf->purpose_filter_count : 0,
+							base_msg->dap_recv_time);
 				}
 			}
 			if(has_stamp){

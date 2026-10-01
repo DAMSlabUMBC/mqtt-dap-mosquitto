@@ -3,20 +3,28 @@
 #define DR_REGISTRY_H
 
 #include <time.h>
-#include "property_common.h"
 
+#include "config.h"
+#include "property_common.h"
+#include "uthash.h"
+
+/* A flow: deliveries from one publisher on one topic to one subscriber under one SP. */
 struct dr_sublist {
     char *sub_id;
-    char *sp;   /* subscriber's SP (DAP-SP) recorded at receipt time, or NULL */
-    time_t recv_time; /* message receipt time for this flow (stored->dap_recv_time); 0 if unknown */
+    char *sp;          /* the subscription's SP at delivery, as a '|'-joined sorted purpose set */
+    time_t first_time; /* receipt time of the first and the last message delivered on the flow */
+    time_t last_time;
     struct dr_sublist *next;
 };
 
+/* The flows of one (publisher, topic) pair. */
 struct dr_entry {
     char *pub_id;
     char *topic;
+    char *key;         /* pub_id, a NUL, then topic: the hash key */
     struct dr_sublist *sub_list;
     struct dr_entry *next;
+    UT_hash_handle hh;
 };
 
 struct dr_retained_entry {
@@ -31,40 +39,31 @@ extern struct dr_retained_entry *dr_retained_head;
 void dr_registry_init(void);
 void dr_registry_cleanup(void);
 
-/* Add a subscriber to pub_id and topic, recording the message receipt time
- * (stored->dap_recv_time; 0 if unknown). */
-void dr__record_recipient(const char *pub_id, const char *topic, const char *sub_id, time_t recv_time);
-
-/* As dr__record_recipient, but also stores the subscriber's SP (DAP-SP) at receipt
- * time. A NULL sp leaves any SP already recorded for this flow untouched. */
-void dr__record_recipient_with_sp(const char *pub_id, const char *topic, const char *sub_id, const char *sp, time_t recv_time);
+/* Record a delivery from pub_id on topic to sub_id, whose subscription has the sorted
+ * purpose set sp, of a message received at recv_time (paper 6.1). Returns 0, or
+ * MOSQ_ERR_NOMEM. */
+int dr__record_flow(const char *pub_id, const char *topic, const char *sub_id,
+                    char *const *sp, uint32_t sp_count, time_t recv_time);
 
 void dr__record_retained_publisher(const char *pub_id, const char *topic);
 
-
 /* Freed after use. */
-struct dr_sublist *dr__get_recipients(const char *pub_id, const char *topic);
 void dr__free_sublist(struct dr_sublist *list);
 
 /*
- * Returns the subscribers relevant to an operation invoked by pub_id: those that
- * previously received data from pub_id where, in addition,
- *  - the receipt topic matches a topic filter (op_topic_filters),
- *  - the SP at receipt time shares a purpose with the purpose filters
- *    (op_purpose_filters),
- *  - the subscriber id is in the client filters (op_client_filters), and
- *  - the receipt time falls within the [after, before] bounds (DAP-OpAfter /
- *    DAP-OpBefore): recv_time >= after when after != 0, and recv_time <= before
+ * Returns the subscribers relevant to an operation invoked by pub_id (paper 6.1):
+ * those with a flow from pub_id where, in addition,
+ *  - the topic matches an MQTT topic filter in op_topic_filters,
+ *  - the SP recorded at delivery shares a purpose with op_purpose_filters,
+ *  - the subscriber id is in op_client_filters, and
+ *  - the flow's receipt times overlap the [after, before] bounds (DAP-OpAfter /
+ *    DAP-OpBefore): last_time >= after when after != 0, and first_time <= before
  *    when before != 0. A bound of 0 means "unbounded" on that side.
- * Each filter argument is a comma-separated list; NULL, "" or a list containing
- * "*" means "not provided / any", which skips that condition. List matching is
- * "any element matches", mirroring dap_pending_ops.
+ * Topic and client filters are comma-separated lists, and purpose filters a purpose
+ * filter collection; NULL, "" or a list containing "*" skips that condition.
  *
  * Each relevant subscriber appears once; the caller frees the list with
  * dr__free_sublist.
- *
- * Limitation: topic and purpose elements are compared exactly (or via "*"). MQTT
- * topic wildcards (+/#) and hierarchical purpose subsumption are not yet honoured.
  */
 struct dr_sublist *dr__find_relevant_subscribers(const char *pub_id, struct dap__op_property *dap_op_properties);
 

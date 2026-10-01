@@ -108,6 +108,19 @@ static void test_collections(void)
     expect_canonical("quality/assurance|maintenance/{predictive,routine}",
                      "maintenance/predictive|maintenance/routine|quality/assurance");
     expect_canonical("quality/assurance|*", "*");
+
+    char **set = NULL;
+    uint32_t n = 0;
+    assert(purpose_set_expand("b|a", &set, &n) == 0);
+    char *joined = purpose_set_join(set, n);
+    assert(!strcmp(joined, "a|b"));
+    assert(purpose_set_is(joined, set, n));
+    assert(!purpose_set_is("a", set, n));
+    assert(!purpose_set_is("a|b|c", set, n));
+    assert(!purpose_set_is("a|bb", set, n));
+    assert(purpose_set_is("", set, 0) && purpose_set_is(NULL, NULL, 0) && !purpose_set_is("a", NULL, 0));
+    mosquitto_free(joined);
+    purpose_set_free(set, n);
     printf("ok - collections expand, sort and deduplicate\n");
 }
 
