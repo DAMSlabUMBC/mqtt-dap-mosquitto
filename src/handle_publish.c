@@ -111,21 +111,22 @@ static void handle_dap_status_notification(struct mosquitto *context, struct mos
 		broker_forward_status_to_requester(requester, dap_op_properties, responder, stored->data.payload, stored->data.payloadlen);
 	}
 
-	/* Pending is relayed only; Success/Failure is a terminal response. */
-	if(!dap_op_properties->found_op_id_num) return;
-	if(strcmp(dap_op_properties->op_status, "Success") && strcmp(dap_op_properties->op_status, "Failure")) return;
-	if(!db.dap_deadline_tracker) return;
-
-	if(dap_deadline_tracker_mark_subscriber_responded(db.dap_deadline_tracker, dap_op_properties->op_id_num,
-			context->id) != 0){
+	/* Every status is kept for status requests; Success/Failure is a terminal response. */
+	if(!dap_op_properties->found_op_id_num || !db.dap_deadline_tracker) return;
+	if(dap_deadline_tracker_record_status(db.dap_deadline_tracker, dap_op_properties->op_id_num,
+			context->id, dap_op_properties->op_status, dap_op_properties->op_reason) != 0){
 		return; /* untracked op or unexpected subscriber: relayed above, nothing to settle */
 	}
+	if(strcmp(dap_op_properties->op_status, "Success") && strcmp(dap_op_properties->op_status, "Failure")) return;
+
 	dap_persist__tracked_op_response(dap_op_properties->op_id_num, context->id);
-	if(dap_deadline_tracker_all_responded(db.dap_deadline_tracker, dap_op_properties->op_id_num)){
+	const struct dap_tracked_op *op = dap_deadline_tracker_lookup(db.dap_deadline_tracker, dap_op_properties->op_id_num);
+	if(!op->settled && dap_deadline_tracker_all_responded(db.dap_deadline_tracker, dap_op_properties->op_id_num)){
 		if(requester){
 			broker_send_deadline_success(dap_op_properties->op_id_num, requester);
 		}
-		dap_deadline_tracker_remove(db.dap_deadline_tracker, dap_op_properties->op_id_num);
+		/* Kept until its deadline so its status can still be requested. */
+		dap_deadline_tracker_settle(db.dap_deadline_tracker, dap_op_properties->op_id_num);
 		dap_persist__tracked_op_delete(dap_op_properties->op_id_num);
 	}
 }
@@ -395,6 +396,12 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 				broker_dispatch_pending_operation(context->id,
 						relevant, &stored->data, dap_op_properties, deadline);
 				dr__free_sublist(relevant);
+			}
+
+			/* Paper 6.3: the requester asks for an operation's status. */
+			else if(!strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_STATUS))
+			{
+				broker_send_operation_status(context->id, dap_op_properties);
 			}
 
 			else

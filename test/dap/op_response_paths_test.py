@@ -8,6 +8,7 @@ which must exit cleanly (under make WITH_ASAN=yes a leak fails that check).
 
 Usage: python3 test/dap/op_response_paths_test.py [port]
 """
+import json
 import os
 import subprocess
 import sys
@@ -297,6 +298,50 @@ def case_client_defined_operation_needs_a_name(pub):
     return wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Failure", "DAP-Reason": "Unknown Operation"}))
 
 
+def case_status_request(pub):
+    # The requester can ask for every relevant subscriber's status at any time (paper 6.3).
+    subs = {s.id: s for s in subscribers_with_data(pub, ["subA", "subB", "subC"])}
+    pub.publish(OSYS, [("DAP-OpType", "DELETE"), ("DAP-OpTFs", TOPIC)])
+    if not wait_for(lambda: all(s.got(f"{OP_REQ}/{i}") for i, s in subs.items())):
+        return False
+    op_id = subs["subA"].got(f"{OP_REQ}/subA")[0][2].get("DAP-OpId")
+    subs["subA"].publish(OSYS, [("DAP-Status", "Success"), ("DAP-OpId", op_id)])
+    subs["subB"].publish(OSYS, [("DAP-Status", "Failure"), ("DAP-OpId", op_id), ("DAP-Reason", "retention obligation")])
+    subs["subC"].publish(OSYS, [("DAP-Status", "Pending"), ("DAP-OpId", op_id)])
+    time.sleep(0.3)
+
+    def status():
+        before = len(pub.got(OP_NOTIF, **{"DAP-OpType": "STATUS"}))
+        pub.publish(OSYS, [("DAP-OpType", "STATUS"), ("DAP-OpId", op_id)])
+        if not wait_for(lambda: len(pub.got(OP_NOTIF, **{"DAP-OpType": "STATUS"})) > before):
+            return None
+        reply = pub.got(OP_NOTIF, **{"DAP-OpType": "STATUS"})[-1]
+        if reply[2].get("DAP-Status") != "Success" or reply[2].get("DAP-OpId") != op_id:
+            return None
+        return {s["id"]: s for s in json.loads(reply[1])["subscribers"]}
+
+    summary = status()
+    if not summary or summary["subA"]["status"] != "Success" or summary["subB"] != {
+            "id": "subB", "status": "Failure", "reason": "retention obligation"}:
+        return False
+    if summary["subC"]["status"] != "Pending" or not 0 < summary["subC"]["remaining"] <= 30:
+        return False
+
+    # Only the requester may ask.
+    subs["subA"].subscribe(f"{OP_NOTIF}/subA", OP_PURPOSE)
+    time.sleep(0.2)
+    subs["subA"].publish(OSYS, [("DAP-OpType", "STATUS"), ("DAP-OpId", op_id)])
+    if not wait_for(lambda: subs["subA"].got(OP_NOTIF, **{"DAP-Status": "Failure", "DAP-Reason": "Unknown operation"})):
+        return False
+
+    # A settled operation can still be asked about until its deadline.
+    subs["subC"].publish(OSYS, [("DAP-Status", "Success"), ("DAP-OpId", op_id)])
+    if not wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Reason": "All subscribers responded"})):
+        return False
+    summary = status()
+    return bool(summary) and summary["subC"]["status"] == "Success"
+
+
 def case_deadline_in_the_past(pub):
     subscribers_with_data(pub, ["subA"])
     pub.publish(OSYS, [("DAP-OpType", "DELETE"), ("DAP-OpTFs", TOPIC), ("DAP-Deadline", str(int(time.time()) - 5))])
@@ -341,6 +386,7 @@ CASES = [
     ("HISTORY with many offline subscribers lists every one at the requested deadline", case_history_many_offline, True),
     ("a deadline that has already passed gets a Failure", case_deadline_in_the_past, True),
     ("an O: operation runs the subscriber workflow", case_client_defined_operation, True),
+    ("the requester can ask for an operation's status", case_status_request, True),
     ("an O: operation without a name is unknown", case_client_defined_operation_needs_a_name, True),
     ("HISTORY gets a Success once its subscriber responds", case_history_success, True),
     ("AUDIT returns the relevant subscriber ids", case_audit_lists_subscribers, True),

@@ -32,6 +32,8 @@ static void dap__free_expected(struct dap_tracked_op *op)
     DL_FOREACH_SAFE(op->expected, sub, tmp){
         DL_DELETE(op->expected, sub);
         mosquitto_FREE(sub->sub_id);
+        mosquitto_FREE(sub->status);
+        mosquitto_FREE(sub->reason);
         mosquitto_FREE(sub);
     }
 }
@@ -105,6 +107,54 @@ int dap_deadline_tracker_mark_subscriber_responded(struct dap_deadline_tracker *
     return 1; /* subscriber was not in the expected set */
 }
 
+int dap_deadline_tracker_record_status(struct dap_deadline_tracker *t,
+                                       uint64_t op_id,
+                                       const char *subscriber_id,
+                                       const char *status,
+                                       const char *reason)
+{
+    if(!t || !subscriber_id || !status) return 1;
+    struct dap_tracked_op *op = dap__find_op(t, op_id);
+    if(!op) return 1;
+
+    struct dap_expected_sub *sub;
+    DL_FOREACH(op->expected, sub){
+        if(!strcmp(sub->sub_id, subscriber_id)){
+            char *status_copy = mosquitto_strdup(status);
+            char *reason_copy = reason ? mosquitto_strdup(reason) : NULL;
+            if(!status_copy || (reason && !reason_copy)){
+                mosquitto_FREE(status_copy);
+                mosquitto_FREE(reason_copy);
+                return 1;
+            }
+            mosquitto_FREE(sub->status);
+            mosquitto_FREE(sub->reason);
+            sub->status = status_copy;
+            sub->reason = reason_copy;
+            if(!strcmp(status, "Success") || !strcmp(status, "Failure")){
+                sub->responded = true;
+            }
+            return 0;
+        }
+    }
+    return 1;
+}
+
+const struct dap_tracked_op *dap_deadline_tracker_lookup(struct dap_deadline_tracker *t, uint64_t op_id)
+{
+    if(!t) return NULL;
+    return dap__find_op(t, op_id);
+}
+
+int dap_deadline_tracker_settle(struct dap_deadline_tracker *t, uint64_t op_id)
+{
+    if(!t) return 1;
+    struct dap_tracked_op *op = dap__find_op(t, op_id);
+    if(!op) return 1;
+    op->settled = true;
+    return 0;
+}
+
 bool dap_deadline_tracker_is_tracked(struct dap_deadline_tracker *t, uint64_t op_id)
 {
     if(!t) return false;
@@ -140,6 +190,7 @@ static struct dap_expired_op *dap__build_expired(struct dap_tracked_op *op)
     struct dap_expired_op *e = mosquitto_calloc(1, sizeof(*e));
     if(!e) return NULL;
     e->op_id = op->op_id;
+    e->settled = op->settled;
     e->publisher_id = mosquitto_strdup(op->publisher_id);
     if(!e->publisher_id){
         mosquitto_FREE(e);

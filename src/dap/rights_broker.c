@@ -1,6 +1,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <cjson/cJSON.h>
 #include "rights_broker.h"
 #include "mosquitto_broker_internal.h" 
 #include "util_mosq.h"
@@ -495,4 +496,69 @@ void broker_forward_status_to_requester(const char *requester_id, struct dap__op
     db__messages_easy_queue_with_purpose(NULL, onp_topic, MOSQ_DAP_OP_PURPOSE, DAP_OP_QOS,
         payloadlen, payload, false, 0, &props);
     mosquitto_property_free_all(&props);
+}
+
+
+void broker_send_operation_status(const char *requester_id, struct dap__op_property *dap_op_properties)
+{
+    const struct dap_tracked_op *op = NULL;
+    char onp_topic[256];
+    const char *response_topic = dap_op_properties->response_topic;
+
+    if(!requester_id) return;
+    if(dap_op_properties->found_op_id_num){
+        op = dap_deadline_tracker_lookup(db.dap_deadline_tracker, dap_op_properties->op_id_num);
+    }
+    /* The same answer for an unknown operation and someone else's. */
+    if(!op || strcmp(op->publisher_id, requester_id)){
+        dap_op_set_reason(dap_op_properties, "Unknown operation");
+        broker_send_response_failure(requester_id, dap_op_properties);
+        return;
+    }
+
+    /* Each subscriber's latest status: the reason of a failure, or the seconds left
+     * before the deadline while it has not responded. */
+    cJSON *root = cJSON_CreateObject();
+    cJSON *subs = root ? cJSON_AddArrayToObject(root, "subscribers") : NULL;
+    for(const struct dap_expected_sub *sub = op->expected; subs && sub; sub = sub->next){
+        cJSON *entry = cJSON_CreateObject();
+        if(!entry) break;
+        cJSON_AddStringToObject(entry, "id", sub->sub_id);
+        if(sub->responded){
+            cJSON_AddStringToObject(entry, "status", sub->status ? sub->status : "Responded");
+            if(sub->reason){
+                cJSON_AddStringToObject(entry, "reason", sub->reason);
+            }
+        }else{
+            cJSON_AddStringToObject(entry, "status", "Pending");
+            cJSON_AddNumberToObject(entry, "remaining", (double)(op->deadline > db.now_real_s ? op->deadline - db.now_real_s : 0));
+        }
+        cJSON_AddItemToArray(subs, entry);
+    }
+    char *payload = root ? cJSON_PrintUnformatted(root) : NULL;
+    cJSON_Delete(root);
+    if(!payload) return;
+
+    if(response_topic == NULL){
+        snprintf(onp_topic, sizeof(onp_topic), "%s/%s", MOSQ_DAP_TOPIC_ONP, requester_id);
+        response_topic = onp_topic;
+    }
+    char opid_buf[32], deadline_buf[32];
+    snprintf(opid_buf, sizeof(opid_buf), "%llu", (unsigned long long)op->op_id);
+    snprintf(deadline_buf, sizeof(deadline_buf), "%lld", (long long)op->deadline);
+
+    mosquitto_property *props = NULL;
+    mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY, MOSQ_DAP_CONSENT_KEY, "1");
+    mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY, MOSQ_DAP_ID_KEY, "Broker");
+    mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY, MOSQ_DAP_OP_KEY, MOSQ_DAP_OP_STATUS);
+    mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY, MOSQ_DAP_OP_ID_KEY, opid_buf);
+    mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY, MOSQ_DAP_STATUS_KEY, "Success");
+    mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY, MOSQ_DAP_DEADLINE_KEY, deadline_buf);
+    if(dap_op_properties->correlation_data){
+        mosquitto_property_add_binary(&props, MQTT_PROP_CORRELATION_DATA, dap_op_properties->correlation_data, dap_op_properties->correlation_data_len);
+    }
+    db__messages_easy_queue_with_purpose(NULL, response_topic, MOSQ_DAP_OP_PURPOSE, DAP_OP_QOS,
+            (uint32_t)strlen(payload), payload, false, 0, &props);
+    mosquitto_property_free_all(&props);
+    cJSON_free(payload);
 }

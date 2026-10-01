@@ -53,6 +53,10 @@ void broker_send_deadline_success(uint64_t op_id, const char *publisher_id);
 void broker_forward_status_to_requester(const char *requester_id, struct dap__op_property *dap_op_properties, const char *responder_id,
     const void *payload, uint32_t payloadlen);
 
+/* Answer a status request (paper 6.3) from requester_id for the operation named by
+ * DAP-OpId with every relevant subscriber's status, as a JSON payload. */
+void broker_send_operation_status(const char *requester_id, struct dap__op_property *dap_op_properties);
+
 /* Deliver the requests held for a subscriber that is now connected and subscribed
  * to its request topic. */
 void broker_deliver_held_requests(struct mosquitto *context);

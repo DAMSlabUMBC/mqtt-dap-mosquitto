@@ -195,13 +195,15 @@ static void dap_deadline__check(void)
 	struct dap_expired_op *expired = dap_deadline_tracker_check_expired(db.dap_deadline_tracker, db.now_real_s);
 	for(struct dap_expired_op *e = expired; e; e = e->next){
 		dap_persist__tracked_op_delete(e->op_id);
-		if(e->num_unresponded > 0){
+		if(e->settled){
+			/* Its final Success went out when the last subscriber responded. */
+		}else if(e->num_unresponded > 0){
 			broker_send_deadline_failure(e->op_id, e->publisher_id, e->unresponded_subs, e->num_unresponded);
 		}else{
 			/* Every relevant subscriber responded before the deadline: Success.
-			 * A fully-responded op is normally settled and removed the moment its last
-			 * response arrives (handle_dap_status_notification), so this is a fallback
-			 * for any tracked op that still reaches its deadline with nothing
+			 * A fully-responded op is normally settled the moment its last response
+			 * arrives (handle_dap_status_notification), so this is a fallback for any
+			 * tracked op that still reaches its deadline unsettled with nothing
 			 * outstanding. */
 			broker_send_deadline_success(e->op_id, e->publisher_id);
 		}

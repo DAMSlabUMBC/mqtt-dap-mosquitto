@@ -21,6 +21,8 @@ extern "C" {
 struct dap_expected_sub {
     char *sub_id;                  /* owned copy */
     bool responded;
+    char *status;                  /* latest DAP-Status received, or NULL; owned */
+    char *reason;                  /* its DAP-Reason, or NULL; owned */
     struct dap_expected_sub *prev; /* utlist DL links */
     struct dap_expected_sub *next;
 };
@@ -36,6 +38,7 @@ struct dap_tracked_op {
     struct dap_expected_sub *expected;/* utlist DL list of expected subscribers */
     size_t expected_count;
     time_t deadline;
+    bool settled;                     /* every subscriber responded; kept until the deadline */
     UT_hash_handle hh;
 };
 
@@ -55,6 +58,7 @@ struct dap_expired_op {
     char *publisher_id;          /* owned copy */
     char **unresponded_subs;     /* owned copies of the offending subscriber ids */
     size_t num_unresponded;
+    bool settled;                /* already settled; nothing more to report */
     struct dap_expired_op *next; /* singly-linked result list */
 };
 
@@ -82,6 +86,27 @@ int dap_deadline_tracker_register_pending_operation(struct dap_deadline_tracker 
 int dap_deadline_tracker_mark_subscriber_responded(struct dap_deadline_tracker *t,
                                                     uint64_t op_id,
                                                     const char *subscriber_id);
+
+/*
+ * Record the latest status (and reason) subscriber_id sent for op_id. Success and
+ * Failure are terminal and count as a response; Pending does not. Returns 0 if the
+ * operation is tracked and the subscriber was expected, non-zero otherwise.
+ */
+int dap_deadline_tracker_record_status(struct dap_deadline_tracker *t,
+                                       uint64_t op_id,
+                                       const char *subscriber_id,
+                                       const char *status,
+                                       const char *reason);
+
+/* The tracked operation op_id, or NULL. */
+const struct dap_tracked_op *dap_deadline_tracker_lookup(struct dap_deadline_tracker *t, uint64_t op_id);
+
+/*
+ * Mark op_id settled once every subscriber has responded. It stays tracked, so its
+ * status can still be requested, and check_expired reports it as settled at its
+ * deadline. Returns 0 if it was tracked, non-zero otherwise.
+ */
+int dap_deadline_tracker_settle(struct dap_deadline_tracker *t, uint64_t op_id);
 
 /* True while op_id is being tracked (between register and expiry). */
 bool dap_deadline_tracker_is_tracked(struct dap_deadline_tracker *t, uint64_t op_id);

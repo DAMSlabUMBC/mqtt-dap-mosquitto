@@ -162,6 +162,7 @@ enum mosq_transport_t {
 #define MOSQ_DAP_OP_RESTRICT "RESTRICT" /* was "Restriction" */
 #define MOSQ_DAP_OP_REGISTER_INFO "REGISTER-INFO"
 #define MOSQ_DAP_OP_PREFIX "O:" /* prefix of client-defined operations */
+#define MOSQ_DAP_OP_STATUS "STATUS" /* a requester's status request for one of its operations */
 
 /* MQTT-DAP Misc */
 #define MOSQ_DAP_OP_PURPOSE "DAP_OP"    /* paper 5.1: operation-processing consent value (was "DAP_op") */
