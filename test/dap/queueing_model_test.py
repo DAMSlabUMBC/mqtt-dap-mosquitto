@@ -486,9 +486,9 @@ def sp_change_case(new_sps, still_allowed):
         check(broker.stop() == 0, "broker exits cleanly")
 
 
-def mp_change_case(new_mp, still_allowed):
+def mp_change_case(new_mp, still_allowed, conf=""):
     """A message waiting while its publisher changes the topic's MP is re-checked against the new MP."""
-    broker = Broker()
+    broker = Broker(conf)
     try:
         sub = Subscriber("subM", receive_maximum=1)
         sub.subscribe("t/m", ["qa"])
@@ -506,7 +506,8 @@ def mp_change_case(new_mp, still_allowed):
         pub.publish("t/m", [], payload=b"m3")
         got = payloads(sub.read_publishes(), "t/m")
         expected = [b"m2", b"m3"] if still_allowed else [b"m3"]
-        check(got == expected, "after the MP becomes %s, delivered %s (expected %s)" % (new_mp, got, expected))
+        check(got == expected, "after the MP becomes %s%s, delivered %s (expected %s)"
+              % (new_mp, " behind a mount point" if conf else "", got, expected))
         sub.close()
     finally:
         stop_clients()
@@ -703,6 +704,7 @@ def main():
     sp_change_case(["qa", "qb"], still_allowed=False)
     mp_change_case("qa|qb", still_allowed=True)
     mp_change_case("qz", still_allowed=False)
+    mp_change_case("qz", still_allowed=False, conf="mount_point m/\n")
     mp_widen_case()
     print("# prioritized intake")
     intake_mp_case()

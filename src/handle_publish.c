@@ -489,10 +489,25 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 	return rc;
 }
 
-/* Parse a '<MP>:<topic>' DAP-MP value into its topic and its MP as a sorted purpose
- * set. A NULL value, one without ':', or an invalid MP is malformed; an MP naming a
- * purpose the broker does not recognize is MOSQ_ERR_ACL_DENIED (paper 4.3). */
-static int parse_mp_property(const char *value, char **topic, char **mp)
+/* A client's topic as the broker routes it, behind its listener's mount point. */
+static char *mounted_topic(const struct mosquitto *context, const char *topic)
+{
+	const char *mount = context->listener ? context->listener->mount_point : NULL;
+	size_t len;
+	char *mounted;
+
+	if(!mount) return mosquitto_strdup(topic);
+	len = strlen(mount) + strlen(topic) + 1;
+	mounted = mosquitto_malloc(len);
+	if(mounted) snprintf(mounted, len, "%s%s", mount, topic);
+	return mounted;
+}
+
+/* Parse a '<MP>:<topic>' DAP-MP value from context into its mounted topic and its MP
+ * as a sorted purpose set. A NULL value, one without ':', or an invalid MP is
+ * malformed; an MP naming a purpose the broker does not recognize is
+ * MOSQ_ERR_ACL_DENIED (paper 4.3). */
+static int parse_mp_property(const struct mosquitto *context, const char *value, char **topic, char **mp)
 {
 	const char *sep = value ? strchr(value, ':') : NULL;
 	char *filter;
@@ -525,7 +540,7 @@ static int parse_mp_property(const char *value, char **topic, char **mp)
 			return rc;
 		}
 	}
-	*topic = mosquitto_strdup(sep + 1);
+	*topic = mounted_topic(context, sep + 1);
 	if(!*topic){
 		mosquitto_FREE(*mp);
 		return MOSQ_ERR_NOMEM;
@@ -535,7 +550,7 @@ static int parse_mp_property(const char *value, char **topic, char **mp)
 
 /* Register every DAP-MP value of a registration message, or none: all are checked
  * before any is registered. */
-static int register_mp_properties(const char *client_id, const mosquitto_property *properties)
+static int register_mp_properties(const struct mosquitto *context, const mosquitto_property *properties)
 {
 	for(int pass = 0; pass < 2; pass++){
 		const mosquitto_property *p = properties;
@@ -546,9 +561,9 @@ static int register_mp_properties(const char *client_id, const mosquitto_propert
 			p = mosquitto_property_read_string_pair(p, MQTT_PROP_USER_PROPERTY, &name, &value, false);
 			if(!p) break;
 			if(name && !strcmp(name, MOSQ_DAP_MP_KEY)){
-				rc = parse_mp_property(value, &topic, &mp);
+				rc = parse_mp_property(context, value, &topic, &mp);
 				if(rc == MOSQ_ERR_SUCCESS && pass == 1){
-					rc = mp__register_topic(client_id, topic, mp);
+					rc = mp__register_topic(context->id, topic, mp);
 				}
 			}
 			mosquitto_FREE(name);
@@ -851,7 +866,7 @@ int handle__publish(struct mosquitto *context, const struct dap_receipt *receipt
 		/* Check if this is a registration message on the registration topic */
 		if(!strcmp(base_msg->data.topic, MOSQ_DAP_MP_REG_TOPIC))
 		{
-			int reg_rc = register_mp_properties(context->id, base_msg->data.properties);
+			int reg_rc = register_mp_properties(context, base_msg->data.properties);
 
 			/* Acknowledge this registration message, but do not forward it */
 			mosquitto_property_free_all(&properties);
@@ -869,7 +884,9 @@ int handle__publish(struct mosquitto *context, const struct dap_receipt *receipt
 		else
 		{
 			/* Normal data publish: the topic must have a registered MP. */
-			struct mp_entry *stored = mp__lookup(context->id, base_msg->data.topic);
+			char *routed = mounted_topic(context, base_msg->data.topic);
+			struct mp_entry *stored = routed ? mp__lookup(context->id, routed) : NULL;
+			mosquitto_FREE(routed);
 			if(stored && stored->purpose_filter)
 			{
 				base_msg->data.purpose_filter = mosquitto_strdup(stored->purpose_filter);
