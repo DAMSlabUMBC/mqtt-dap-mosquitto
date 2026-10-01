@@ -252,6 +252,22 @@ def offline_request_case(pub, resume_session):
     return wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Success", "DAP-Reason": "All subscribers responded"}))
 
 
+def case_request_held_for_inbox_without_op_purpose(pub):
+    # An inbox whose SP the DAP_OP purpose does not permit cannot receive the request,
+    # so it is held until the subscriber subscribes with one it does.
+    sub = subscribers_with_data(pub, ["subA"])[0]
+    sub.subscribe(f"{OP_REQ}/subA", f"{OP_PURPOSE}|analytics")
+    time.sleep(0.2)
+    pub.publish(OSYS, [("DAP-OpType", "DELETE"), ("DAP-OpTFs", TOPIC)])
+    if not wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Pending"})):
+        return False
+    time.sleep(0.3)
+    if sub.got(f"{OP_REQ}/subA"):
+        return False
+    sub.subscribe(f"{OP_REQ}/subA", OP_PURPOSE)
+    return wait_for(lambda: sub.got(f"{OP_REQ}/subA", **{"DAP-OpType": "DELETE"}))
+
+
 def case_offline_request_on_resubscribe(pub):
     return offline_request_case(pub, resume_session=False)
 
@@ -287,6 +303,7 @@ CASES = [
     ("AUDIT returns the relevant subscriber ids", case_audit_lists_subscribers, True),
     ("an offline subscriber gets the request when it subscribes again", case_offline_request_on_resubscribe, True),
     ("an offline subscriber gets the request when its session resumes", case_offline_request_on_session_resume, True),
+    ("a request waits for an inbox whose SP admits it", case_request_held_for_inbox_without_op_purpose, True),
     ("AUDIT with no relevant subscribers gets a Failure", case_audit_no_relevant, True),
     ("relevance uses the SP in force at delivery", case_relevance_uses_delivery_time_sp, True),
     ("relevance matches DAP-OpTFs as MQTT topic filters", case_relevance_topic_wildcard, True),

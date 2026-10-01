@@ -11,6 +11,7 @@
 #include "dap/dap_op_requester.h"
 #include "dap/dap_persist.h"
 #include "dap/dap_request_store.h"
+#include "dap/purpose_filters.h"
 
 /* Finds a client context by ID by calling db__find_context_by_id(). */
 struct mosquitto *broker_find_context_by_id(const char *client_id)
@@ -183,14 +184,19 @@ static char *dap__request_topic(const char *sub_id)
     return topic;
 }
 
-/* True when sub_id is connected and subscribed to its request topic. */
+/* True when sub_id is connected and subscribed to its request topic with an SP
+ * that operation messages are permitted for. */
 static bool dap__request_topic_ready(const char *sub_id, const char *topic)
 {
     struct mosquitto *ctx = broker_find_context_by_id(sub_id);
 
     if(!ctx || ctx->state != mosq_cs_active) return false;
     for(int i = 0; i < ctx->subs_capacity; i++){
-        if(ctx->subs[i] && !strcmp(ctx->subs[i]->topic_filter, topic)) return true;
+        struct mosquitto__subleaf *leaf = ctx->subs[i];
+        if(leaf && !strcmp(leaf->topic_filter, topic)
+                && purpose_mp_permits(MOSQ_DAP_OP_PURPOSE, leaf->purpose_filters, leaf->purpose_filter_count)){
+            return true;
+        }
     }
     return false;
 }
