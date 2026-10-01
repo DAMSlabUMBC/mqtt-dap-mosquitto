@@ -167,6 +167,7 @@ enum mosq_transport_t {
 /* MQTT-DAP Misc */
 #define MOSQ_DAP_OP_PURPOSE "DAP_OP"    /* paper 5.1: operation-processing consent value (was "DAP_op") */
 #define MOSQ_DAP_DEFAULT_DEADLINE_SECS 30 /* deadline of a request without DAP-Deadline = receipt time + this; TODO make configurable */
+#define MOSQ_DAP_MAX_DEADLINE_SECS (31*24*3600) /* a DAP-Deadline may be at most this far past receipt */
 #define MOSQ_DAP_MAX_FILTERS_PER_SUB 100
 #define MOSQ_DAP_ALLOW_ALL_FILTER "*"
 

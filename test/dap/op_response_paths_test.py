@@ -386,6 +386,14 @@ def case_deadline_in_the_past(pub):
     return wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Failure", "DAP-Reason": "Deadline has passed"}))
 
 
+def case_deadline_too_far(pub):
+    # A deadline more than 31 days ahead would hold broker state that long.
+    subscribers_with_data(pub, ["subA"])
+    pub.publish(OSYS, [("DAP-OpType", "DELETE"), ("DAP-OpTFs", TOPIC),
+                       ("DAP-Deadline", str(int(time.time()) + 40 * 86400))])
+    return wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Failure", "DAP-Reason": "Deadline too far"}))
+
+
 def case_operation_traffic_is_qos1(pub):
     # Requests and notifications are sent at QoS 1 to inboxes subscribed at QoS 1 (paper 6.2).
     sub = subscribers_with_data(pub, ["subA"])[0]
@@ -423,6 +431,7 @@ CASES = [
     ("HISTORY with an offline subscriber gets a Pending ack", case_history_subscriber_offline, True),
     ("HISTORY with many offline subscribers lists every one at the requested deadline", case_history_many_offline, True),
     ("a deadline that has already passed gets a Failure", case_deadline_in_the_past, True),
+    ("a deadline more than 31 days ahead gets a Failure", case_deadline_too_far, True),
     ("a DELETE removes only the retained messages it covers", case_delete_scopes_retained, True),
     ("a RESTRICT removes only the retained messages it covers", case_restrict_scopes_retained, True),
     ("an O: operation runs the subscriber workflow", case_client_defined_operation, True),

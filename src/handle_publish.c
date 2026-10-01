@@ -295,6 +295,13 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 				dap_op_set_reason(dap_op_properties, "Deadline has passed");
 				broker_send_response_failure(context->id, dap_op_properties);
 			}
+			/* The operation's state is held until its deadline, so that is bounded. */
+			else if(is_subscriber_operation(dap_op_properties->op_id)
+					&& operation_deadline(dap_op_properties, stored->dap_recv_time) > stored->dap_recv_time + MOSQ_DAP_MAX_DEADLINE_SECS)
+			{
+				dap_op_set_reason(dap_op_properties, "Deadline too far");
+				broker_send_response_failure(context->id, dap_op_properties);
+			}
 
 			/* DELETE and RESTRICT also apply to queued data, through the pending-operation map. */
 			else if(!strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_DELETE) || !strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_RESTRICT))
