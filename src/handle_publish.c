@@ -269,11 +269,6 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 		dup = cmsg_stored->data.dup;
 	}
 
-	if(stored->data.retain)
-	{
-		dr__record_retained_publisher(context->id, stored->data.topic);
-	}
-
 	/* A request carries DAP-OpType (op_present); a subscriber status notification
 	 * carries DAP-Status. */
 	if(db.config->metadata_operation_handling && (dap_op_properties->op_present || dap_op_properties->op_status))
@@ -336,10 +331,12 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 							relevant, &stored->data, dap_op_properties, deadline);
 					dr__free_sublist(relevant);
 
-					/* DELETE additionally drops the publisher's stored will/retained data. */
+					/* The operation also removes the retained messages it covers, and a
+						* DELETE the will. */
+					retain__dap_drop_covered();
 					if(!strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_DELETE))
 					{
-						handle_remove_stored_messages(context->id, dap_op_properties);
+						handle_remove_will(context->id, dap_op_properties);
 					}
 				}
 				else

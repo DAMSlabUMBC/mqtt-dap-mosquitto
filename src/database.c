@@ -607,6 +607,8 @@ void db__dap_drop_covered(void)
 	if(!db.dap_pending_ops || !db.dap_pending_ops->publishers){
 		return;
 	}
+	/* Retained data set aside behind the operation was stored after it was applied. */
+	retain__dap_drop_covered();
 	HASH_ITER(hh_id, db.contexts_by_id, context, ctx_tmp){
 		DL_FOREACH_SAFE(context->msgs_out.inflight, client_msg, tmp){
 			if((client_msg->data.state == mosq_ms_publish_qos0

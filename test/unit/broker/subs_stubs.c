@@ -132,6 +132,11 @@ void retain__clean(struct mosquitto__retainhier **retainhier)
 }
 
 
+void retain__dap_drop_covered(void)
+{
+}
+
+
 int retain__queue(struct mosquitto *context, const struct mosquitto_subscription *sub)
 {
 	UNUSED(context);

@@ -417,6 +417,28 @@ static void removed_count(uint64_t op_id, void *arg)
     (*(int *)arg)++;
 }
 
+static void test_cover_stored(void)
+{
+    struct dap_pending_ops map;
+    uint64_t id = 0;
+
+    dap_pending_ops_init(&map);
+    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_RESTRICT, 100, 0, "t/#", "qa", "subX", &id);
+
+    /* A stored message is covered whatever DAP-OpClients names, when its MP shares a
+     * purpose with DAP-OpPFs. */
+    assert(dap_pending_ops_cover_stored(&map, "pub1", "t/a", "qa|qb", 50));
+    assert(dap_pending_ops_cover_stored(&map, "pub1", "t/a", "*", 50));
+    assert(dap_pending_ops_cover_stored(&map, "pub1", "t/a", NULL, 50));
+    assert(!dap_pending_ops_cover_stored(&map, "pub1", "t/a", "qb", 50));
+    assert(!dap_pending_ops_cover_stored(&map, "pub1", "u/a", "qa", 50));
+    assert(!dap_pending_ops_cover_stored(&map, "pub1", "t/a", "qa", 150));
+    assert(!dap_pending_ops_cover_stored(&map, "pub2", "t/a", "qa", 50));
+
+    dap_pending_ops_destroy(&map);
+    printf("ok - an operation covers stored messages by topic, MP and receipt order\n");
+}
+
 static void test_remove_expired(void)
 {
     struct dap_pending_ops map;
@@ -472,6 +494,7 @@ int main(void)
     test_restore_advances_id_counter();
     test_restore_rejects_bad_or_duplicate_ids();
     test_reserve_op_id();
+    test_cover_stored();
     test_remove_expired();
     printf("\nAll dap_pending_ops tests passed.\n");
     return 0;

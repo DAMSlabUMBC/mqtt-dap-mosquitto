@@ -360,6 +360,26 @@ def case_delete_scopes_retained(pub):
     return [m[1] for m in late.got("sensors/")] == [b"kept-b"]
 
 
+def case_restrict_scopes_retained(pub):
+    # A RESTRICT removes the requester's retained messages whose topic it covers and
+    # whose MP shares a purpose with its DAP-OpPFs.
+    pub.publish("$MP_REG", [("DAP-MP", f"{MP}|maintenance:sensors/r1"),
+                            ("DAP-MP", "maintenance:sensors/r2")], qos=0)
+    time.sleep(0.2)
+    subscribers_with_data(pub, ["subA"])
+    pub.publish("sensors/r1", [], payload=b"restricted", retain=True)
+    pub.publish("sensors/r2", [], payload=b"kept", retain=True)
+    pub.publish(OSYS, [("DAP-OpType", "RESTRICT"), ("DAP-OpTFs", "sensors/#"), ("DAP-OpPFs", MP)])
+    if not wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Pending"})):
+        return False
+    time.sleep(0.3)
+    late = Client("subLate2").connect()
+    late.subscribe("sensors/r1", "maintenance")
+    late.subscribe("sensors/r2", "maintenance")
+    time.sleep(0.5)
+    return [m[1] for m in late.got("sensors/")] == [b"kept"]
+
+
 def case_deadline_in_the_past(pub):
     subscribers_with_data(pub, ["subA"])
     pub.publish(OSYS, [("DAP-OpType", "DELETE"), ("DAP-OpTFs", TOPIC), ("DAP-Deadline", str(int(time.time()) - 5))])
@@ -404,6 +424,7 @@ CASES = [
     ("HISTORY with many offline subscribers lists every one at the requested deadline", case_history_many_offline, True),
     ("a deadline that has already passed gets a Failure", case_deadline_in_the_past, True),
     ("a DELETE removes only the retained messages it covers", case_delete_scopes_retained, True),
+    ("a RESTRICT removes only the retained messages it covers", case_restrict_scopes_retained, True),
     ("an O: operation runs the subscriber workflow", case_client_defined_operation, True),
     ("the requester can ask for an operation's status", case_status_request, True),
     ("an O: operation without a name is unknown", case_client_defined_operation_needs_a_name, True),

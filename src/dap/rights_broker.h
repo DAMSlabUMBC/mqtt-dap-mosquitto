@@ -17,7 +17,7 @@ struct dr_sublist; /* lib/dr_registry.h: relevant-subscriber list node */
 struct mosquitto *broker_find_context_by_id(const char *client_id);
 
 /* A DELETE also removes the requester's will and retained messages it covers. */
-void handle_remove_stored_messages(const char *publisher_id, struct dap__op_property *dap_op_properties);
+void handle_remove_will(const char *publisher_id, struct dap__op_property *dap_op_properties);
 
 /* Replace the request's failure reason with a copy of reason. */
 void dap_op_set_reason(struct dap__op_property *dap_op_properties, const char *reason);

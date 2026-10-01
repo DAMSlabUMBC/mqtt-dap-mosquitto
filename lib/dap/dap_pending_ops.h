@@ -115,6 +115,13 @@ struct dap_pending_op *dap_pending_ops_lookup_operations_for_publisher(struct da
  */
 int dap_pending_ops_remove_operation_by_id(struct dap_pending_ops *map, uint64_t op_id);
 
+/* True when an operation of pub_id covers a message it stored earlier on topic under
+ * MP mp (NULL = none): the topic matches the operation's DAP-OpTFs, and its DAP-OpPFs,
+ * if any, share a purpose with mp. DAP-OpClients is not considered, since a retained
+ * message has no subscriber yet. */
+bool dap_pending_ops_cover_stored(struct dap_pending_ops *map, const char *pub_id,
+                                  const char *topic, const char *mp, uint64_t msg_order);
+
 /* True when some operation's deadline is at or before now. */
 bool dap_pending_ops_any_expired(struct dap_pending_ops *map, time_t now);
 

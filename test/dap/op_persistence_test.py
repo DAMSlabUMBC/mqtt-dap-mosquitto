@@ -191,9 +191,10 @@ def main():
     pub1.publish("$MP_REG", [("DAP-MP", f"{MP}:sensors/retained")], qos=0)
     time.sleep(0.2)
     pub1.publish("sensors/retained", [], payload=b"kept", retain=True)
+    pub1.publish("sensors/temp", [], payload=b"retained-before-delete", retain=True)
     data(pub1, "sensors/temp", b"temp-before-delete")
     data(pub1, "sensors/humidity", b"humidity-before-delete")
-    check(wait_for(lambda: len(subX.got("sensors/")) == 2 and len(subY.got("sensors/")) == 2),
+    check(wait_for(lambda: len(subX.got("sensors/")) == 3 and len(subY.got("sensors/")) == 3),
           "online subscribers receive the data before the operation")
 
     pub1.publish(OSYS, [("DAP-OpType", "DELETE"), ("DAP-OpTFs", "sensors/temp")])
@@ -248,6 +249,9 @@ def main():
     subR.subscribe("sensors/retained", MP)
     check(wait_for(lambda: subR.got("sensors/retained")),
           "a retained message from before the restart reaches a subscription its MP permits")
+    subR.subscribe("sensors/temp", MP)
+    time.sleep(0.5)
+    check(not subR.got("sensors/temp"), "a retained message the DELETE removed stays removed after the restart")
     subR.disconnect()
 
     # SPs survive with the session; MPs are re-registered by their publishers.

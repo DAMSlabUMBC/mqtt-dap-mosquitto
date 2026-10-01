@@ -357,6 +357,23 @@ static bool dap__op_applies(const struct dap_pending_op *op, const char *topic,
     return true;
 }
 
+bool dap_pending_ops_cover_stored(struct dap_pending_ops *map, const char *pub_id,
+                                  const char *topic, const char *mp, uint64_t msg_order)
+{
+    if(!map || !pub_id) return false;
+
+    struct dap_pub_entry *entry = dap__find_publisher(map, pub_id);
+    if(!entry || msg_order > entry->max_order) return false;
+
+    for(struct dap_pending_op *op = entry->ops; op; op = op->next){
+        if(msg_order > op->order) continue;
+        if(!dap__topic_list_matches(op->topic_filters, op->num_topic_filters, topic)) continue;
+        if(op->purposes && mp && !purpose_sets_intersect(op->purposes, mp)) continue;
+        return true;
+    }
+    return false;
+}
+
 enum dap_op_action dap_pending_ops_match(struct dap_pending_ops *map,
                                          const char *pub_id,
                                          const char *topic,

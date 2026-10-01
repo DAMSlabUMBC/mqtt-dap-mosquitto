@@ -978,6 +978,8 @@ int retain__queue(struct mosquitto *context, const struct mosquitto_subscription
 int retain__store(const char *topic, struct mosquitto__base_msg *base_msg, char **split_topics, bool persist);
 void retain__expiry_check(void);
 void retain__expire(struct mosquitto__retainhier **retainhier);
+/* Remove the retained messages a pending DELETE or RESTRICT covers. */
+void retain__dap_drop_covered(void);
 
 /* ============================================================
  * Security related functions

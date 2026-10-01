@@ -6,7 +6,6 @@
 
 
 struct dr_entry *dr_head = NULL;
-struct dr_retained_entry *dr_retained_head = NULL;
 /* The entries of dr_head, hashed by publisher and topic. */
 static struct dr_entry *dr_index = NULL;
 
@@ -14,7 +13,6 @@ void dr_registry_init(void)
 {
     dr_head = NULL;
     dr_index = NULL;
-    dr_retained_head = NULL;
 }
 
 void dr_registry_cleanup(void)
@@ -27,15 +25,6 @@ void dr_registry_cleanup(void)
         mosquitto_FREE(e->topic);
         mosquitto_FREE(e->key);
         dr__free_sublist(e->sub_list);
-        mosquitto_FREE(e);
-    }
-
-    while(dr_retained_head)
-    {
-        struct dr_retained_entry *e = dr_retained_head;
-        dr_retained_head = dr_retained_head->next;
-        mosquitto_FREE(e->pub_id);
-        mosquitto_FREE(e->topic);
         mosquitto_FREE(e);
     }
 }
@@ -132,27 +121,6 @@ int dr__restore_flow(const char *pub_id, const char *topic, const char *sub_id,
     if(!entry) return MOSQ_ERR_NOMEM;
     return dr__add_flow(entry, sub_id, mosquitto_strdup(sp ? sp : ""), first_time, last_time)
             ? MOSQ_ERR_SUCCESS : MOSQ_ERR_NOMEM;
-}
-
-void dr__record_retained_publisher(const char* pub_id, const char * topic)
-{
-    struct dr_retained_entry *cur = dr_retained_head;
-    while(cur){
-        if(!strcmp(cur->topic, topic)){
-            mosquitto_FREE(cur->pub_id);
-            cur->pub_id = mosquitto_strdup(pub_id);
-            return;
-        }
-        cur = cur->next;
-    }
-
-    struct dr_retained_entry *e = mosquitto_calloc(1, sizeof(*e));
-    if(!e) return;
-    e->pub_id = mosquitto_strdup(pub_id);
-    e->topic  = mosquitto_strdup(topic);
-    e->next = dr_retained_head;
-    dr_retained_head = e;
-    return;
 }
 
 void dr__free_sublist(struct dr_sublist *list)

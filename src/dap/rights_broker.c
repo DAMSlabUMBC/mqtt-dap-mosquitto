@@ -24,10 +24,10 @@ struct mosquitto *broker_find_context_by_id(const char *client_id)
     return db__find_context_by_id(client_id);
 }
 
-/* True when a stored message of publisher_id on topic falls under a DELETE: the topic
- * matches one of its DAP-OpTFs, and the publisher's MP for it, when known, shares a
- * purpose with its DAP-OpPFs. */
-static bool dap__stored_message_covered(const char *publisher_id, const char *topic,
+/* True when the will of publisher_id on topic falls under a DELETE: the topic matches
+ * one of its DAP-OpTFs, and the publisher's MP for it, when known, shares a purpose
+ * with its DAP-OpPFs. */
+static bool dap__will_covered(const char *publisher_id, const char *topic,
     struct dap__op_property *dap_op_properties)
 {
     const char *filters = dap_op_properties->op_topic_filters;
@@ -61,24 +61,16 @@ static bool dap__stored_message_covered(const char *publisher_id, const char *to
     return true;
 }
 
-/* A DELETE also removes the requester's will and retained messages it covers. */
-void handle_remove_stored_messages(const char *publisher_id, struct dap__op_property *dap_op_properties)
+/* A DELETE also removes the requester's will if it covers it. */
+void handle_remove_will(const char *publisher_id, struct dap__op_property *dap_op_properties)
 {
     struct mosquitto *pub_ctx = broker_find_context_by_id(publisher_id);
     if(pub_ctx && pub_ctx->will
-            && dap__stored_message_covered(publisher_id, pub_ctx->will->msg.topic, dap_op_properties)){
+            && dap__will_covered(publisher_id, pub_ctx->will->msg.topic, dap_op_properties)){
         mosquitto_FREE(pub_ctx->will->msg.topic);
         mosquitto_FREE(pub_ctx->will->msg.payload);
         mosquitto_FREE(pub_ctx->will);
         pub_ctx->will = NULL;
-    }
-
-    extern struct dr_retained_entry *dr_retained_head;
-    for(struct dr_retained_entry *cur = dr_retained_head; cur; cur = cur->next){
-        if(!strcmp(cur->pub_id, publisher_id)
-                && dap__stored_message_covered(publisher_id, cur->topic, dap_op_properties)){
-            mosquitto_persist_retain_msg_delete(cur->topic);
-        }
     }
 }
 

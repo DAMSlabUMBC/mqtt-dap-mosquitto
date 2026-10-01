@@ -27,14 +27,7 @@ struct dr_entry {
     UT_hash_handle hh;
 };
 
-struct dr_retained_entry {
-    char *pub_id;
-    char *topic;
-    struct dr_retained_entry *next;
-};
-
 extern struct dr_entry *dr_head; 
-extern struct dr_retained_entry *dr_retained_head; 
 
 void dr_registry_init(void);
 void dr_registry_cleanup(void);
@@ -52,7 +45,6 @@ int dr__record_flow(const char *pub_id, const char *topic, const char *sub_id,
 int dr__restore_flow(const char *pub_id, const char *topic, const char *sub_id,
                      const char *sp, time_t first_time, time_t last_time);
 
-void dr__record_retained_publisher(const char *pub_id, const char *topic);
 
 /* Freed after use. */
 void dr__free_sublist(struct dr_sublist *list);
