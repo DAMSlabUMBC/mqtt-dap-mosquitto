@@ -214,6 +214,10 @@ static void dap_deadline__check(void)
 	 * requester mapping stays, so late responses still reach the requester. */
 	static time_t last_expiry = 0;
 	if(db.now_real_s != last_expiry){
+		/* Data an expiring operation covers is dropped before the operation goes. */
+		if(dap_pending_ops_any_expired(db.dap_pending_ops, db.now_real_s)){
+			db__dap_drop_covered();
+		}
 		dap_pending_ops_remove_expired(db.dap_pending_ops, db.now_real_s, dap_deadline__reclaimed, NULL);
 		if(db.dap_request_store && db.dap_request_store->inboxes){
 			dap_request_store_expire(db.dap_request_store, db.now_real_s);

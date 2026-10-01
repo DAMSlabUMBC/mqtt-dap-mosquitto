@@ -115,6 +115,9 @@ struct dap_pending_op *dap_pending_ops_lookup_operations_for_publisher(struct da
  */
 int dap_pending_ops_remove_operation_by_id(struct dap_pending_ops *map, uint64_t op_id);
 
+/* True when some operation's deadline is at or before now. */
+bool dap_pending_ops_any_expired(struct dap_pending_ops *map, time_t now);
+
 /* Remove every operation whose deadline is at or before now (paper 6.3: operation
  * state is reclaimed once its deadline elapses), calling removed for each. */
 void dap_pending_ops_remove_expired(struct dap_pending_ops *map, time_t now,

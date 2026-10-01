@@ -106,10 +106,12 @@ class Publisher:
         self.publish("$MP_REG", [("DAP-MP", f"{mp}:{topic}")], qos=0)
         time.sleep(0.2)
 
-    def operation(self, op, topic_filter, purposes=None):
+    def operation(self, op, topic_filter, purposes=None, deadline=None):
         pairs = [("DAP-OpType", op), ("DAP-OpTFs", topic_filter)]
         if purposes is not None:
             pairs.append(("DAP-OpPFs", purposes))
+        if deadline is not None:
+            pairs.append(("DAP-Deadline", str(deadline)))
         self.publish(OSYS, pairs)
 
     def got_status(self, status):
@@ -356,6 +358,32 @@ def same_second_case():
         sub.connect()
         got = payloads(sub.read_publishes(), "t/t")
         check(got == [b"m2"], "the DELETE drops m1 but not m2 published right after it (got %s)" % got)
+        sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
+def op_outlives_deadline_case(op, purposes=None):
+    """Data a DELETE or RESTRICT covers stays dropped for a subscriber that returns
+    after the operation's deadline, when the operation itself has been reclaimed."""
+    broker = Broker("use_metadata_operation_support true\n")
+    try:
+        sub = Subscriber("subO", persistent=True)
+        sub.subscribe("t/o", ["qa"])
+        pub = Publisher()
+        pub.register("qa|qb", "t/o")
+        pub.publish("t/o", [], payload=b"m0")
+        check(payloads(sub.read_publishes(), "t/o") == [b"m0"], "subscriber receives data before the %s" % op)
+        sub.disconnect()
+        pub.publish("t/o", [], payload=b"m1")
+        pub.operation(op, "t/o", purposes, deadline=int(time.time()) + 2)
+        check(wait_for(lambda: pub.got_status("Pending")), "requester gets a Pending ack for the %s" % op)
+        time.sleep(3.5)  # past the deadline: the operation is reclaimed
+        pub.publish("t/o", [], payload=b"m2")
+        sub.connect()
+        got = payloads(sub.read_publishes(), "t/o")
+        check(got == [b"m2"], "data the %s covered is not delivered after its deadline (got %s)" % (op, got))
         sub.close()
     finally:
         stop_clients()
@@ -688,6 +716,8 @@ def main():
     delete_case(gap=True)
     drop_refill_case()
     same_second_case()
+    op_outlives_deadline_case("DELETE")
+    op_outlives_deadline_case("RESTRICT", "qa")
     scoped_op_case("DELETE", "t/+/1", "qb", {"qa": True, "qb": False, "qa|qc": True, "qb|qc": False})
     scoped_op_case("DELETE", "t/s/#", "qx", {"qa": True, "qb": True})
     scoped_op_case("DELETE", "t/other", None, {"qa": True})

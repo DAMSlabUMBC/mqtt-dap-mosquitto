@@ -265,6 +265,19 @@ int dap_pending_ops_remove_operation_by_id(struct dap_pending_ops *map, uint64_t
     return 1; /* not found */
 }
 
+bool dap_pending_ops_any_expired(struct dap_pending_ops *map, time_t now)
+{
+    if(!map) return false;
+
+    struct dap_pub_entry *entry, *tmp;
+    HASH_ITER(hh, map->publishers, entry, tmp){
+        for(struct dap_pending_op *op = entry->ops; op; op = op->next){
+            if(op->deadline != 0 && op->deadline <= now) return true;
+        }
+    }
+    return false;
+}
+
 void dap_pending_ops_remove_expired(struct dap_pending_ops *map, time_t now,
                                     void (*removed)(uint64_t op_id, void *arg), void *arg)
 {

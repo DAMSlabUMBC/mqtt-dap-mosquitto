@@ -429,6 +429,8 @@ static void test_remove_expired(void)
     dap_pending_ops_insert_operation(&map, "pub2", DAP_OP_RESTRICT, 100, 0, "*", "*", "*", &none);
 
     /* Nothing has expired yet. */
+    assert(!dap_pending_ops_any_expired(&map, 49));
+    assert(dap_pending_ops_any_expired(&map, 50));
     dap_pending_ops_remove_expired(&map, 49, removed_count, &removed);
     assert(removed == 0 && op_count(&map, "pub1") == 2);
 
@@ -443,6 +445,7 @@ static void test_remove_expired(void)
     assert(removed == 2);
     assert(dap_pending_ops_lookup_operations_for_publisher(&map, "pub1") == NULL);
     assert(op_count(&map, "pub2") == 1);
+    assert(!dap_pending_ops_any_expired(&map, 5000));
 
     dap_pending_ops_destroy(&map);
     printf("ok - operations are reclaimed once their deadline passes\n");
