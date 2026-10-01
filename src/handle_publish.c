@@ -564,7 +564,7 @@ static void read_dap_op_properties(const mosquitto_property *p, struct dap__op_p
 	}
 }
 
-int handle__publish(struct mosquitto *context)
+int handle__publish(struct mosquitto *context, const struct dap_receipt *receipt)
 {
 	uint8_t dup;
 	int rc = 0;
@@ -593,20 +593,12 @@ int handle__publish(struct mosquitto *context)
 		return MOSQ_ERR_NOMEM;
 	}
 
-	/* Stamp the receipt time once, before any other DAP processing, so a single
-	 * reference timestamp drives both queue ordering and pending-operation matchingn*/
-	base_msg->dap_recv_time = time(NULL);
-	{
-		struct timespec ts_wall, ts_mono;
-		clock_gettime(CLOCK_REALTIME, &ts_wall);
-		clock_gettime(CLOCK_MONOTONIC, &ts_mono);
-		base_msg->dap_recv_time_ns_wall = (uint64_t)ts_wall.tv_sec * 1000000000ULL + (uint64_t)ts_wall.tv_nsec;
-		base_msg->dap_recv_time_ns_mono = (uint64_t)ts_mono.tv_sec * 1000000000ULL + (uint64_t)ts_mono.tv_nsec;
-		/* Paper 5.2(i): a total order over receipts, kept monotone if the clock steps back. */
-		base_msg->dap_order = base_msg->dap_recv_time_ns_wall > db.dap_last_order
-				? base_msg->dap_recv_time_ns_wall : db.dap_last_order + 1;
-		db.dap_last_order = base_msg->dap_order;
-	}
+	/* The receipt stamp from when the packet was read drives both queue ordering and
+	 * pending-operation matching. */
+	base_msg->dap_recv_time = receipt->time;
+	base_msg->dap_recv_time_ns_wall = receipt->ns_wall;
+	base_msg->dap_recv_time_ns_mono = receipt->ns_mono;
+	base_msg->dap_order = receipt->order;
 
 	dup = (header & 0x08)>>3;
 	base_msg->data.qos = (header & 0x06)>>1;

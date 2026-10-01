@@ -456,6 +456,14 @@ struct mosquitto__retainhier {
 	char topic[];
 };
 
+/* When the broker read a PUBLISH (paper 5.2(i)). */
+struct dap_receipt {
+	time_t time;     /* seconds since the epoch, the DAP-Timestamp */
+	uint64_t ns_wall; /* CLOCK_REALTIME */
+	uint64_t ns_mono; /* CLOCK_MONOTONIC */
+	uint64_t order;  /* strictly increasing across receipts */
+};
+
 struct mosquitto__base_msg {
 	UT_hash_handle hh;
 	struct mosquitto_base_msg data;
@@ -740,7 +748,7 @@ int handle__packet(struct mosquitto *context);
 int handle__connack(struct mosquitto *context);
 int handle__connect(struct mosquitto *context);
 int handle__disconnect(struct mosquitto *context);
-int handle__publish(struct mosquitto *context);
+int handle__publish(struct mosquitto *context, const struct dap_receipt *receipt);
 int handle__subscribe(struct mosquitto *context);
 int handle__unsubscribe(struct mosquitto *context);
 int handle__auth(struct mosquitto *context);

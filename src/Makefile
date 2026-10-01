@@ -122,6 +122,7 @@ OBJS=	mosquitto.o \
 		will_delay.o \
 		xtreport.o \
 		dap/rights_broker.o \
+		dap/dap_intake.o \
 		dap/dap_persist.o
 
 OBJS_EXTERNAL= \

@@ -55,6 +55,7 @@ Contributors:
 #include "dap/rights_broker.h"
 #include "dap/dap_deadline_tracker.h"
 #include "dap/dap_request_store.h"
+#include "dap/dap_intake.h"
 #include "dap/dap_persist.h"
 
 extern int g_run;
@@ -315,6 +316,8 @@ void do_disconnect(struct mosquitto *context, int reason)
 	if(context->state == mosq_cs_disconnected){
 		return;
 	}
+	/* Data the client sent before the connection ended is handled first. */
+	dap_intake__flush(context);
 #if defined(WITH_WEBSOCKETS) && WITH_WEBSOCKETS == WS_IS_LWS
 	if(context->wsi){
 		if(context->state == mosq_cs_duplicate){

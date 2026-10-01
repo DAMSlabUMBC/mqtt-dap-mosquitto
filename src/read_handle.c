@@ -28,6 +28,7 @@ Contributors:
 #include "send_mosq.h"
 #include "sys_tree.h"
 #include "util_mosq.h"
+#include "dap/dap_intake.h"
 
 
 int handle__packet(struct mosquitto *context)
@@ -57,7 +58,7 @@ int handle__packet(struct mosquitto *context)
 			break;
 		case CMD_PUBLISH:
 			metrics__int_inc(mosq_counter_mqtt_publish_received, 1);
-			rc = handle__publish(context);
+			rc = dap_intake__publish(context);
 			break;
 		case CMD_PUBREC:
 			metrics__int_inc(mosq_counter_mqtt_pubrec_received, 1);
@@ -72,6 +73,8 @@ int handle__packet(struct mosquitto *context)
 			return handle__connect(context);
 		case CMD_DISCONNECT:
 			metrics__int_inc(mosq_counter_mqtt_disconnect_received, 1);
+			/* Data the client sent before disconnecting is handled first. */
+			dap_intake__flush(context);
 			rc = handle__disconnect(context);
 			break;
 		case CMD_SUBSCRIBE:
