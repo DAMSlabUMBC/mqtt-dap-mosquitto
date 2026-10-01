@@ -5,6 +5,7 @@ any other purpose (paper 4.3).
 Usage: python3 test/dap/recognized_purposes_test.py [port]
 """
 import os
+import signal
 import subprocess
 import sys
 import tempfile
@@ -67,14 +68,18 @@ class Client:
         self.c.disconnect()
 
 
+def write_conf(conf, purposes):
+    with open(conf, "w") as f:
+        f.write(f"listener {PORT} {HOST}\n"
+                "allow_anonymous true\n")
+        for p in purposes:
+            f.write(f"dap_recognized_purposes {p}\n")
+
+
 def main():
     workdir = tempfile.mkdtemp(prefix="dap-recognized-")
     conf = os.path.join(workdir, "mosquitto.conf")
-    with open(conf, "w") as f:
-        f.write(f"listener {PORT} {HOST}\n"
-                "allow_anonymous true\n"
-                "dap_recognized_purposes quality/assurance\n"
-                "dap_recognized_purposes maintenance/{predictive,routine}\n")
+    write_conf(conf, ["quality/assurance", "maintenance/{predictive,routine}"])
     log = open(os.path.join(workdir, "broker.log"), "w")
     broker = subprocess.Popen([BROKER, "-c", conf], stdout=log, stderr=subprocess.STDOUT)
     time.sleep(0.5)
@@ -102,6 +107,12 @@ def main():
         check(sub.received == [("t/a", b"a")], "only data under the recognized MP is delivered (got %s)"
               % sub.received)
         check(not sub.disconnected and not pub.disconnected, "both clients stay connected")
+
+        write_conf(conf, ["marketing"])
+        broker.send_signal(signal.SIGHUP)
+        time.sleep(0.5)
+        check(sub.subscribe("t/x", "marketing") == [1], "a purpose added by a reload is recognized")
+        check(sub.subscribe("t/q", "quality/assurance") == [0x87], "a purpose removed by a reload is not")
         sub.stop()
         pub.stop()
     finally:

@@ -709,6 +709,9 @@ static void config__copy(struct mosquitto__config *src, struct mosquitto__config
 	mosquitto_FREE(dest->clientid_prefixes);
 	dest->clientid_prefixes = src->clientid_prefixes;
 
+	mosquitto_FREE(dest->dap_recognized_purposes);
+	dest->dap_recognized_purposes = src->dap_recognized_purposes;
+
 	dest->connection_messages = src->connection_messages;
 	dest->log_dest = src->log_dest;
 	dest->log_facility = src->log_facility;
