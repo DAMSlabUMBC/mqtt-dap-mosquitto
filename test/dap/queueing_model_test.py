@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Send-time verification and op/PBMR priority on the broker's outgoing path.
+"""Send-time verification on the broker's outgoing path.
 
 Covers DELETE on queued messages (including after a subscriber's queue
-overflowed) and re-verification of messages whose stamp went stale (MP or SP
-change).
+overflowed) and re-verification of messages whose stamp went stale against
+the current MP and SP.
 
 Usage: python3 test/dap/queueing_model_test.py [port]
 """
@@ -408,6 +408,33 @@ def sp_change_case(new_sps, still_allowed):
         check(broker.stop() == 0, "broker exits cleanly")
 
 
+def mp_change_case(new_mp, still_allowed):
+    """A message waiting while its publisher changes the topic's MP is re-checked against the new MP."""
+    broker = Broker()
+    try:
+        sub = Subscriber("subM", receive_maximum=1)
+        sub.subscribe("t/m", ["qa"])
+        pub = Publisher()
+        pub.register("qa|qz", "t/m")
+        pub.publish("t/m", [], payload=b"m1")
+        pub.publish("t/m", [], payload=b"m2")
+        first = sub.read_publishes(idle=0.5, ack=False)
+        check(payloads(first, "t/m") == [b"m1"], "only m1 is in flight (receive maximum 1)")
+
+        pub.register(new_mp, "t/m")  # MP version 2 while m2 waits
+        sub.puback(first[0][2])
+        time.sleep(0.3)  # m2 is re-checked before the MP below changes
+        pub.register("qa", "t/m")
+        pub.publish("t/m", [], payload=b"m3")
+        got = payloads(sub.read_publishes(), "t/m")
+        expected = [b"m2", b"m3"] if still_allowed else [b"m3"]
+        check(got == expected, "after the MP becomes %s, delivered %s (expected %s)" % (new_mp, got, expected))
+        sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
 def stop_clients():
     for c in clients:
         c.stop()
@@ -428,6 +455,8 @@ def main():
     sp_change_case(["qb"], still_allowed=False)
     sp_change_case(["qa", "qz"], still_allowed=True)
     sp_change_case(["qa", "qb"], still_allowed=False)
+    mp_change_case("qa|qb", still_allowed=True)
+    mp_change_case("qz", still_allowed=False)
 
     print()
     if failures:

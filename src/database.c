@@ -33,6 +33,7 @@ Contributors:
 #include "dap/dap_subscription_queues.h"
 #include "dap/dap_send_verify.h"
 #include "dap/mp_registry.h"
+#include "dap/purpose_filters.h"
 #include "dap/dr_registry.h"
 #include "dap/dap_metrics.h"
 
@@ -1654,21 +1655,24 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 		
 		uint32_t cur_mp = 0;
 		struct mp_entry *stored = mp__lookup(pub_id, topic);
+		/* Operation messages have no registration and keep the purpose they were sent with. */
+		const char *cur_purpose = purpose;
 		if(stored)
 		{
 			cur_mp = stored->version;
+			cur_purpose = stored->purpose_filter;
 		}
 		uint32_t cur_sp = leaf->sp_version;
 		uint64_t op_id = 0;
 		enum dap_op_action action = dap_pending_ops_match(db.dap_pending_ops, pub_id, topic,
 				purpose, client_id, base_msg->dap_recv_time, &op_id);
 		if(is_holding){
-			/* Re-verify candidate: a DELETE drops it, and so does a purpose its
-			 * subscription's current SP no longer admits; a new RESTRICT is re-stamped
-			 * and delivered. */
+			/* Re-verify candidate: a DELETE drops it, and so does a publisher's current
+			 * MP that no longer permits its subscription's current SP; a new RESTRICT is
+			 * re-stamped and delivered. */
 			if(action == DAP_OP_ACTION_DROP){
 				verdict = DAP_SEND_DROP_DELETE;
-			}else if(!sub__purpose_allows(leaf, base_msg)){
+			}else if(!purpose_mp_permits(cur_purpose, leaf->purpose_filters, leaf->purpose_filter_count)){
 				verdict = DAP_SEND_DROP_PURPOSE;
 			}else{
 				verdict = DAP_SEND_PASS;
