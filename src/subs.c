@@ -146,15 +146,20 @@ static int subs__shared_process(struct mosquitto__subhier *hier, const char *top
 }
 
 
-bool sub__purpose_allows(const struct mosquitto__subleaf *leaf, const struct mosquitto__base_msg *stored)
+bool sub__purpose_set_allows(char *const *sp, uint32_t sp_count, const struct mosquitto__base_msg *stored)
 {
 	if(!stored->data.has_purpose_filter){
 		return false;
 	}
 	/* Paper 4.2: the MP must permit every purpose of the SP, or be "*". An empty SP
 	 * (consent withdrawn) matches nothing. */
-	return purpose_mp_permits(stored->data.purpose_filter,
-			leaf->purpose_filters, leaf->purpose_filter_count);
+	return purpose_mp_permits(stored->data.purpose_filter, sp, sp_count);
+}
+
+
+bool sub__purpose_allows(const struct mosquitto__subleaf *leaf, const struct mosquitto__base_msg *stored)
+{
+	return sub__purpose_set_allows(leaf->purpose_filters, leaf->purpose_filter_count, stored);
 }
 
 
@@ -269,19 +274,15 @@ static int sub__add_leaf(struct mosquitto *context, const struct mosquitto_subsc
 			 * indicate this to the calling function. */
 			leaf->identifier = sub->identifier;
 			leaf->subscription_options = sub->options;
-			/* The DAP SP lives on the leaf. A re-subscribe that changes the
-			 * purpose-filter set replaces it and bumps the SP version; an unchanged
-			 * re-subscribe frees the duplicate incoming set, which is not adopted
-			 * elsewhere. */
+			/* The DAP SP lives on the leaf, which always adopts the incoming set so
+			 * the caller's copy stays valid; only a changed set bumps the SP version. */
 			if(!sub__purpose_filters_equal(leaf->purpose_filters, leaf->purpose_filter_count,
 					sub->purpose_filters, sub->purpose_filter_count)){
-				sub__free_purpose_filters(leaf->purpose_filters, leaf->purpose_filter_count);
-				leaf->purpose_filters = sub->purpose_filters;
-				leaf->purpose_filter_count = sub->purpose_filter_count;
 				leaf->sp_version++;
-			}else{
-				sub__free_purpose_filters(sub->purpose_filters, sub->purpose_filter_count);
 			}
+			sub__free_purpose_filters(leaf->purpose_filters, leaf->purpose_filter_count);
+			leaf->purpose_filters = sub->purpose_filters;
+			leaf->purpose_filter_count = sub->purpose_filter_count;
 			return MOSQ_ERR_SUB_EXISTS;
 		}
 		leaf = leaf->next;

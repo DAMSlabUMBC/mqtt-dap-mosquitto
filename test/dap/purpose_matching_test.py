@@ -113,6 +113,37 @@ def rejection_cases():
         cl.loop_stop()
 
 
+def retained_case():
+    """A retained message reaches a new subscription only when its MP, and the
+    publisher's current MP, permit the subscription's SP."""
+    pub = client("pubT")
+    time.sleep(0.2)
+    pub.publish("$MP_REG", payload="", qos=0,
+                properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1"), ("DAP-MP", "qa:pt/r")]))
+    time.sleep(0.3)
+    pub.publish("pt/r", payload=b"kept", qos=0, retain=True, properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1")]))
+    time.sleep(0.3)
+
+    def fresh(cid, sp):
+        c = client(cid)
+        time.sleep(0.2)
+        c.subscribe("pt/r", qos=0, properties=props(PacketTypes.SUBSCRIBE, [("DAP-SP", sp)]))
+        time.sleep(0.5)
+        c.loop_stop()
+        c.disconnect()
+        return received[cid]
+
+    check(fresh("subT1", "qa") == ["pt/r"], "a subscription the MP permits gets the retained message")
+    check(fresh("subT2", "qb") == [], "a subscription the MP does not permit does not")
+    pub.publish("$MP_REG", payload="", qos=0,
+                properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1"), ("DAP-MP", "qz:pt/r")]))
+    time.sleep(0.3)
+    check(fresh("subT3", "qa") == [], "nor does one the publisher's current MP no longer permits")
+    pub.publish("pt/r", payload=b"", qos=0, retain=True, properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1")]))
+    pub.loop_stop()
+    pub.disconnect()
+
+
 def client_id_case():
     """The broker sets DAP-ClientID on data to the publisher's connection-time ID."""
     got = []
@@ -175,6 +206,7 @@ def main():
           "a subscription whose only SP is bound to another topic filter is rejected")
     rejection_cases()
     client_id_case()
+    retained_case()
 
     print()
     if failures:

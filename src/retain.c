@@ -27,6 +27,8 @@ Contributors:
 #include "util_mosq.h"
 
 #include "utlist.h"
+#include "dap/mp_registry.h"
+#include "dap/purpose_filters.h"
 
 static time_t next_expire_check = 0;
 
@@ -242,6 +244,18 @@ static int retain__process(struct mosquitto__retainhier *branch, struct mosquitt
 	}
 
 	retained = branch->retained;
+
+	/* Paper 4.2: a retained message reaches the subscription only if its MP permits
+	 * the SP, and the publisher's current MP, which can only narrow it, does too. */
+	if(!sub__purpose_set_allows(sub->purpose_filters, sub->purpose_filter_count, retained)){
+		return MOSQ_ERR_SUCCESS;
+	}
+	if(retained->data.source_id){
+		struct mp_entry *current = mp__lookup(retained->data.source_id, retained->data.topic);
+		if(current && !purpose_mp_permits(current->purpose_filter, sub->purpose_filters, sub->purpose_filter_count)){
+			return MOSQ_ERR_SUCCESS;
+		}
+	}
 
 	rc = mosquitto_acl_check(context, retained->data.topic, retained->data.payloadlen, retained->data.payload,
 			retained->data.qos, retained->data.retain, retained->data.properties, MOSQ_ACL_READ);
