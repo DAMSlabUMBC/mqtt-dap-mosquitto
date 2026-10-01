@@ -712,18 +712,21 @@ int handle__publish(struct mosquitto *context)
 	}
 
 	if(topic_alias == 0 || (context->listener && topic_alias > context->listener->max_topic_alias)){
+		mosquitto_property_free_all(&properties);
 		db__msg_store_free(base_msg);
 		return MOSQ_ERR_TOPIC_ALIAS_INVALID;
 	}else if(topic_alias > 0){
 		if(base_msg->data.topic){
 			rc = alias__add_r2l(context, base_msg->data.topic, (uint16_t)topic_alias);
 			if(rc){
+				mosquitto_property_free_all(&properties);
 				db__msg_store_free(base_msg);
 				return rc;
 			}
 		}else{
 			rc = alias__find_by_alias(context, ALIAS_DIR_R2L, (uint16_t)topic_alias, &base_msg->data.topic);
 			if(rc){
+				mosquitto_property_free_all(&properties);
 				db__msg_store_free(base_msg);
 				log__printf(NULL, MOSQ_LOG_INFO, "Protocol error from %s: PUBLISH invalid topic alias (%d).",
 						context->id, topic_alias);

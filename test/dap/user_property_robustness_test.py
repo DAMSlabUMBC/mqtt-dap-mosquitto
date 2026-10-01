@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Empty user-property keys/values must not crash or leak in the DAP parsers.
+"""Malformed v5 PUBLISH/SUBSCRIBE packets must not crash or leak in the DAP code.
 
 Each case sends one packet to a fresh broker, which must survive it and exit
 cleanly (under make WITH_ASAN=yes a leak fails that check).
@@ -119,6 +119,10 @@ CASES = [
     ("SUBSCRIBE with an empty key and value", subscribe_packet(user_props(("", ""), (SP_KEY, "qa")))),
     ("SUBSCRIBE with a DAP-SP and an invalid topic filter",
      subscribe_packet(user_props((SP_KEY, "qa")), topic="robust/#/data")),
+    ("PUBLISH with a topic alias above the maximum",
+     publish_packet(user_props((CONSENT, "1")) + mqtt5_props.gen_uint16_prop(mqtt5_props.TOPIC_ALIAS, 11))),
+    ("PUBLISH with an empty topic and an unknown topic alias",
+     publish_packet(user_props((CONSENT, "1")) + mqtt5_props.gen_uint16_prop(mqtt5_props.TOPIC_ALIAS, 3), topic="")),
     ("SUBSCRIBE with more DAP-SP purposes than allowed",
      subscribe_packet(user_props(*[(SP_KEY, "p%03d" % i) for i in range(101)]))),
 ]
