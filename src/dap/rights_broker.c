@@ -48,15 +48,21 @@ void handle_remove_stored_messages(const char *publisher_id)
     }
 }
 
+void dap_op_set_reason(struct dap__op_property *dap_op_properties, const char *reason)
+{
+    mosquitto_FREE(dap_op_properties->op_reason);
+    dap_op_properties->op_reason = mosquitto_strdup(reason);
+}
+
 void broker_send_response_success(const char *publisher_id, const char *operation, const char *corr_data, uint16_t correlation_data_len, const char *payload, char* response_topic)
 {
     if(!publisher_id) return;
 
+    char onp_topic[256];
     if (response_topic == NULL)
     {
-        char onp_topic[256];
         snprintf(onp_topic, sizeof(onp_topic), "%s/%s", MOSQ_DAP_TOPIC_ONP, publisher_id);
-        response_topic = mosquitto_strdup(onp_topic);
+        response_topic = onp_topic;
     }
 
     mosquitto_property *props = NULL;
@@ -67,7 +73,7 @@ void broker_send_response_success(const char *publisher_id, const char *operatio
         MOSQ_DAP_ID_KEY, "Broker");
 
     mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY,
-        MOSQ_DAP_OP_KEY, mosquitto_strdup(operation));
+        MOSQ_DAP_OP_KEY, operation);
 
     mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY,
         MOSQ_DAP_STATUS_KEY, "Success");
@@ -142,10 +148,11 @@ void broker_send_response_failure(const char *publisher_id, struct dap__op_prope
 {
     if(!publisher_id) return;
     char onp_topic[256];
-    if(dap_op_properties->response_topic == NULL)
+    const char *response_topic = dap_op_properties->response_topic;
+    if(response_topic == NULL)
     {
         snprintf(onp_topic, sizeof(onp_topic), "%s/%s", MOSQ_DAP_TOPIC_ONP, publisher_id);
-        dap_op_properties->response_topic = onp_topic;
+        response_topic = onp_topic;
     }
 
     mosquitto_property *props = NULL;
@@ -156,7 +163,7 @@ void broker_send_response_failure(const char *publisher_id, struct dap__op_prope
         MOSQ_DAP_ID_KEY, "Broker");
 
     mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY,
-        MOSQ_DAP_OP_KEY, mosquitto_strdup(dap_op_properties->op_id));
+        MOSQ_DAP_OP_KEY, dap_op_properties->op_id);
 
     mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY,
         MOSQ_DAP_STATUS_KEY, "Failure");
@@ -172,19 +179,50 @@ void broker_send_response_failure(const char *publisher_id, struct dap__op_prope
 
     if(unreached_subs)
     {
-        char contact_buf[256];
-        contact_buf[0] = '\0';
-        while(unreached_subs){
-            strncat(contact_buf, unreached_subs->sub_id, sizeof(contact_buf)-1);
-            strncat(contact_buf, " ", sizeof(contact_buf)-1);
-            unreached_subs = unreached_subs->next;
+        /* Space-separated ids, sized to fit them all. */
+        size_t len = 1;
+        for(struct subscriber_list *s = unreached_subs; s; s = s->next){
+            len += strlen(s->sub_id) + 1;
         }
-        mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY,
-            MOSQ_DAP_UNREACHED_CLIENTS_KEY, contact_buf);
+        char *contacts = mosquitto_malloc(len);
+        if(contacts){
+            size_t pos = 0;
+            for(struct subscriber_list *s = unreached_subs; s; s = s->next){
+                size_t id_len = strlen(s->sub_id);
+                memcpy(&contacts[pos], s->sub_id, id_len);
+                pos += id_len;
+                contacts[pos++] = ' ';
+            }
+            contacts[pos] = '\0';
+            mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY,
+                MOSQ_DAP_UNREACHED_CLIENTS_KEY, contacts);
+            mosquitto_FREE(contacts);
+        }
     }
 
-    db__messages_easy_queue_with_purpose(NULL, dap_op_properties->response_topic, MOSQ_DAP_OP_PURPOSE, 0, 0, NULL, false, 0, &props);
+    db__messages_easy_queue_with_purpose(NULL, response_topic, MOSQ_DAP_OP_PURPOSE, 0, 0, NULL, false, 0, &props);
     mosquitto_property_free_all(&props);
+}
+
+void subscription_list_free(struct subscription_list *list)
+{
+    while(list){
+        struct subscription_list *next = list->next;
+        mosquitto_FREE(list->subscriber_id);
+        mosquitto_FREE(list->topic);
+        mosquitto_FREE(list);
+        list = next;
+    }
+}
+
+void subscriber_list_free(struct subscriber_list *list)
+{
+    while(list){
+        struct subscriber_list *next = list->next;
+        mosquitto_FREE(list->sub_id);
+        mosquitto_FREE(list);
+        list = next;
+    }
 }
 
 /* Finds (sub_id, topic) for all subscriptions that got data from publisher_id. */
@@ -293,10 +331,10 @@ struct subscriber_list *forward_request_to_connected(struct subscriber_list *sub
                 MOSQ_DAP_CONSENT_KEY, "1");
 
             mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY,
-                MOSQ_DAP_ID_KEY, mosquitto_strdup(msg_data->source_id));
+                MOSQ_DAP_ID_KEY, msg_data->source_id);
 
             mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY,
-                MOSQ_DAP_OP_KEY, mosquitto_strdup(dap_op_properties->op_id));
+                MOSQ_DAP_OP_KEY, dap_op_properties->op_id);
 
             /* For a pending op (DELETE/RESTRICT) carry the broker-assigned numeric id so
              * the subscriber can reference it in its status reply. */
@@ -336,12 +374,14 @@ struct subscriber_list *forward_request_to_connected(struct subscriber_list *sub
                 mosquitto_property_add_string(&props, MQTT_PROP_RESPONSE_TOPIC, dap_op_properties->response_topic);
             }
 
-            db__messages_easy_queue_with_purpose(NULL, mosquitto_strdup(ors_topic), MOSQ_DAP_OP_PURPOSE, msg_data->qos, msg_data->payloadlen, msg_data->payload, msg_data->retain, (uint32_t)msg_data->expiry_time, &props);
+            db__messages_easy_queue_with_purpose(NULL, ors_topic, MOSQ_DAP_OP_PURPOSE, msg_data->qos, msg_data->payloadlen, msg_data->payload, msg_data->retain, (uint32_t)msg_data->expiry_time, &props);
         } else {
             struct subscriber_list *off = mosquitto_calloc(1, sizeof(*off));
-            off->sub_id = mosquitto_strdup(sub_list->sub_id);
-            off->next   = offline_head;
-            offline_head= off;
+            if(off){
+                off->sub_id = mosquitto_strdup(sub_list->sub_id);
+                off->next   = offline_head;
+                offline_head= off;
+            }
         }
         sub_list = sub_list->next;
     }
@@ -371,7 +411,7 @@ void broker_dispatch_pending_operation(const char *publisher_id, struct dr_subli
      * than echoing Pending (which would silently expire) or Success. The requester
      * correlates via correlation data, like the other immediate responses. */
     if(n == 0){
-        dap_op_properties->op_reason = "No relevant subscribers found";
+        dap_op_set_reason(dap_op_properties, "No relevant subscribers found");
         broker_send_response_failure(publisher_id, dap_op_properties, NULL);
         return;
     }
@@ -397,18 +437,8 @@ void broker_dispatch_pending_operation(const char *publisher_id, struct dr_subli
     /* (1) Forward to the online relevant subs; discard the offline list - the tracker,
      * not an immediate failure, now owns the "didn't reach them" outcome. */
     struct subscriber_list *offline = forward_request_to_connected(fwd, msg_data, dap_op_properties);
-    while(fwd){
-        struct subscriber_list *t = fwd->next;
-        mosquitto_FREE(fwd->sub_id);
-        mosquitto_FREE(fwd);
-        fwd = t;
-    }
-    while(offline){
-        struct subscriber_list *t = offline->next;
-        mosquitto_FREE(offline->sub_id);
-        mosquitto_FREE(offline);
-        offline = t;
-    }
+    subscriber_list_free(fwd);
+    subscriber_list_free(offline);
 
     /* (2) Track the op so the main-loop sweep can report unresponded subs at expiry.
      * Guard the count against a failed ids allocation so a NULL array is never paired

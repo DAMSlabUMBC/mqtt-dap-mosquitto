@@ -81,6 +81,8 @@ static void deallocate_dap_properties(struct dap__op_property *dap_op_properties
 	mosquitto_FREE(dap_op_properties->op_status);
 	mosquitto_FREE(dap_op_properties->op_reason);
 	mosquitto_FREE(dap_op_properties->op_client_id);
+	mosquitto_FREE(dap_op_properties->op_id);
+	mosquitto_FREE(dap_op_properties->response_topic);
 	/* Allocated by mosquitto_property_read_binary (or the zero-length marker above);
 	 * the response builders copy what they need, so it is safe to release here. */
 	mosquitto_FREE(dap_op_properties->correlation_data);
@@ -267,15 +269,15 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 			else if(!strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_AUDIT))
 			{
 				subscription_list *subs = find_subscriptions_for_publisher(context->id);
-				while(subs){
-					const char *info = ri__lookup_info(subs->subscriber_id);
+				for(subscription_list *s = subs; s; s = s->next){
+					const char *info = ri__lookup_info(s->subscriber_id);
 					if(info){
 						broker_send_response_success(context->id, dap_op_properties->op_id, dap_op_properties->correlation_data, 
 							dap_op_properties->correlation_data_len, info, dap_op_properties->response_topic);
-						ri__mark_sent_to_pub(context->id, subs->subscriber_id);
+						ri__mark_sent_to_pub(context->id, s->subscriber_id);
 					}
-					subs = subs->next;
 				}
+				subscription_list_free(subs);
 			}
 
 			/* REGISTER-INFO: store the requester's info for later auto-fulfilment.
@@ -338,7 +340,7 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 					subscriber_list *sub_list = find_subscribers_with_data(context->id, op_info);
 					subscriber_list *offline = forward_request_to_connected(sub_list, &stored->data, dap_op_properties);
 					if(offline){
-						dap_op_properties->op_reason = "Subscriber not connected";
+						dap_op_set_reason(dap_op_properties, "Subscriber not connected");
 						broker_send_response_failure(context->id, dap_op_properties, offline);
 					}
 					else
@@ -346,6 +348,8 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 						broker_send_response_success(context->id, dap_op_properties->op_id, dap_op_properties->correlation_data, 
 							dap_op_properties->correlation_data_len, NULL, dap_op_properties->response_topic);
 					}
+					subscriber_list_free(offline);
+					subscriber_list_free(sub_list);
 				}
 			}
 
@@ -358,7 +362,7 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 				struct dr_sublist *relevant = dr__find_relevant_subscribers(context->id, dap_op_properties);
 				if(!relevant)
 				{
-					dap_op_properties->op_reason = "No relevant subscribers";
+					dap_op_set_reason(dap_op_properties, "No relevant subscribers");
 					broker_send_response_failure(context->id, dap_op_properties, NULL);
 				}
 				else
@@ -407,7 +411,7 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 			else
 			{
 				/* Unrecognized right. */
-				dap_op_properties->op_reason = "Unknown Operation";
+				dap_op_set_reason(dap_op_properties, "Unknown Operation");
 				broker_send_response_failure(context->id, dap_op_properties, NULL);
 			}
 		}
@@ -515,6 +519,82 @@ static int register_mp_property(const char *client_id, const char *value)
 	return MOSQ_ERR_SUCCESS;
 }
 
+/* Replace *dst with a copy of value. */
+static void replace_string(char **dst, const char *value)
+{
+	mosquitto_FREE(*dst);
+	*dst = mosquitto_strdup(value);
+}
+
+/* Read the DAP operation properties of a publish into dap_op_properties. */
+static void read_dap_op_properties(const mosquitto_property *p, struct dap__op_property *dap_op_properties)
+{
+	while(p){
+		if(p->identifier == MQTT_PROP_USER_PROPERTY){
+			char *name=NULL, *value=NULL;
+			mosquitto_property_read_string_pair(p, MQTT_PROP_USER_PROPERTY, &name, &value, false);
+
+			if(name && value){
+				/* If we find DAP-OpType then note it. */
+				if(!strcmp(name, MOSQ_DAP_OP_KEY)){
+					dap_op_properties->op_present = true;
+					replace_string(&dap_op_properties->op_id, value);
+				} else if(!strcmp(name, MOSQ_DAP_OP_TFS_KEY)){
+					replace_string(&dap_op_properties->op_topic_filters, value);
+				} else if(!strcmp(name, MOSQ_DAP_OP_PFS_KEY)){
+					replace_string(&dap_op_properties->op_purpose_filters, value);
+				} else if(!strcmp(name, MOSQ_DAP_OP_CLIENTS_KEY)){
+					replace_string(&dap_op_properties->op_client_filters, value);
+				} else if(!strcmp(name, MOSQ_DAP_OP_BEFORE_KEY)){
+					dap_op_properties->op_before = (time_t)strtoll(value, NULL, 10);
+				} else if(!strcmp(name, MOSQ_DAP_OP_AFTER_KEY)){
+					dap_op_properties->op_after = (time_t)strtoll(value, NULL, 10);
+				} else if(!strcmp(name, MOSQ_DAP_STATUS_KEY)){
+					replace_string(&dap_op_properties->op_status, value);
+				} else if(!strcmp(name, MOSQ_DAP_REASON_KEY)){
+					replace_string(&dap_op_properties->op_reason, value);
+				} else if(!strcmp(name, MOSQ_DAP_ID_KEY)){
+					replace_string(&dap_op_properties->op_client_id, value);
+				} else if(!strcmp(name, MOSQ_DAP_OP_ID_KEY)){
+					dap_op_properties->op_id_num = (uint64_t)strtoull(value, NULL, 10);
+					dap_op_properties->found_op_id_num = true;
+				}
+			}
+			mosquitto_FREE(name);
+			mosquitto_FREE(value);
+		}
+		else if (p->identifier == MQTT_PROP_CORRELATION_DATA)
+		{
+			/* A *present* CorrelationData of zero length reads back as a NULL
+				* buffer with len 0 (mosquitto_property_read_binary), which is
+				* indistinguishable from "absent" to the response builders'
+				* `if(corr_data)` guard - so the property would be silently dropped
+				* from the broker's Success/Failure/Pending response. A requester
+				* that encodes a correlation id of 0 sends exactly this zero-length
+				* value, so the response would come back with no CorrelationData and
+				* could not be correlated. read_binary returns the property pointer
+				* (non-NULL) whenever it is found; keep a non-NULL marker in that
+				* case so the builders round-trip a zero-length CorrelationData
+				* instead of omitting it. The 1-byte buffer is never dereferenced
+				* (add_binary copies nothing when len is 0); it only flips the guard. */
+			mosquitto_FREE(dap_op_properties->correlation_data);
+			if(mosquitto_property_read_binary(p, MQTT_PROP_CORRELATION_DATA,
+					(void **)&(dap_op_properties->correlation_data), &(dap_op_properties->correlation_data_len), false) != NULL
+					&& dap_op_properties->correlation_data == NULL){
+				dap_op_properties->correlation_data = mosquitto_calloc(1, 1);
+			}
+		}
+		else if(p->identifier == MQTT_PROP_RESPONSE_TOPIC)
+		{
+			mosquitto_FREE(dap_op_properties->response_topic);
+			mosquitto_property_read_string(p, MQTT_PROP_RESPONSE_TOPIC, &(dap_op_properties->response_topic), false);
+		}
+
+		/* Move to next property. */
+		p = p->next;
+	}
+}
+
 int handle__publish(struct mosquitto *context)
 {
 	uint8_t dup;
@@ -529,11 +609,8 @@ int handle__publish(struct mosquitto *context)
 	int topic_alias = -1;
 	uint16_t mid = 0;
 
-	// For operations
-	struct dap__op_property *dap_op_properties = initialize_dap_properties();
-	if(dap_op_properties == NULL){
-		return MOSQ_ERR_NOMEM;
-	}
+	/* For operations; allocated after the early returns below */
+	struct dap__op_property *dap_op_properties = NULL;
 
 	if(context->state != mosq_cs_active){
 		log__printf(NULL, MOSQ_LOG_INFO, "Protocol error from %s: PUBLISH before session is active.", context->id);
@@ -775,73 +852,6 @@ int handle__publish(struct mosquitto *context)
 			}
 		}
 
-		/* Read all potential operational properties for later */
-		if(db.config->metadata_operation_handling)
-		{
-			/* Look through the user properties for DAP-OpType */
-			const mosquitto_property *p = base_msg->data.properties;
-			while(p){
-				if(p->identifier == MQTT_PROP_USER_PROPERTY){
-					char *name=NULL, *value=NULL;
-					mosquitto_property_read_string_pair(p, MQTT_PROP_USER_PROPERTY, &name, &value, false);
-
-					if(name && value){
-						/* If we find DAP-OpType then note it. */
-						if(!strcmp(name, MOSQ_DAP_OP_KEY)){
-							dap_op_properties->op_present = true;
-							dap_op_properties->op_id  = mosquitto_strdup(value);
-						} else if(!strcmp(name, MOSQ_DAP_OP_TFS_KEY)){
-							dap_op_properties->op_topic_filters = mosquitto_strdup(value);
-						} else if(!strcmp(name, MOSQ_DAP_OP_PFS_KEY)){
-							dap_op_properties->op_purpose_filters = mosquitto_strdup(value);
-						} else if(!strcmp(name, MOSQ_DAP_OP_CLIENTS_KEY)){
-							dap_op_properties->op_client_filters = mosquitto_strdup(value);
-						} else if(!strcmp(name, MOSQ_DAP_OP_BEFORE_KEY)){
-							dap_op_properties->op_before = (time_t)strtoll(value, NULL, 10);
-						} else if(!strcmp(name, MOSQ_DAP_OP_AFTER_KEY)){
-							dap_op_properties->op_after = (time_t)strtoll(value, NULL, 10);
-						} else if(!strcmp(name, MOSQ_DAP_STATUS_KEY)){
-							dap_op_properties->op_status = mosquitto_strdup(value);
-						} else if(!strcmp(name, MOSQ_DAP_REASON_KEY)){
-							dap_op_properties->op_reason = mosquitto_strdup(value);
-						} else if(!strcmp(name, MOSQ_DAP_ID_KEY)){
-							dap_op_properties->op_client_id = mosquitto_strdup(value);
-						} else if(!strcmp(name, MOSQ_DAP_OP_ID_KEY)){
-							dap_op_properties->op_id_num = (uint64_t)strtoull(value, NULL, 10);
-							dap_op_properties->found_op_id_num = true;
-						}
-					}
-				}
-				else if (p->identifier == MQTT_PROP_CORRELATION_DATA)
-				{
-					/* A *present* CorrelationData of zero length reads back as a NULL
-						* buffer with len 0 (mosquitto_property_read_binary), which is
-						* indistinguishable from "absent" to the response builders'
-						* `if(corr_data)` guard - so the property would be silently dropped
-						* from the broker's Success/Failure/Pending response. A requester
-						* that encodes a correlation id of 0 sends exactly this zero-length
-						* value, so the response would come back with no CorrelationData and
-						* could not be correlated. read_binary returns the property pointer
-						* (non-NULL) whenever it is found; keep a non-NULL marker in that
-						* case so the builders round-trip a zero-length CorrelationData
-						* instead of omitting it. The 1-byte buffer is never dereferenced
-						* (add_binary copies nothing when len is 0); it only flips the guard. */
-					if(mosquitto_property_read_binary(p, MQTT_PROP_CORRELATION_DATA,
-							(void **)&(dap_op_properties->correlation_data), &(dap_op_properties->correlation_data_len), false) != NULL
-							&& dap_op_properties->correlation_data == NULL){
-						dap_op_properties->correlation_data = mosquitto_calloc(1, 1);
-					}
-				}
-				else if(p->identifier == MQTT_PROP_RESPONSE_TOPIC)
-				{
-					mosquitto_property_read_string(p, MQTT_PROP_RESPONSE_TOPIC, &(dap_op_properties->response_topic), false);
-				}
-
-				/* Move to next property. */
-				p = p->next;
-			}
-		}
-
 		/* Expose the receipt timestamp to subscribers as a user property, so they
 		 * share the broker's reference time for ordering. */
 		char ts_buf[32];
@@ -860,6 +870,14 @@ int handle__publish(struct mosquitto *context)
 	}
 
 #endif
+	dap_op_properties = initialize_dap_properties();
+	if(dap_op_properties == NULL){
+		db__msg_store_free(base_msg);
+		return MOSQ_ERR_NOMEM;
+	}
+	if(context->protocol == mosq_p_mqtt5 && db.config->metadata_operation_handling){
+		read_dap_op_properties(base_msg->data.properties, dap_op_properties);
+	}
 	if(mosquitto_pub_topic_check(base_msg->data.topic) != MOSQ_ERR_SUCCESS){
 		/* Invalid publish topic, just swallow it. */
 		db__msg_store_free(base_msg);
