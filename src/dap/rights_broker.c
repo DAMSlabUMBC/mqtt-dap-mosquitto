@@ -13,6 +13,7 @@
 #include "dap/dap_persist.h"
 #include "dap/dap_request_store.h"
 #include "dap/purpose_filters.h"
+#include "dap/mp_registry.h"
 
 /* Paper 6.2: requests and notifications are delivered at least once. */
 #define DAP_OP_QOS 1
@@ -23,26 +24,61 @@ struct mosquitto *broker_find_context_by_id(const char *client_id)
     return db__find_context_by_id(client_id);
 }
 
-/* Removes Wills or retained messages invoking erasure. */
-void handle_remove_stored_messages(const char *publisher_id)
+/* True when a stored message of publisher_id on topic falls under a DELETE: the topic
+ * matches one of its DAP-OpTFs, and the publisher's MP for it, when known, shares a
+ * purpose with its DAP-OpPFs. */
+static bool dap__stored_message_covered(const char *publisher_id, const char *topic,
+    struct dap__op_property *dap_op_properties)
 {
-    /* Remove will message for publisher*/
+    const char *filters = dap_op_properties->op_topic_filters;
+    const char *purposes = dap_op_properties->op_purpose_filters;
+
+    if(filters && filters[0] && strcmp(filters, "*")){
+        bool matched = false;
+        for(const char *p = filters; *p && !matched; ){
+            const char *comma = strchr(p, ',');
+            size_t len = comma ? (size_t)(comma - p) : strlen(p);
+            char *filter = mosquitto_strndup(p, len);
+            if(filter && (!strcmp(filter, "*")
+                    || (mosquitto_topic_matches_sub(filter, topic, &matched) == MOSQ_ERR_SUCCESS && matched))){
+                matched = true;
+            }
+            mosquitto_FREE(filter);
+            p = comma ? comma + 1 : p + len;
+        }
+        if(!matched) return false;
+    }
+    if(purposes && purposes[0] && strcmp(purposes, "*")){
+        struct mp_entry *mp = mp__lookup(publisher_id, topic);
+        char *canonical = NULL;
+        bool shared = true;
+        if(mp && purpose_filter_canonical(purposes, &canonical) == MOSQ_ERR_SUCCESS){
+            shared = purpose_sets_intersect(mp->purpose_filter, canonical);
+        }
+        mosquitto_FREE(canonical);
+        if(!shared) return false;
+    }
+    return true;
+}
+
+/* A DELETE also removes the requester's will and retained messages it covers. */
+void handle_remove_stored_messages(const char *publisher_id, struct dap__op_property *dap_op_properties)
+{
     struct mosquitto *pub_ctx = broker_find_context_by_id(publisher_id);
-    if(pub_ctx && pub_ctx->will){
+    if(pub_ctx && pub_ctx->will
+            && dap__stored_message_covered(publisher_id, pub_ctx->will->msg.topic, dap_op_properties)){
         mosquitto_FREE(pub_ctx->will->msg.topic);
         mosquitto_FREE(pub_ctx->will->msg.payload);
         mosquitto_FREE(pub_ctx->will);
         pub_ctx->will = NULL;
     }
 
-    /* Remove retained message for publisher */
     extern struct dr_retained_entry *dr_retained_head;
-    struct dr_retained_entry *cur = dr_retained_head;
-    while(cur){
-        if(!strcmp(cur->pub_id, publisher_id)){
+    for(struct dr_retained_entry *cur = dr_retained_head; cur; cur = cur->next){
+        if(!strcmp(cur->pub_id, publisher_id)
+                && dap__stored_message_covered(publisher_id, cur->topic, dap_op_properties)){
             mosquitto_persist_retain_msg_delete(cur->topic);
         }
-        cur = cur->next;
     }
 }
 

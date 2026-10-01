@@ -339,7 +339,7 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 					/* DELETE additionally drops the publisher's stored will/retained data. */
 					if(!strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_DELETE))
 					{
-						handle_remove_stored_messages(context->id);
+						handle_remove_stored_messages(context->id, dap_op_properties);
 					}
 				}
 				else

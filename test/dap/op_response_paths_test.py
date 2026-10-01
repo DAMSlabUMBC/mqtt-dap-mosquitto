@@ -120,12 +120,12 @@ class Client:
         props.UserProperty = [("DAP-SP", sp)]
         self.c.subscribe(topic, qos=1, properties=props)
 
-    def publish(self, topic, pairs, payload=b"", qos=1, response_topic=None):
+    def publish(self, topic, pairs, payload=b"", qos=1, response_topic=None, retain=False):
         props = Properties(PacketTypes.PUBLISH)
         props.UserProperty = [("DAP-Allow", "1")] + pairs
         if response_topic:
             props.ResponseTopic = response_topic
-        self.c.publish(topic, payload=payload, qos=qos, properties=props).wait_for_publish(5)
+        self.c.publish(topic, payload=payload, qos=qos, retain=retain, properties=props).wait_for_publish(5)
 
     def got(self, topic_prefix, **match):
         return [m for m in self.msgs
@@ -342,6 +342,24 @@ def case_status_request(pub):
     return bool(summary) and summary["subC"]["status"] == "Success"
 
 
+def case_delete_scopes_retained(pub):
+    # A DELETE removes the requester's retained messages it covers, and only those.
+    pub.publish("$MP_REG", [("DAP-MP", f"{MP}:sensors/other")], qos=0)
+    time.sleep(0.2)
+    subscribers_with_data(pub, ["subA"])
+    pub.publish(TOPIC, [], payload=b"kept-a", retain=True)
+    pub.publish("sensors/other", [], payload=b"kept-b", retain=True)
+    pub.publish(OSYS, [("DAP-OpType", "DELETE"), ("DAP-OpTFs", TOPIC)])
+    if not wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Pending"})):
+        return False
+    time.sleep(0.3)
+    late = Client("subLate").connect()
+    late.subscribe(TOPIC, MP)
+    late.subscribe("sensors/other", MP)
+    time.sleep(0.5)
+    return [m[1] for m in late.got("sensors/")] == [b"kept-b"]
+
+
 def case_deadline_in_the_past(pub):
     subscribers_with_data(pub, ["subA"])
     pub.publish(OSYS, [("DAP-OpType", "DELETE"), ("DAP-OpTFs", TOPIC), ("DAP-Deadline", str(int(time.time()) - 5))])
@@ -385,6 +403,7 @@ CASES = [
     ("HISTORY with an offline subscriber gets a Pending ack", case_history_subscriber_offline, True),
     ("HISTORY with many offline subscribers lists every one at the requested deadline", case_history_many_offline, True),
     ("a deadline that has already passed gets a Failure", case_deadline_in_the_past, True),
+    ("a DELETE removes only the retained messages it covers", case_delete_scopes_retained, True),
     ("an O: operation runs the subscriber workflow", case_client_defined_operation, True),
     ("the requester can ask for an operation's status", case_status_request, True),
     ("an O: operation without a name is unknown", case_client_defined_operation_needs_a_name, True),
