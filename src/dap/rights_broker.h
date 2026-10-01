@@ -12,7 +12,6 @@
 struct mosquitto;
 struct subscriber_list;
 struct mosquitto_base_msg;
-struct subscription_list;
 struct dr_sublist; /* lib/dr_registry.h: relevant-subscriber list node */
 
 /* A function to lookup a client context by ID and a function to check if a subscriber is online. */
@@ -33,7 +32,7 @@ void broker_send_response_pending(const char *publisher_id, struct dap__op_prope
 /* Final failure for a request. Like broker_send_response_success it is sent to the
  * requester's response topic (op_resp/<publisher_id>); pass response_topic == NULL to
  * fall back to ONP/<publisher_id>. */
-void broker_send_response_failure(const char *publisher_id, struct dap__op_property* dap_op_properties, struct subscriber_list *unreached_subs);
+void broker_send_response_failure(const char *publisher_id, struct dap__op_property* dap_op_properties);
 
 /* Pending-op dispatch (DELETE/RESTRICT): forward the request to the relevant
  * subscribers on their ORS (carrying op_id), register the op with the deadline tracker
@@ -56,26 +55,13 @@ void broker_send_deadline_success(uint64_t op_id, const char *publisher_id);
 void broker_forward_status_to_requester(const char *requester_id, struct dap__op_property *dap_op_properties, const char *responder_id,
     const void *payload, uint32_t payloadlen);
 
-/* Free the lists returned by the lookups below and forward_request_to_connected. */
-void subscription_list_free(struct subscription_list *list);
+/* Free the list returned by forward_request_to_connected. */
 void subscriber_list_free(struct subscriber_list *list);
-
-/* For enumerating who got the publisher's data (C1). */
-struct subscription_list *find_subscriptions_for_publisher(const char *publisher_id);
-
-/* For enumerating who has data matching a filter (C2/C3). */
-struct subscriber_list *find_subscribers_with_data(const char *publisher_id, const char *data_filter);
 
 /* Forward a right request to RRS/<sub_id> if online, else add to an offline list. */
 struct subscriber_list *forward_request_to_connected(struct subscriber_list *sub_list, struct mosquitto_base_msg *msg_data, struct dap__op_property *dap_op_properties);
 
-/* Data structures for returning lists of subscribers. */
-typedef struct subscription_list {
-    char *subscriber_id;
-    char *topic;
-    struct subscription_list *next;
-} subscription_list;
-
+/* A list of subscriber ids. */
 typedef struct subscriber_list {
     char *sub_id;
     struct subscriber_list *next;

@@ -144,7 +144,7 @@ void broker_send_response_pending(const char *publisher_id, struct dap__op_prope
  * Success and Failure outcomes of a request land on the same channel and the requester
  * correlates either by its correlation data. When the request carried no response topic
  * (response_topic == NULL) it falls back to ONP/<publisher_id>. */
-void broker_send_response_failure(const char *publisher_id, struct dap__op_property* dap_op_properties, struct subscriber_list *unreached_subs)
+void broker_send_response_failure(const char *publisher_id, struct dap__op_property* dap_op_properties)
 {
     if(!publisher_id) return;
     char onp_topic[256];
@@ -177,42 +177,8 @@ void broker_send_response_failure(const char *publisher_id, struct dap__op_prope
         mosquitto_property_add_binary(&props, MQTT_PROP_CORRELATION_DATA, dap_op_properties->correlation_data, dap_op_properties->correlation_data_len);
     }
 
-    if(unreached_subs)
-    {
-        /* Space-separated ids, sized to fit them all. */
-        size_t len = 1;
-        for(struct subscriber_list *s = unreached_subs; s; s = s->next){
-            len += strlen(s->sub_id) + 1;
-        }
-        char *contacts = mosquitto_malloc(len);
-        if(contacts){
-            size_t pos = 0;
-            for(struct subscriber_list *s = unreached_subs; s; s = s->next){
-                size_t id_len = strlen(s->sub_id);
-                memcpy(&contacts[pos], s->sub_id, id_len);
-                pos += id_len;
-                contacts[pos++] = ' ';
-            }
-            contacts[pos] = '\0';
-            mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY,
-                MOSQ_DAP_UNREACHED_CLIENTS_KEY, contacts);
-            mosquitto_FREE(contacts);
-        }
-    }
-
     db__messages_easy_queue_with_purpose(NULL, response_topic, MOSQ_DAP_OP_PURPOSE, 0, 0, NULL, false, 0, &props);
     mosquitto_property_free_all(&props);
-}
-
-void subscription_list_free(struct subscription_list *list)
-{
-    while(list){
-        struct subscription_list *next = list->next;
-        mosquitto_FREE(list->subscriber_id);
-        mosquitto_FREE(list->topic);
-        mosquitto_FREE(list);
-        list = next;
-    }
 }
 
 void subscriber_list_free(struct subscriber_list *list)
@@ -223,97 +189,6 @@ void subscriber_list_free(struct subscriber_list *list)
         mosquitto_FREE(list);
         list = next;
     }
-}
-
-/* Finds (sub_id, topic) for all subscriptions that got data from publisher_id. */
-struct subscription_list *find_subscriptions_for_publisher(const char *publisher_id)
-{
-    struct subscription_list *head = NULL;
-    struct subscription_list *check_ptr = NULL;
-    extern struct dr_entry *dr_head;
-    struct dr_entry *cur = dr_head;
-
-    while(cur){
-        if(!strcmp(cur->pub_id, publisher_id)){
-            struct dr_sublist *s = cur->sub_list;
-            while(s){
-
-                bool found = false;
-                check_ptr = head;
-                while(check_ptr)
-                {
-                    /* We've already added this subscriber */
-                    if(!strcmp(check_ptr->subscriber_id, s->sub_id))
-                    {
-                        found = true;
-                        break;
-                    }
-
-                    check_ptr = check_ptr->next;
-                }
-
-                if (!found) 
-                {
-                    struct subscription_list *node = mosquitto_calloc(1, sizeof(*node));
-                    if(!node) return head;
-                    node->subscriber_id = mosquitto_strdup(s->sub_id);
-                    node->topic        = mosquitto_strdup(cur->topic);
-                    node->next         = head;
-                    head = node;
-                }
-
-                s = s->next;
-            }
-        }
-        cur = cur->next;
-    }
-    return head;
-}
-
-/* Finds subs with matching topic if data_filter is in the topic name. */
-struct subscriber_list *find_subscribers_with_data(const char *publisher_id, const char *data_filter)
-{
-    struct subscriber_list *head = NULL;
-    struct subscriber_list *check_ptr = NULL;
-    extern struct dr_entry *dr_head;
-    struct dr_entry *cur = dr_head;
-
-    while(cur){
-        if(!strcmp(cur->pub_id, publisher_id)){
-            if(data_filter && (strstr(cur->topic, data_filter) || !strcmp(data_filter, MOSQ_DAP_ALLOW_ALL_FILTER))) {
-                struct dr_sublist *s = cur->sub_list;
-                while(s){
-
-                    bool found = false;
-                    check_ptr = head;
-                    while(check_ptr)
-                    {
-                        /* We've already added this subscriber */
-                        if(!strcmp(check_ptr->sub_id, s->sub_id))
-                        {
-                            found = true;
-                            break;
-                        }
-
-                        check_ptr = check_ptr->next;
-                    }
-
-                    if (!found) 
-                    {
-                        /* New subscriber, add */
-                        struct subscriber_list *node = mosquitto_calloc(1, sizeof(*node));
-                        if(!node) return head;
-                        node->sub_id = mosquitto_strdup(s->sub_id);
-                        node->next   = head;
-                        head         = node;
-                    }
-                    s = s->next;
-                }
-            }
-        }
-        cur = cur->next;
-    }
-    return head;
 }
 
 /* Publishes a right request to RRS/<sub> if online, else collects them offline. */
@@ -417,7 +292,7 @@ void broker_dispatch_pending_operation(const char *publisher_id, struct dr_subli
      * correlates via correlation data, like the other immediate responses. */
     if(n == 0){
         dap_op_set_reason(dap_op_properties, "No relevant subscribers found");
-        broker_send_response_failure(publisher_id, dap_op_properties, NULL);
+        broker_send_response_failure(publisher_id, dap_op_properties);
         return;
     }
 
@@ -497,19 +372,25 @@ void broker_send_deadline_failure(uint64_t op_id, const char *publisher_id,
         MOSQ_DAP_REASON_KEY, "Operation deadline expired");
 
     if(unresponded_subs && num_unresponded > 0){
-        char contact_buf[256];
-        contact_buf[0] = '\0';
+        /* Space-separated ids, sized to fit them all. */
+        size_t len = 1;
         for(size_t i = 0; i < num_unresponded; i++){
-            size_t used = strlen(contact_buf);
-            if(used + 1 >= sizeof(contact_buf)) break;
-            strncat(contact_buf, unresponded_subs[i], sizeof(contact_buf) - 1 - used);
-            used = strlen(contact_buf);
-            if(used + 1 < sizeof(contact_buf)){
-                strncat(contact_buf, " ", sizeof(contact_buf) - 1 - used);
-            }
+            len += strlen(unresponded_subs[i]) + 1;
         }
-        mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY,
-            MOSQ_DAP_UNREACHED_CLIENTS_KEY, contact_buf);
+        char *contacts = mosquitto_malloc(len);
+        if(contacts){
+            size_t pos = 0;
+            for(size_t i = 0; i < num_unresponded; i++){
+                size_t id_len = strlen(unresponded_subs[i]);
+                memcpy(&contacts[pos], unresponded_subs[i], id_len);
+                pos += id_len;
+                contacts[pos++] = ' ';
+            }
+            contacts[pos] = '\0';
+            mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY,
+                MOSQ_DAP_UNREACHED_CLIENTS_KEY, contacts);
+            mosquitto_FREE(contacts);
+        }
     }
 
     db__messages_easy_queue_with_purpose(NULL, onp_topic, MOSQ_DAP_OP_PURPOSE, 0, 0, NULL, false, 0, &props);
