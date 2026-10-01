@@ -2,7 +2,8 @@
 """DAP pending operations, flows, subscription SPs and held requests survive a broker
 crash + restart (persist-sqlite), and operations are reclaimed once their deadline passes.
 
-MPs are not persisted, so publishers re-register them after the restart.
+Registered MPs are not persisted, only each message's own, so publishers re-register
+them after the restart.
 
 Usage: python3 test/dap/op_persistence_test.py [broker] [plugin.so] [port]
 """

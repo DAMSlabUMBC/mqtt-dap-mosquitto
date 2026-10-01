@@ -548,8 +548,8 @@ void broker_send_operation_status(const char *requester_id, struct dap__op_prope
         return;
     }
 
-    /* Each subscriber's latest status: the reason of a failure, or the seconds left
-     * before the deadline while it has not responded. */
+    /* Each subscriber's latest status and the reason it gave, if any, or the seconds
+     * left before the deadline while it has not responded. */
     cJSON *root = cJSON_CreateObject();
     cJSON *subs = root ? cJSON_AddArrayToObject(root, "subscribers") : NULL;
     for(const struct dap_expected_sub *sub = op->expected; subs && sub; sub = sub->next){
