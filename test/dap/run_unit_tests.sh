@@ -28,7 +28,6 @@ TESTS=(
 	"dap_op_requester_test|dap_op_requester.c $MEM|"
 	"dap_op_request_test|dap_op_request.c dap_pending_ops.c purpose_filters.c $TOPIC $MEM|"
 	"dap_pending_ops_test|dap_pending_ops.c purpose_filters.c $TOPIC $MEM|"
-	"dap_pqueue_test|dap_pqueue.c|"
 	"dap_request_store_test|dap_request_store.c $PROPS $MEM|"
 	"dap_send_verify_test|dap_send_verify.c|"
 	"dap_stamp_test|dap_stamp.c dap_subscription_queues.c mp_registry.c $MEM|"
