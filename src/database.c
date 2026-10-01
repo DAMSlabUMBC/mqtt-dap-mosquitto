@@ -36,6 +36,7 @@ Contributors:
 #include "dap/mp_registry.h"
 #include "dap/purpose_filters.h"
 #include "dap/dr_registry.h"
+#include "dap/dap_persist.h"
 #include "dap/dap_metrics.h"
 
 /**
@@ -1718,9 +1719,12 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 				if(!is_op_system && base_msg->data.source_id){
 					/* Paper 6.1: the flow keeps the SP in force at delivery. A message
 					 * restored without its subscription records an empty SP. */
-					dr__record_flow(base_msg->data.source_id, topic, client_id,
+					const struct dr_sublist *changed;
+					if(dr__record_flow(base_msg->data.source_id, topic, client_id,
 							leaf ? leaf->purpose_filters : NULL, leaf ? leaf->purpose_filter_count : 0,
-							base_msg->dap_recv_time);
+							base_msg->dap_recv_time, &changed) == MOSQ_ERR_SUCCESS && changed){
+						dap_persist__flow_add(base_msg->data.source_id, topic, changed);
+					}
 				}
 			}
 			if(has_stamp){

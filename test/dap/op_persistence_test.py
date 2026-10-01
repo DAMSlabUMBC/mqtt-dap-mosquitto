@@ -195,12 +195,24 @@ def main():
     time.sleep(0.5)
     check(not subZ.got("sensors/temp"), "queued message covered by the restored DELETE is dropped")
 
-    # MPs and SPs are not persisted: clients re-declare them after a restart.
+    # Flows survive the restart (paper 6.1): relevance needs no new delivery.
     pub1 = Client("pub1").connect()
     pub1.subscribe(f"{OP_NOTIF}/pub1", OP_PURPOSE)
+    time.sleep(0.3)
+    pub1.publish(OSYS, [("DAP-OpType", "AUDIT"), ("DAP-OpTFs", "sensors/temp"), ("DAP-OpPFs", MP)])
+    check(wait_for(lambda: pub1.got(OP_NOTIF, **{"DAP-OpType": "AUDIT", "DAP-Status": "Success"})),
+          "an AUDIT after the restart gets an answer")
+    audit = pub1.got(OP_NOTIF, **{"DAP-OpType": "AUDIT", "DAP-Status": "Success"})
+    check(bool(audit) and sorted(audit[0][1].split(b",")) == [b"subX", b"subY"],
+          f"it lists the subscribers that received data before the restart: {audit[0][1] if audit else None}")
+
+    # SPs survive with the session; MPs are re-registered by their publishers.
     pub1.publish("$MP_REG", [("DAP-MP", f"{MP}:sensors/humidity")], qos=0)
     subY = Client("subY").connect()
     time.sleep(0.3)
+    data(pub1, "sensors/humidity", b"humidity-for-restored-sessions")
+    check(wait_for(lambda: subY.got("sensors/humidity")),
+          "a restored session receives new data without subscribing again")
     subY.publish(OSYS, [("DAP-Status", "Success"), ("DAP-OpId", op_id)])
     check(wait_for(lambda: pub1.got(OP_NOTIF, **{"DAP-Status": "Success", "DAP-ClientID": "subY"})),
           "subY's response after the restart is relayed to the requester")

@@ -310,3 +310,14 @@ bool sub__purpose_allows(const struct mosquitto__subleaf *leaf, const struct mos
 	UNUSED(stored);
 	return true;
 }
+
+
+struct dr_sublist;
+
+/* The real one in src/dap/dap_persist.c needs the plugin machinery. */
+void dap_persist__flow_add(const char *publisher_id, const char *topic, const struct dr_sublist *flow)
+{
+	UNUSED(publisher_id);
+	UNUSED(topic);
+	UNUSED(flow);
+}

@@ -122,6 +122,17 @@ struct mosquitto_dap_op {
 	void *future[3];
 };
 
+/* A DAP flow: deliveries from a publisher on a topic to a subscriber under one SP. */
+struct mosquitto_dap_flow {
+	const char *publisher_id;
+	const char *topic;
+	const char *subscriber_id;
+	const char *purposes;        /* the SP at delivery, '|'-joined */
+	time_t first_time;
+	time_t last_time;
+	void *future[4];
+};
+
 /* A DAP op awaiting subscriber responses until its deadline. */
 struct mosquitto_dap_tracked_op {
 	uint64_t op_id;
@@ -205,6 +216,7 @@ enum mosquitto_plugin_event {
 	MOSQ_EVT_PERSIST_DAP_TRACKED_OP_RESPONSE = 102,
 	MOSQ_EVT_PERSIST_DAP_TRACKED_OP_DELETE = 103,
 	MOSQ_EVT_PERSIST_DAP_OP_DELETE = 104,
+	MOSQ_EVT_PERSIST_DAP_FLOW_ADD = 105,
 };
 
 /* Data for the MOSQ_EVT_RELOAD event */
@@ -417,6 +429,14 @@ struct mosquitto_evt_persist_will_msg {
 struct mosquitto_evt_persist_dap_op {
 	void *future;
 	struct mosquitto_dap_op data;
+	void *future2[8];
+};
+
+
+/* Data for MOSQ_EVT_PERSIST_DAP_FLOW_ADD, which adds or updates a flow. */
+struct mosquitto_evt_persist_dap_flow {
+	void *future;
+	struct mosquitto_dap_flow data;
 	void *future2[8];
 };
 
@@ -1305,6 +1325,13 @@ mosq_EXPORT int mosquitto_persist_dap_op_add(const struct mosquitto_dap_op *op);
  * persistence plugins during MOSQ_EVT_PERSIST_RESTORE.
  */
 mosq_EXPORT int mosquitto_persist_dap_tracked_op_add(const struct mosquitto_dap_tracked_op *op);
+
+
+/* Function: mosquitto_persist_dap_flow_add
+ *
+ * Restore a DAP flow. For persistence plugins during MOSQ_EVT_PERSIST_RESTORE.
+ */
+mosq_EXPORT int mosquitto_persist_dap_flow_add(const struct mosquitto_dap_flow *flow);
 
 /* Function: mosquitto_persistence_location
  *

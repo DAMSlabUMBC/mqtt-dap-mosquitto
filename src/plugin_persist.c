@@ -174,6 +174,8 @@ void plugin_persist__handle_subscription_add(struct mosquitto *context, const st
 	event_data.data.topic_filter = sub->topic_filter;
 	event_data.data.identifier = sub->identifier;
 	event_data.data.options = sub->options;
+	event_data.data.purpose_filter_count = sub->purpose_filter_count;
+	event_data.data.purpose_filters = sub->purpose_filters;
 
 	DL_FOREACH_SAFE(opts->plugin_callbacks.persist_subscription_add, cb_base, cb_next){
 		cb_base->cb(MOSQ_EVT_PERSIST_SUBSCRIPTION_ADD, &event_data, cb_base->userdata);

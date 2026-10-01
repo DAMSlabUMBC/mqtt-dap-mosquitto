@@ -10,6 +10,7 @@
 #include "dap/dap_pending_ops.h"
 #include "dap/dap_deadline_tracker.h"
 #include "dap/dap_op_requester.h"
+#include "dap/dr_registry.h"
 
 
 void dap_persist__op_add(uint64_t op_id, const char *publisher_id, int op_type, time_t timestamp,
@@ -57,6 +58,41 @@ void dap_persist__op_delete(uint64_t op_id)
 	DL_FOREACH_SAFE(opts->plugin_callbacks.persist_dap_op_delete, cb_base, cb_next){
 		cb_base->cb(MOSQ_EVT_PERSIST_DAP_OP_DELETE, &event_data, cb_base->userdata);
 	}
+}
+
+
+void dap_persist__flow_add(const char *publisher_id, const char *topic, const struct dr_sublist *flow)
+{
+	struct mosquitto_evt_persist_dap_flow event_data;
+	struct mosquitto__callback *cb_base, *cb_next;
+	struct mosquitto__security_options *opts;
+
+	if(db.shutdown){
+		return;
+	}
+
+	opts = &db.config->security_options;
+	memset(&event_data, 0, sizeof(event_data));
+	event_data.data.publisher_id = publisher_id;
+	event_data.data.topic = topic;
+	event_data.data.subscriber_id = flow->sub_id;
+	event_data.data.purposes = flow->sp;
+	event_data.data.first_time = flow->first_time;
+	event_data.data.last_time = flow->last_time;
+
+	DL_FOREACH_SAFE(opts->plugin_callbacks.persist_dap_flow_add, cb_base, cb_next){
+		cb_base->cb(MOSQ_EVT_PERSIST_DAP_FLOW_ADD, &event_data, cb_base->userdata);
+	}
+}
+
+
+BROKER_EXPORT int mosquitto_persist_dap_flow_add(const struct mosquitto_dap_flow *flow)
+{
+	if(flow == NULL || flow->publisher_id == NULL || flow->topic == NULL || flow->subscriber_id == NULL){
+		return MOSQ_ERR_INVAL;
+	}
+	return dr__restore_flow(flow->publisher_id, flow->topic, flow->subscriber_id, flow->purposes,
+			flow->first_time, flow->last_time);
 }
 
 

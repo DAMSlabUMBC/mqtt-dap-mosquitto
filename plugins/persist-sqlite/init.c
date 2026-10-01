@@ -148,6 +148,7 @@ static int create_tables(struct mosquitto_sqlite *ms)
 			"topic TEXT NOT NULL,"
 			"subscription_options INTEGER,"
 			"subscription_identifier INTEGER,"
+			"purposes TEXT,"
 			"PRIMARY KEY (client_id, topic) "
 			");",
 			NULL, NULL, NULL);
@@ -209,6 +210,7 @@ static int create_tables(struct mosquitto_sqlite *ms)
 
 	sqlite3_exec(ms->db, "ALTER TABLE client_msgs ADD COLUMN cmsg_id INT64", NULL, NULL, NULL);
 	sqlite3_exec(ms->db, "ALTER TABLE client_msgs ADD COLUMN subscription_identifier INT", NULL, NULL, NULL);
+	sqlite3_exec(ms->db, "ALTER TABLE subscriptions ADD COLUMN purposes TEXT", NULL, NULL, NULL);
 
 	rc = sqlite3_exec(ms->db,
 			"CREATE TABLE IF NOT EXISTS version_info "
@@ -281,8 +283,8 @@ static int prepare_statements(struct mosquitto_sqlite *ms)
 	/* Subscriptions */
 	rc = sqlite3_prepare_v3(ms->db,
 			"INSERT OR REPLACE INTO subscriptions "
-			"(client_id, topic, subscription_options, subscription_identifier) "
-			"VALUES (?,?,?,?)",
+			"(client_id, topic, subscription_options, subscription_identifier, purposes) "
+			"VALUES (?,?,?,?,?)",
 			-1, SQLITE_PREPARE_PERSISTENT,
 			&ms->subscription_add_stmt, NULL);
 	if(rc){

@@ -46,6 +46,22 @@ int persist_sqlite__dap_init(struct mosquitto_sqlite *ms)
 	}
 
 	rc = sqlite3_exec(ms->db,
+			"CREATE TABLE IF NOT EXISTS dap_flows "
+			"("
+			"publisher_id TEXT NOT NULL,"
+			"topic TEXT NOT NULL,"
+			"subscriber_id TEXT NOT NULL,"
+			"purposes TEXT NOT NULL,"
+			"first_time INT64,"
+			"last_time INT64,"
+			"PRIMARY KEY (publisher_id, topic, subscriber_id, purposes)"
+			");",
+			NULL, NULL, NULL);
+	if(rc){
+		goto fail;
+	}
+
+	rc = sqlite3_exec(ms->db,
 			"CREATE TABLE IF NOT EXISTS dap_tracked_op_subs "
 			"("
 			"op_id INT64 NOT NULL,"
@@ -64,6 +80,16 @@ int persist_sqlite__dap_init(struct mosquitto_sqlite *ms)
 			"VALUES(?,?,?,?,?,?,?,?)",
 			-1, SQLITE_PREPARE_PERSISTENT,
 			&ms->dap_op_add_stmt, NULL);
+	if(rc){
+		goto fail;
+	}
+
+	rc = sqlite3_prepare_v3(ms->db,
+			"INSERT OR REPLACE INTO dap_flows "
+			"(publisher_id, topic, subscriber_id, purposes, first_time, last_time) "
+			"VALUES(?,?,?,?,?,?)",
+			-1, SQLITE_PREPARE_PERSISTENT,
+			&ms->dap_flow_add_stmt, NULL);
 	if(rc){
 		goto fail;
 	}
@@ -132,6 +158,7 @@ void persist_sqlite__dap_cleanup(struct mosquitto_sqlite *ms)
 {
 	sqlite3_finalize(ms->dap_op_add_stmt);
 	sqlite3_finalize(ms->dap_op_delete_stmt);
+	sqlite3_finalize(ms->dap_flow_add_stmt);
 	sqlite3_finalize(ms->dap_tracked_op_add_stmt);
 	sqlite3_finalize(ms->dap_tracked_op_sub_add_stmt);
 	sqlite3_finalize(ms->dap_tracked_op_response_stmt);
@@ -177,6 +204,29 @@ int persist_sqlite__dap_op_add_cb(int event, void *event_data, void *userdata)
 			&& bind_text(stmt, 6, ed->data.purpose_filters) == SQLITE_OK
 			&& bind_text(stmt, 7, ed->data.client_filters) == SQLITE_OK
 			&& sqlite3_bind_int64(stmt, 8, (int64_t)ed->data.deadline) == SQLITE_OK
+			){
+
+		return step_and_reset(ms, stmt);
+	}
+	sqlite3_reset(stmt);
+	return MOSQ_ERR_UNKNOWN;
+}
+
+
+int persist_sqlite__dap_flow_add_cb(int event, void *event_data, void *userdata)
+{
+	struct mosquitto_evt_persist_dap_flow *ed = event_data;
+	struct mosquitto_sqlite *ms = userdata;
+	sqlite3_stmt *stmt = ms->dap_flow_add_stmt;
+
+	UNUSED(event);
+
+	if(bind_text(stmt, 1, ed->data.publisher_id) == SQLITE_OK
+			&& bind_text(stmt, 2, ed->data.topic) == SQLITE_OK
+			&& bind_text(stmt, 3, ed->data.subscriber_id) == SQLITE_OK
+			&& bind_text(stmt, 4, ed->data.purposes ? ed->data.purposes : "") == SQLITE_OK
+			&& sqlite3_bind_int64(stmt, 5, (int64_t)ed->data.first_time) == SQLITE_OK
+			&& sqlite3_bind_int64(stmt, 6, (int64_t)ed->data.last_time) == SQLITE_OK
 			){
 
 		return step_and_reset(ms, stmt);
@@ -429,9 +479,46 @@ static int dap_tracked_op_restore(struct mosquitto_sqlite *ms)
 }
 
 
+static int dap_flow_restore(struct mosquitto_sqlite *ms)
+{
+	sqlite3_stmt *stmt;
+	struct mosquitto_dap_flow flow;
+	int rc;
+	long count = 0, failed = 0;
+
+	rc = sqlite3_prepare_v2(ms->db,
+			"SELECT publisher_id, topic, subscriber_id, purposes, first_time, last_time FROM dap_flows",
+			-1, &stmt, NULL);
+	if(rc != SQLITE_OK){
+		mosquitto_log_printf(MOSQ_LOG_ERR, "sqlite: Error restoring DAP flows: %s", sqlite3_errstr(rc));
+		return MOSQ_ERR_UNKNOWN;
+	}
+
+	while(sqlite3_step(stmt) == SQLITE_ROW){
+		memset(&flow, 0, sizeof(flow));
+		flow.publisher_id = (const char *)sqlite3_column_text(stmt, 0);
+		flow.topic = (const char *)sqlite3_column_text(stmt, 1);
+		flow.subscriber_id = (const char *)sqlite3_column_text(stmt, 2);
+		flow.purposes = (const char *)sqlite3_column_text(stmt, 3);
+		flow.first_time = (time_t)sqlite3_column_int64(stmt, 4);
+		flow.last_time = (time_t)sqlite3_column_int64(stmt, 5);
+
+		if(mosquitto_persist_dap_flow_add(&flow) == MOSQ_ERR_SUCCESS){
+			count++;
+		}else{
+			failed++;
+		}
+	}
+	sqlite3_finalize(stmt);
+
+	mosquitto_log_printf(MOSQ_LOG_INFO, "sqlite: Restored %ld DAP flows (%ld failed)", count, failed);
+	return MOSQ_ERR_SUCCESS;
+}
+
+
 int persist_sqlite__dap_restore(struct mosquitto_sqlite *ms)
 {
-	if(dap_op_restore(ms)){
+	if(dap_op_restore(ms) || dap_flow_restore(ms)){
 		return MOSQ_ERR_UNKNOWN;
 	}
 	return dap_tracked_op_restore(ms);

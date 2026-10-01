@@ -40,10 +40,17 @@ void dr_registry_init(void);
 void dr_registry_cleanup(void);
 
 /* Record a delivery from pub_id on topic to sub_id, whose subscription has the sorted
- * purpose set sp, of a message received at recv_time (paper 6.1). Returns 0, or
+ * purpose set sp, of a message received at recv_time (paper 6.1). *changed is set to
+ * the flow when it is new or its receipt times moved, else NULL. Returns 0, or
  * MOSQ_ERR_NOMEM. */
 int dr__record_flow(const char *pub_id, const char *topic, const char *sub_id,
-                    char *const *sp, uint32_t sp_count, time_t recv_time);
+                    char *const *sp, uint32_t sp_count, time_t recv_time,
+                    const struct dr_sublist **changed);
+
+/* Restore a persisted flow; sp is its '|'-joined purpose set. Returns 0, or
+ * MOSQ_ERR_NOMEM. */
+int dr__restore_flow(const char *pub_id, const char *topic, const char *sub_id,
+                     const char *sp, time_t first_time, time_t last_time);
 
 void dr__record_retained_publisher(const char *pub_id, const char *topic);
 

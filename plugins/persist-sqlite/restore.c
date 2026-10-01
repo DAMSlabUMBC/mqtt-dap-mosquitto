@@ -259,7 +259,7 @@ static int subscription_restore(struct mosquitto_sqlite *ms)
 	long count = 0, failed = 0;
 
 	rc = sqlite3_prepare_v2(ms->db,
-			"SELECT client_id,topic,subscription_options,subscription_identifier "
+			"SELECT client_id,topic,subscription_options,subscription_identifier,purposes "
 			"FROM subscriptions",
 			-1, &stmt, NULL);
 
@@ -274,8 +274,17 @@ static int subscription_restore(struct mosquitto_sqlite *ms)
 		sub.topic_filter = (char *)sqlite3_column_text(stmt, 1);
 		sub.options = (uint8_t)sqlite3_column_int(stmt, 2);
 		sub.identifier = (uint32_t)sqlite3_column_int(stmt, 3);
+		/* The SP is a '|'-joined purpose set; mosquitto_subscription_add copies it. */
+		char *purposes = sqlite3_column_text(stmt, 4) ? strdup((const char *)sqlite3_column_text(stmt, 4)) : NULL;
+		char *purpose_list[MOSQ_DAP_MAX_FILTERS_PER_SUB];
+		for(char *p = purposes, *save = NULL, *tok; (tok = strtok_r(p, "|", &save)) != NULL; p = NULL){
+			if(sub.purpose_filter_count == MOSQ_DAP_MAX_FILTERS_PER_SUB) break;
+			purpose_list[sub.purpose_filter_count++] = tok;
+		}
+		sub.purpose_filters = purpose_list;
 
 		rc = mosquitto_subscription_add(&sub);
+		free(purposes);
 		if(rc == MOSQ_ERR_SUCCESS){
 			count++;
 		}else{
