@@ -32,7 +32,6 @@ Contributors:
 #include "dap/dap_op_requester.h"
 #include "dap/dap_subscription_queues.h"
 #include "dap/dap_send_verify.h"
-#include "dap/output_priority.h"
 #include "dap/mp_registry.h"
 #include "dap/dr_registry.h"
 #include "dap/dap_metrics.h"
@@ -867,7 +866,7 @@ int db__message_insert_outgoing(struct mosquitto *context, uint64_t cmsg_id, uin
 	client_msg->data.subscription_identifier = subscription_identifier;
 
 	if(state == mosq_ms_queued){
-		db__queued_insert_prioritized(msg_data, client_msg, base_msg->data.topic);
+		DL_APPEND(msg_data->queued, client_msg);
 		db__msg_add_to_queued_stats(msg_data, client_msg);
 	}else{
 		DL_APPEND(msg_data->inflight, client_msg);

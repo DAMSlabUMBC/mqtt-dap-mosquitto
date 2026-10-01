@@ -2,8 +2,8 @@
 """Send-time verification and op/PBMR priority on the broker's outgoing path.
 
 Covers DELETE on queued messages (including after a subscriber's queue
-overflowed), re-verification of messages whose stamp went stale (MP or SP
-change), and op requests overtaking data backed up for a slow subscriber.
+overflowed) and re-verification of messages whose stamp went stale (MP or SP
+change).
 
 Usage: python3 test/dap/queueing_model_test.py [port]
 """
@@ -407,37 +407,6 @@ def sp_change_case(new_sps, still_allowed):
         check(broker.stop() == 0, "broker exits cleanly")
 
 
-def priority_case():
-    """An op request overtakes data backed up in a slow subscriber's write queue."""
-    broker = Broker("use_metadata_operation_support true\n")
-    try:
-        sub = Subscriber("subD", rcvbuf=4096)
-        sub.subscribe("t/d", ["qa"], qos=0)
-        sub.subscribe("OP_REQ/subD", [OP_PURPOSE], qos=0)
-        pub = Publisher()
-        pub.register("qa", "t/d")
-        count = 600
-        filler = b"x" * 32768
-        for i in range(count):
-            pub.publish("t/d", [], payload=b"%04d" % i + filler, qos=0)
-        time.sleep(1.0)  # the subscriber is not reading, so the broker's queue for it backs up
-        pub.operation("RESTRICT", "t/d")
-        time.sleep(0.5)
-
-        got = sub.read_publishes(idle=2.0)
-        topics = [t for t, _, _ in got]
-        seq = [int(p[:4]) for t, p, _ in got if t == "t/d"]
-        check(seq == sorted(seq), "data keeps its order")
-        check("OP_REQ/subD" in topics, "the operation request reaches the subscriber")
-        if "OP_REQ/subD" in topics:
-            after = len(topics) - 1 - topics.index("OP_REQ/subD")
-            check(after > 0, "the operation request overtakes queued data (%d data messages after it)" % after)
-        sub.close()
-    finally:
-        stop_clients()
-        check(broker.stop() == 0, "broker exits cleanly")
-
-
 def stop_clients():
     for c in clients:
         c.stop()
@@ -456,8 +425,6 @@ def main():
     qos0_quota_case()
     sp_change_case(["qb"], still_allowed=False)
     sp_change_case(["qa", "qz"], still_allowed=True)
-    print("# op/PBMR priority")
-    priority_case()
 
     print()
     if failures:
