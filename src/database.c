@@ -466,6 +466,10 @@ void db__msg_store_compact(void)
 }
 
 
+/* Set by the send-path gate when a bump or a resolved hold leaves messages that can
+ * now be written; the write loops then refill from the queue and make another pass. */
+static bool dap_write_again = false;
+
 /* The DAP stamp of an outgoing client message, and the subscription leaf holding it. */
 static struct dap_stamped_msg *db__dap_find_stamp(struct mosquitto *context,
 		struct mosquitto__client_msg *client_msg, struct mosquitto__subleaf **leaf_out)
@@ -498,6 +502,13 @@ static void db__dap_discard_stamp(struct mosquitto *context, struct mosquitto__c
 	if(stamp){
 		dap_subscription_queues_remove(leaf->dap_queues, client_msg->base_msg->data.topic, stamp);
 		dap_stamped_msg_free(stamp);
+	}
+	/* A discarded re-verify candidate must not leave its client holding. */
+	if(context->id && db.dap_holding_list
+			&& dap_holding_list_is_holding(db.dap_holding_list, context->id)
+			&& dap_holding_list_pending_id(db.dap_holding_list, context->id) == client_msg->data.cmsg_id){
+		dap_holding_list_free_held(dap_holding_list_flush(db.dap_holding_list, context->id));
+		dap_write_again = true;
 	}
 }
 
@@ -1611,19 +1622,19 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 {
 	const char *client_id = context->id;
 	struct dap_holding_list *hl = db.dap_holding_list;
-	uint16_t this_mid = client_msg->data.mid;
+	uint64_t this_id = client_msg->data.cmsg_id;
 
 	if(!client_id || !hl){
 		return DAP_HOOK_SEND;
 	}
 
 	bool is_holding = dap_holding_list_is_holding(hl, client_id);
-	uint16_t pending_mid = is_holding ? dap_holding_list_pending_mid(hl, client_id) : 0;
+	uint64_t pending_id = is_holding ? dap_holding_list_pending_id(hl, client_id) : 0;
 
 	/* While holding, any message that is not the re-verify candidate waits, so the
 	 * candidate keeps its place in the per-topic order. Its stamp is not at the front
 	 * of the queue right now, so this must come before trying to match a stamp. */
-	if(is_holding && this_mid != pending_mid){
+	if(is_holding && this_id != pending_id){
 		return DAP_HOOK_HANDLED; /* SKIP: leave it in flight for a later pass */
 	}
 
@@ -1660,7 +1671,7 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 		}
 	}
 
-	enum dap_send_disposition disp = dap_send_decide(has_stamp, is_holding, pending_mid, this_mid, verdict);
+	enum dap_send_disposition disp = dap_send_decide(has_stamp, is_holding, pending_id, this_id, verdict);
 
 	/* Restored messages have no stamp; still apply DELETE. */
 	if(!has_stamp && base_msg->dap_restored && db.dap_pending_ops){
@@ -1689,6 +1700,7 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 				/* Candidate resolved: clear the hold (no messages were parked in the
 				 * holding list itself - skip-in-place leaves them in flight). */
 				dap_holding_list_free_held(dap_holding_list_flush(hl, client_id));
+				dap_write_again = true;
 			}
 			if(base_msg->data.has_purpose_filter){
 				base_msg->dap_subs_resolved++;
@@ -1708,6 +1720,7 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 			}
 			if(is_holding){
 				dap_holding_list_free_held(dap_holding_list_flush(hl, client_id));
+				dap_write_again = true;
 			}
 			/* Drop without delivering, mirroring the message-expired branch below. */
 			if(client_msg->data.direction == mosq_md_out && client_msg->data.qos > 0){
@@ -1728,18 +1741,21 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 		case DAP_DISP_BUMP:
 			/* Leave the stamp in its topic queue for re-verification. Move
 			 * the message from in flight back to the front of the queue, reversing the
-			 * dequeue's quota decrement, and mark the client as holding it by its mid. */
+			 * dequeue's quota decrement, and mark the client as holding it by its cmsg_id. */
 			db__msg_remove_from_inflight_stats(&context->msgs_out, client_msg);
 			DL_DELETE(context->msgs_out.inflight, client_msg);
-			util__increment_send_quota(context);
+			if(client_msg->data.qos > 0){
+				util__increment_send_quota(context);
+			}
 			client_msg->data.state = mosq_ms_queued;
 			DL_PREPEND(context->msgs_out.queued, client_msg);
 			db__msg_add_to_queued_stats(&context->msgs_out, client_msg);
 			plugin_persist__handle_client_msg_update(context, client_msg);
-			dap_holding_list_start_holding(hl, client_id, this_mid);
+			dap_holding_list_start_holding(hl, client_id, this_id);
 			if(base_msg->data.has_purpose_filter){
 				base_msg->dap_bump_count++;
 			}
+			dap_write_again = true;
 			return DAP_HOOK_HANDLED;
 
 		case DAP_DISP_SKIP:
@@ -1870,12 +1886,18 @@ int db__message_write_inflight_out_all(struct mosquitto *context)
 		return MOSQ_ERR_SUCCESS;
 	}
 
-	DL_FOREACH_SAFE(context->msgs_out.inflight, client_msg, tmp){
-		rc = db__message_write_inflight_out_single(context, client_msg);
-		if(rc){
-			return rc;
+	do{
+		dap_write_again = false;
+		DL_FOREACH_SAFE(context->msgs_out.inflight, client_msg, tmp){
+			rc = db__message_write_inflight_out_single(context, client_msg);
+			if(rc){
+				return rc;
+			}
 		}
-	}
+		if(dap_write_again){
+			db__fill_inflight_out_from_queue(context);
+		}
+	}while(dap_write_again);
 	return MOSQ_ERR_SUCCESS;
 }
 
@@ -1892,36 +1914,44 @@ int db__message_write_inflight_out_latest(struct mosquitto *context)
 		return MOSQ_ERR_SUCCESS;
 	}
 
+	dap_write_again = false;
 	if(context->msgs_out.inflight->prev == context->msgs_out.inflight){
 		/* Only one message */
-		return db__message_write_inflight_out_single(context, context->msgs_out.inflight);
-	}
-
-	/* Start at the end of the list and work backwards looking for the first
-	 * message in a non-publish state */
-	client_msg = context->msgs_out.inflight->prev;
-	while(client_msg != context->msgs_out.inflight &&
-			(client_msg->data.state == mosq_ms_publish_qos0
-			|| client_msg->data.state == mosq_ms_publish_qos1
-			|| client_msg->data.state == mosq_ms_publish_qos2)){
-
-		client_msg = client_msg->prev;
-	}
-
-	/* Tail is now either the head of the list, if that message is waiting for
-	 * publish, or the oldest message not waiting for a publish. In the latter
-	 * case, any pending publishes should be next after this message. */
-	if(client_msg != context->msgs_out.inflight){
-		client_msg = client_msg->next;
-	}
-
-	while(client_msg){
-		next = client_msg->next;
-		rc = db__message_write_inflight_out_single(context, client_msg);
+		rc = db__message_write_inflight_out_single(context, context->msgs_out.inflight);
 		if(rc){
 			return rc;
 		}
-		client_msg = next;
+	}else{
+		/* Start at the end of the list and work backwards looking for the first
+		 * message in a non-publish state */
+		client_msg = context->msgs_out.inflight->prev;
+		while(client_msg != context->msgs_out.inflight &&
+				(client_msg->data.state == mosq_ms_publish_qos0
+				|| client_msg->data.state == mosq_ms_publish_qos1
+				|| client_msg->data.state == mosq_ms_publish_qos2)){
+
+			client_msg = client_msg->prev;
+		}
+
+		/* Tail is now either the head of the list, if that message is waiting for
+		 * publish, or the oldest message not waiting for a publish. In the latter
+		 * case, any pending publishes should be next after this message. */
+		if(client_msg != context->msgs_out.inflight){
+			client_msg = client_msg->next;
+		}
+
+		while(client_msg){
+			next = client_msg->next;
+			rc = db__message_write_inflight_out_single(context, client_msg);
+			if(rc){
+				return rc;
+			}
+			client_msg = next;
+		}
+	}
+	if(dap_write_again){
+		db__fill_inflight_out_from_queue(context);
+		return db__message_write_inflight_out_all(context);
 	}
 	return MOSQ_ERR_SUCCESS;
 }

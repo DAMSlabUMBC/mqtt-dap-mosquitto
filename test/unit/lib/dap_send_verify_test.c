@@ -151,7 +151,7 @@ static void test_decide_failures_bump(void)
     printf("ok - decide: FAIL_MP/SP/OP_MISSING while not holding bump\n");
 }
 
-/* Holding, and this is the re-verify candidate (mid == pending_mid): a PASS (the
+/* Holding, and this is the re-verify candidate (this_id == pending_id): a PASS (the
  * usual post-re-stamp outcome) delivers and ends the hold. */
 static void test_decide_candidate_pass_delivers(void)
 {
@@ -174,12 +174,14 @@ static void test_decide_candidate_fail_delivers_not_bump(void)
     printf("ok - decide: holding candidate never bumps again (terminates by delivering)\n");
 }
 
-/* Holding, but this is some other message (mid != pending_mid): skip it this pass so
- * the candidate cannot be overtaken. The verdict is irrelevant. */
+/* Holding, but this is some other message (this_id != pending_id): skip it this pass
+ * so the candidate cannot be overtaken. The verdict is irrelevant. */
 static void test_decide_non_candidate_skips(void)
 {
     assert(dap_send_decide(true, true, 11, 99, DAP_SEND_PASS) == DAP_DISP_SKIP);
     assert(dap_send_decide(true, true, 11, 99, DAP_SEND_DROP_DELETE) == DAP_DISP_SKIP);
+    /* Ids that share their low 16 bits (two QoS 0 messages both carry mid 0) are distinct. */
+    assert(dap_send_decide(true, true, 0x10000, 0x20000, DAP_SEND_PASS) == DAP_DISP_SKIP);
     printf("ok - decide: holding a different message skips this one\n");
 }
 

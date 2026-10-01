@@ -51,8 +51,8 @@ enum dap_send_verdict dap_verify_for_send(const struct dap_stamped_msg *stamped,
 
 enum dap_send_disposition dap_send_decide(bool has_stamp,
                                           bool is_holding,
-                                          uint16_t pending_mid,
-                                          uint16_t this_mid,
+                                          uint64_t pending_id,
+                                          uint64_t this_id,
                                           enum dap_send_verdict verdict)
 {
     /* No stamp: retained / will / non-DAP message, deliver untouched. */
@@ -62,7 +62,7 @@ enum dap_send_disposition dap_send_decide(bool has_stamp,
 
     if (is_holding) {
         /* A different message must wait so the candidate keeps its place. */
-        if (this_mid != pending_mid) {
+        if (this_id != pending_id) {
             return DAP_DISP_SKIP;
         }
         /* The re-verify candidate terminates this pass: a DELETE that arrived

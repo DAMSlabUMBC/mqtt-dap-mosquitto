@@ -26,12 +26,12 @@ static struct dap_holding_entry *dap__find_holding(struct dap_holding_list *h, c
 }
 
 int dap_holding_list_start_holding(struct dap_holding_list *h, const char *sub_id,
-                                   uint16_t pending_mid)
+                                   uint64_t pending_id)
 {
     if(!h || !sub_id) return 1;
 
     /* Already holding: keep the messages already parked for this subscription and
-     * its original pending mid. */
+     * its original pending id. */
     if(dap__find_holding(h, sub_id)) return 0;
 
     struct dap_holding_entry *e = mosquitto_calloc(1, sizeof(*e));
@@ -41,7 +41,7 @@ int dap_holding_list_start_holding(struct dap_holding_list *h, const char *sub_i
         mosquitto_FREE(e);
         return 1;
     }
-    e->pending_mid = pending_mid;
+    e->pending_id = pending_id;
     e->head = NULL;
     e->count = 0;
     HASH_ADD_KEYPTR(hh, h->subscriptions, e->sub_id, strlen(e->sub_id), e);
@@ -54,11 +54,11 @@ bool dap_holding_list_is_holding(struct dap_holding_list *h, const char *sub_id)
     return dap__find_holding(h, sub_id) != NULL;
 }
 
-uint16_t dap_holding_list_pending_mid(struct dap_holding_list *h, const char *sub_id)
+uint64_t dap_holding_list_pending_id(struct dap_holding_list *h, const char *sub_id)
 {
     if(!h || !sub_id) return 0;
     struct dap_holding_entry *e = dap__find_holding(h, sub_id);
-    return e ? e->pending_mid : 0;
+    return e ? e->pending_id : 0;
 }
 
 int dap_holding_list_add_held(struct dap_holding_list *h, const char *sub_id,

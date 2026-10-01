@@ -356,6 +356,9 @@ def main():
     print("# DELETE on queued messages")
     delete_case(overflow=False)
     delete_case(overflow=True)
+    print("# re-verification of stale stamps")
+    stale_mp_case()
+    sp_change_case(["qa", "qz"], still_allowed=True)
 
     print()
     if failures:

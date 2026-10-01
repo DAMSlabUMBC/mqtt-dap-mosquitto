@@ -65,20 +65,20 @@ enum dap_send_disposition {
  *                 false (retained / will / non-DAP) the message is always DELIVERed
  *                 and the remaining arguments are ignored.
  *   is_holding  - whether this message's client is currently re-verifying a message.
- *   pending_mid - the mid of that re-verify candidate (meaningful only when holding).
- *   this_mid    - the mid of the message being written now.
+ *   pending_id  - the cmsg_id of that re-verify candidate (meaningful only when holding).
+ *   this_id     - the cmsg_id of the message being written now.
  *   verdict     - dap_verify_for_send's result for this message. For the holding
  *                 candidate the caller passes the post-re-stamp verdict (PASS unless
  *                 a DELETE now applies), so the candidate terminates in DELIVER or DROP.
  *
  * Not holding: PASS->DELIVER, DROP_DELETE->DROP, any FAIL_*->BUMP. Holding and this
- * is the candidate (this_mid == pending_mid): DROP_DELETE->DROP, otherwise DELIVER
+ * is the candidate (this_id == pending_id): DROP_DELETE->DROP, otherwise DELIVER
  * (never BUMP again - that would spin). Holding and this is some other message: SKIP.
  */
 enum dap_send_disposition dap_send_decide(bool has_stamp,
                                           bool is_holding,
-                                          uint16_t pending_mid,
-                                          uint16_t this_mid,
+                                          uint64_t pending_id,
+                                          uint64_t this_id,
                                           enum dap_send_verdict verdict);
 
 #ifdef __cplusplus

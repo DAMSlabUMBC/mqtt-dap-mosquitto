@@ -30,7 +30,7 @@ struct dap_held_msg {
 /* The hold state for one subscription, keyed by subscription id in the uthash map. */
 struct dap_holding_entry {
     char *sub_id;              /* hash key */
-    uint16_t pending_mid;      /* mid of the bumped message this subscription is re-verifying */
+    uint64_t pending_id;       /* cmsg_id of the bumped message this subscription is re-verifying */
     struct dap_held_msg *head; /* utlist DL FIFO, front == head */
     size_t count;
     UT_hash_handle hh;
@@ -46,24 +46,21 @@ int dap_holding_list_init(struct dap_holding_list *h);
 
 /*
  * Mark a subscription as holding, called when one of its messages is bumped back
- * for re-verification. pending_mid is that message's per-client mid; the send-path
+ * for re-verification. pending_id is that client message's cmsg_id; the send-path
  * hook uses it to tell the re-verify candidate from the messages it must park.
  * Idempotent: re-starting an already-holding subscription keeps its held messages
- * and original pending_mid. Returns 0 on success, non-zero on a bad argument or
+ * and original pending_id. Returns 0 on success, non-zero on a bad argument or
  * allocation failure.
  */
 int dap_holding_list_start_holding(struct dap_holding_list *h, const char *sub_id,
-                                   uint16_t pending_mid);
+                                   uint64_t pending_id);
 
 /* True while sub_id is holding (between start_holding and flush). */
 bool dap_holding_list_is_holding(struct dap_holding_list *h, const char *sub_id);
 
-/*
- * The pending re-verify mid recorded for sub_id at start_holding time. Returns 0
- * when sub_id is not holding, so callers must gate this with is_holding (a mid of
- * 0, as carried by QoS 0, is itself a valid pending value).
- */
-uint16_t dap_holding_list_pending_mid(struct dap_holding_list *h, const char *sub_id);
+/* The pending re-verify cmsg_id recorded for sub_id at start_holding time, or 0
+ * when sub_id is not holding. */
+uint64_t dap_holding_list_pending_id(struct dap_holding_list *h, const char *sub_id);
 
 /*
  * Append a message to a subscription's hold list, preserving arrival order. The
