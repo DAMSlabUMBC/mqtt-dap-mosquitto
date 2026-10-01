@@ -489,38 +489,77 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 	return rc;
 }
 
-/* Register a '<MP>:<topic>' DAP-MP value; a NULL value, one without ':', or an
- * invalid MP is malformed. */
-static int register_mp_property(const char *client_id, const char *value)
+/* Parse a '<MP>:<topic>' DAP-MP value into its topic and its MP as a sorted purpose
+ * set. A NULL value, one without ':', or an invalid MP is malformed; an MP naming a
+ * purpose the broker does not recognize is MOSQ_ERR_ACL_DENIED (paper 4.3). */
+static int parse_mp_property(const char *value, char **topic, char **mp)
 {
 	const char *sep = value ? strchr(value, ':') : NULL;
-	char *filter, *topic, *mp;
+	char *filter;
 	int rc;
 
+	*topic = NULL;
+	*mp = NULL;
 	if(sep == NULL){
 		return MOSQ_ERR_MALFORMED_PACKET;
 	}
-
 	filter = mosquitto_strndup(value, (size_t)(sep - value));
 	if(!filter){
 		return MOSQ_ERR_NOMEM;
 	}
-	/* Store the MP as its sorted purpose set so matching is a merge. */
-	rc = purpose_filter_canonical(filter, &mp);
+	rc = purpose_filter_canonical(filter, mp);
 	mosquitto_FREE(filter);
 	if(rc){
 		return rc == MOSQ_ERR_NOMEM ? MOSQ_ERR_NOMEM : MOSQ_ERR_MALFORMED_PACKET;
 	}
-	topic = mosquitto_strdup(sep + 1);
-	if(!topic){
-		mosquitto_FREE(mp);
+	if(db.config->dap_recognized_purposes && strcmp(*mp, "*")){
+		char **set;
+		uint32_t n;
+		rc = purpose_set_expand(*mp, &set, &n);
+		if(rc == MOSQ_ERR_SUCCESS && !purpose_set_recognized(db.config->dap_recognized_purposes, set, n)){
+			rc = MOSQ_ERR_ACL_DENIED;
+		}
+		purpose_set_free(set, n);
+		if(rc){
+			mosquitto_FREE(*mp);
+			return rc;
+		}
+	}
+	*topic = mosquitto_strdup(sep + 1);
+	if(!*topic){
+		mosquitto_FREE(*mp);
 		return MOSQ_ERR_NOMEM;
 	}
+	return MOSQ_ERR_SUCCESS;
+}
 
-	rc = mp__register_topic(client_id, topic, mp);
-	mosquitto_FREE(mp);
-	mosquitto_FREE(topic);
-	return rc;
+/* Register every DAP-MP value of a registration message, or none: all are checked
+ * before any is registered. */
+static int register_mp_properties(const char *client_id, const mosquitto_property *properties)
+{
+	for(int pass = 0; pass < 2; pass++){
+		const mosquitto_property *p = properties;
+		while(p){
+			char *name, *value, *topic = NULL, *mp = NULL;
+			int rc = MOSQ_ERR_SUCCESS;
+
+			p = mosquitto_property_read_string_pair(p, MQTT_PROP_USER_PROPERTY, &name, &value, false);
+			if(!p) break;
+			if(name && !strcmp(name, MOSQ_DAP_MP_KEY)){
+				rc = parse_mp_property(value, &topic, &mp);
+				if(rc == MOSQ_ERR_SUCCESS && pass == 1){
+					rc = mp__register_topic(client_id, topic, mp);
+				}
+			}
+			mosquitto_FREE(name);
+			mosquitto_FREE(value);
+			mosquitto_FREE(topic);
+			mosquitto_FREE(mp);
+			if(rc) return rc;
+			p = p->next;
+		}
+	}
+	return MOSQ_ERR_SUCCESS;
 }
 
 /* Set the DAP-ClientID of a data message to its publisher's connection-time ID
@@ -812,37 +851,19 @@ int handle__publish(struct mosquitto *context, const struct dap_receipt *receipt
 		/* Check if this is a registration message on the registration topic */
 		if(!strcmp(base_msg->data.topic, MOSQ_DAP_MP_REG_TOPIC))
 		{
-			/* Since there can be multiple user properties, loop through them */
-			const mosquitto_property *curr_prop_ptr = base_msg->data.properties;
-			while(curr_prop_ptr)
-			{
-				/* Parse the current property name/value; NULL when empty */
-				char *name, *value;
-				curr_prop_ptr = mosquitto_property_read_string_pair(curr_prop_ptr, MQTT_PROP_USER_PROPERTY, &name, &value, false );
-				if(curr_prop_ptr)
-				{
-					int reg_rc = MOSQ_ERR_SUCCESS;
-
-					/* Register each DAP-MP property's topic to purpose filter mapping */
-					if(name && !strcmp(name, MOSQ_DAP_MP_KEY))
-					{
-						reg_rc = register_mp_property(context->id, value);
-					}
-					mosquitto_FREE(name);
-					mosquitto_FREE(value);
-					if(reg_rc)
-					{
-						mosquitto_property_free_all(&properties);
-						db__msg_store_free(base_msg);
-						return reg_rc;
-					}
-					/* Move to the next property */
-					curr_prop_ptr = curr_prop_ptr->next;
-				}
-			}
+			int reg_rc = register_mp_properties(context->id, base_msg->data.properties);
 
 			/* Acknowledge this registration message, but do not forward it */
 			mosquitto_property_free_all(&properties);
+			if(reg_rc == MOSQ_ERR_ACL_DENIED){
+				log__printf(NULL, MOSQ_LOG_INFO,
+					"Unrecognized purpose in DAP-MP from %s, discarding.", context->id);
+				return process_bad_message(context, base_msg, MQTT_RC_NOT_AUTHORIZED);
+			}
+			if(reg_rc){
+				db__msg_store_free(base_msg);
+				return reg_rc;
+			}
 			return process_bad_message(context, base_msg, MQTT_RC_SUCCESS);
 		}
 		else

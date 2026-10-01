@@ -375,6 +375,7 @@ struct mosquitto__config {
 	bool upgrade_outgoing_qos;
 	char *user;
 	bool metadata_operation_handling;
+	char *dap_recognized_purposes; /* canonical set of recognized purposes; NULL = any (paper 4.3) */
 #if defined(WITH_WEBSOCKETS) && WITH_WEBSOCKETS == WS_IS_LWS
 	int websockets_log_level;
 #endif
