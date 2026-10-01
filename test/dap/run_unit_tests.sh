@@ -18,6 +18,7 @@ if command -v pkg-config > /dev/null && pkg-config --exists libcjson; then
 fi
 MEM="$R/libcommon/memory_common.c"
 TOPIC="$R/libcommon/topic_common.c"
+PROPS="$R/libcommon/property_common.c $R/libcommon/utf8_common.c $R/libcommon/mqtt_common.c $TOPIC"
 SAN=(-fsanitize=address,undefined -fno-omit-frame-pointer -g -O0)
 
 # name | sources (relative to lib/dap unless absolute) | extra flags
@@ -28,6 +29,7 @@ TESTS=(
 	"dap_op_request_test|dap_op_request.c dap_pending_ops.c purpose_filters.c $TOPIC $MEM|"
 	"dap_pending_ops_test|dap_pending_ops.c purpose_filters.c $TOPIC $MEM|"
 	"dap_pqueue_test|dap_pqueue.c|"
+	"dap_request_store_test|dap_request_store.c $PROPS $MEM|"
 	"dap_send_verify_test|dap_send_verify.c|"
 	"dap_stamp_test|dap_stamp.c dap_subscription_queues.c mp_registry.c $MEM|"
 	"dap_subscription_queues_test|dap_subscription_queues.c $MEM|"

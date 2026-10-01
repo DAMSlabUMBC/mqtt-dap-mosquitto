@@ -54,6 +54,7 @@ Contributors:
 #include "util_mosq.h"
 #include "dap/rights_broker.h"
 #include "dap/dap_deadline_tracker.h"
+#include "dap/dap_request_store.h"
 #include "dap/dap_persist.h"
 
 extern int g_run;
@@ -197,6 +198,13 @@ static void dap_deadline__check(void)
 		}
 	}
 	dap_deadline_tracker_free_expired(expired);
+
+	/* Requests held past their deadline are no longer delivered. */
+	static time_t last_expiry = 0;
+	if(db.dap_request_store && db.dap_request_store->inboxes && db.now_real_s != last_expiry){
+		dap_request_store_expire(db.dap_request_store, db.now_real_s);
+		last_expiry = db.now_real_s;
+	}
 }
 
 

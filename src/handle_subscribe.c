@@ -502,6 +502,9 @@ int handle__subscribe(struct mosquitto *context)
 	}
 	mosquitto_FREE(payload);
 
+	/* Paper 6.3: requests held while the subscriber could not receive them. */
+	broker_deliver_held_requests(context);
+
 #ifdef WITH_PERSISTENCE
 	db.persistence_changes++;
 #endif

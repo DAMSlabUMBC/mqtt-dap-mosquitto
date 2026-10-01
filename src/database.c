@@ -29,6 +29,7 @@ Contributors:
 #include "dap/dap_pending_ops.h"
 #include "dap/dap_deadline_tracker.h"
 #include "dap/dap_holding_list.h"
+#include "dap/dap_request_store.h"
 #include "dap/dap_op_requester.h"
 #include "dap/dap_subscription_queues.h"
 #include "dap/dap_send_verify.h"
@@ -245,6 +246,13 @@ int db__open(struct mosquitto__config *config)
 		dap_op_requester_init(db.dap_op_requester);
 	}
 
+	/* Broker-wide store of operation requests for relevant subscribers that cannot
+	 * receive them yet, delivered when they subscribe to their request topic. */
+	db.dap_request_store = mosquitto_calloc(1, sizeof(struct dap_request_store));
+	if(db.dap_request_store){
+		dap_request_store_init(db.dap_request_store);
+	}
+
 	db.config->security_options.unpwd = NULL;
 
 #ifdef WITH_PERSISTENCE
@@ -373,6 +381,11 @@ int db__close(void)
 	if(db.dap_op_requester){
 		dap_op_requester_destroy(db.dap_op_requester);
 		mosquitto_FREE(db.dap_op_requester);
+	}
+
+	if(db.dap_request_store){
+		dap_request_store_destroy(db.dap_request_store);
+		mosquitto_FREE(db.dap_request_store);
 	}
 
 	return MOSQ_ERR_SUCCESS;

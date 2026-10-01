@@ -32,6 +32,7 @@ DAP_LIB_OBJS = \
 		${R}/src/dap_op_request.o \
 		${R}/src/dap_op_requester.o \
 		${R}/src/dap_pending_ops.o \
+		${R}/src/dap_request_store.o \
 		${R}/src/dap_send_verify.o \
 		${R}/src/dap_stamp.o \
 		${R}/src/dap_subscription_queues.o \

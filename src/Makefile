@@ -166,6 +166,7 @@ OBJS_EXTERNAL= \
 		dap_send_verify.o \
 		dap_deadline_tracker.o \
 		dap_holding_list.o \
+		dap_request_store.o \
 		dap_op_requester.o \
 		dap_stamp.o
 
@@ -303,6 +304,9 @@ dap_deadline_tracker.o : ${R}/lib/dap/dap_deadline_tracker.c ${R}/lib/dap/dap_de
 	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
 
 dap_holding_list.o : ${R}/lib/dap/dap_holding_list.c ${R}/lib/dap/dap_holding_list.h
+	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
+
+dap_request_store.o : ${R}/lib/dap/dap_request_store.c ${R}/lib/dap/dap_request_store.h
 	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
 
 dap_op_requester.o : ${R}/lib/dap/dap_op_requester.c ${R}/lib/dap/dap_op_requester.h

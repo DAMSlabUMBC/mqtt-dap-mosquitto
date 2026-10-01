@@ -89,6 +89,7 @@ OBJS= \
 	dap/dap_op_requester.o \
 	dap/dap_pending_ops.o \
 	dap/dap_pqueue.o \
+	dap/dap_request_store.o \
 	dap/dap_send_verify.o \
 	dap/dap_stamp.o \
 	dap/dap_subscription_queues.o \

@@ -10,19 +10,12 @@
 #include "dap/dap_deadline_tracker.h"
 #include "dap/dap_op_requester.h"
 #include "dap/dap_persist.h"
+#include "dap/dap_request_store.h"
 
 /* Finds a client context by ID by calling db__find_context_by_id(). */
 struct mosquitto *broker_find_context_by_id(const char *client_id)
 {
     return db__find_context_by_id(client_id);
-}
-
-/* Checks if a subscriber is online (active state). */
-bool is_sub_online(const char *sub_id)
-{
-    struct mosquitto *ctx = broker_find_context_by_id(sub_id);
-    if(!ctx) return false;
-    return (ctx->state == mosq_cs_active);
 }
 
 /* Removes Wills or retained messages invoking erasure. */
@@ -181,107 +174,142 @@ void broker_send_response_failure(const char *publisher_id, struct dap__op_prope
     mosquitto_property_free_all(&props);
 }
 
-void subscriber_list_free(struct subscriber_list *list)
+/* OP_REQ/<sub_id>, allocated. */
+static char *dap__request_topic(const char *sub_id)
 {
-    while(list){
-        struct subscriber_list *next = list->next;
-        mosquitto_FREE(list->sub_id);
-        mosquitto_FREE(list);
-        list = next;
-    }
+    size_t len = strlen(MOSQ_DAP_TOPIC_ORS) + 1 + strlen(sub_id) + 1;
+    char *topic = mosquitto_malloc(len);
+    if(topic) snprintf(topic, len, "%s/%s", MOSQ_DAP_TOPIC_ORS, sub_id);
+    return topic;
 }
 
-/* Publishes a right request to RRS/<sub> if online, else collects them offline. */
-struct subscriber_list *forward_request_to_connected(struct subscriber_list *sub_list, struct mosquitto_base_msg *msg_data, struct dap__op_property *dap_op_properties)
+/* True when sub_id is connected and subscribed to its request topic. */
+static bool dap__request_topic_ready(const char *sub_id, const char *topic)
 {
-    struct subscriber_list *offline_head = NULL;
+    struct mosquitto *ctx = broker_find_context_by_id(sub_id);
 
-    while(sub_list){
-        if(is_sub_online(sub_list->sub_id)){
-            char ors_topic[256];
-            snprintf(ors_topic, sizeof(ors_topic), "%s/%s", MOSQ_DAP_TOPIC_ORS, sub_list->sub_id);
+    if(!ctx || ctx->state != mosq_cs_active) return false;
+    for(int i = 0; i < ctx->subs_capacity; i++){
+        if(ctx->subs[i] && !strcmp(ctx->subs[i]->topic_filter, topic)) return true;
+    }
+    return false;
+}
 
-            mosquitto_property *props = NULL;
-            mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY,
-                MOSQ_DAP_CONSENT_KEY, "1");
+/* The properties of a request forwarded to a subscriber. */
+static mosquitto_property *dap__request_properties(struct mosquitto_base_msg *msg_data, struct dap__op_property *dap_op_properties)
+{
+    mosquitto_property *props = NULL;
+    mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY,
+        MOSQ_DAP_CONSENT_KEY, "1");
 
-            mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY,
-                MOSQ_DAP_ID_KEY, msg_data->source_id);
+    mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY,
+        MOSQ_DAP_ID_KEY, msg_data->source_id);
 
-            mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY,
-                MOSQ_DAP_OP_KEY, dap_op_properties->op_id);
+    mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY,
+        MOSQ_DAP_OP_KEY, dap_op_properties->op_id);
 
-            /* For a pending op (DELETE/RESTRICT) carry the broker-assigned numeric id so
-             * the subscriber can reference it in its status reply. */
-            if(dap_op_properties->op_id_num != 0){
-                char opid_buf[32];
-                snprintf(opid_buf, sizeof(opid_buf), "%llu", (unsigned long long)dap_op_properties->op_id_num);
+    /* Carry the broker-assigned numeric id so the subscriber can reference it in its
+     * status reply. */
+    if(dap_op_properties->op_id_num != 0){
+        char opid_buf[32];
+        snprintf(opid_buf, sizeof(opid_buf), "%llu", (unsigned long long)dap_op_properties->op_id_num);
+        mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY,
+            MOSQ_DAP_OP_ID_KEY, opid_buf);
+    }
+
+    /* Propagate the broker's receipt timestamp (paper 3.3) onto the forwarded
+     * request so subscribers share the same reference time the operation is
+     * scoped against. It was stamped onto the message's properties at PUBLISH
+     * receipt (handle_publish.c); copy that value here, since the forwarder has
+     * only the message, not the store entry that carries dap_recv_time. */
+    if(msg_data->properties){
+        const mosquitto_property *p = msg_data->properties;
+        char *pn = NULL, *pv = NULL;
+        while((p = mosquitto_property_read_string_pair(p, MQTT_PROP_USER_PROPERTY, &pn, &pv, false)) != NULL){
+            bool is_ts = (pn && !strcmp(pn, MOSQ_DAP_TIMESTAMP_KEY) && pv);
+            if(is_ts){
                 mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY,
-                    MOSQ_DAP_OP_ID_KEY, opid_buf);
+                    MOSQ_DAP_TIMESTAMP_KEY, pv);
             }
-
-            /* Propagate the broker's receipt timestamp (paper 3.3) onto the forwarded
-             * request so subscribers share the same reference time the operation is
-             * scoped against. It was stamped onto the message's properties at PUBLISH
-             * receipt (handle_publish.c); copy that value here, since the forwarder has
-             * only the message, not the store entry that carries dap_recv_time. */
-            if(msg_data->properties){
-                const mosquitto_property *p = msg_data->properties;
-                char *pn = NULL, *pv = NULL;
-                while((p = mosquitto_property_read_string_pair(p, MQTT_PROP_USER_PROPERTY, &pn, &pv, false)) != NULL){
-                    bool is_ts = (pn && !strcmp(pn, MOSQ_DAP_TIMESTAMP_KEY) && pv);
-                    if(is_ts){
-                        mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY,
-                            MOSQ_DAP_TIMESTAMP_KEY, pv);
-                    }
-                    mosquitto_FREE(pn);
-                    mosquitto_FREE(pv);
-                    if(is_ts) break;
-                    p = p->next;
-                }
-            }
-
-            if(dap_op_properties->correlation_data){
-                mosquitto_property_add_binary(&props, MQTT_PROP_CORRELATION_DATA, dap_op_properties->correlation_data, dap_op_properties->correlation_data_len);
-            }
-
-            if(dap_op_properties->response_topic){
-                mosquitto_property_add_string(&props, MQTT_PROP_RESPONSE_TOPIC, dap_op_properties->response_topic);
-            }
-
-            /* expiry_time is absolute; the forwarded copy carries what is left of it. */
-            uint32_t expiry_interval = 0;
-            if(msg_data->expiry_time > db.now_real_s){
-                expiry_interval = (uint32_t)(msg_data->expiry_time - db.now_real_s);
-            }
-            db__messages_easy_queue_with_purpose(NULL, ors_topic, MOSQ_DAP_OP_PURPOSE, msg_data->qos, msg_data->payloadlen, msg_data->payload, msg_data->retain, expiry_interval, &props);
-        } else {
-            struct subscriber_list *off = mosquitto_calloc(1, sizeof(*off));
-            if(off){
-                off->sub_id = mosquitto_strdup(sub_list->sub_id);
-                off->next   = offline_head;
-                offline_head= off;
-            }
+            mosquitto_FREE(pn);
+            mosquitto_FREE(pv);
+            if(is_ts) break;
+            p = p->next;
         }
-        sub_list = sub_list->next;
     }
-    return offline_head;
+
+    if(dap_op_properties->correlation_data){
+        mosquitto_property_add_binary(&props, MQTT_PROP_CORRELATION_DATA, dap_op_properties->correlation_data, dap_op_properties->correlation_data_len);
+    }
+
+    if(dap_op_properties->response_topic){
+        mosquitto_property_add_string(&props, MQTT_PROP_RESPONSE_TOPIC, dap_op_properties->response_topic);
+    }
+    return props;
 }
 
-/* Pending-op dispatch (DELETE/RESTRICT). The relevant set was computed by
- * dr__find_relevant_subscribers (topic/purpose/client filters + OpBefore/OpAfter
- * bounds). (1) forward the request to whoever is online now on their ORS, carrying
- * the numeric op id; (2) register the op with the deadline tracker against the full
+/* Forward a request to sub_id's request topic, or hold it until the deadline when
+ * the subscriber is not connected and subscribed to it (paper 6.3). */
+static void dap__forward_request(const char *sub_id, struct mosquitto_base_msg *msg_data,
+    struct dap__op_property *dap_op_properties, time_t deadline)
+{
+    char *topic = dap__request_topic(sub_id);
+    mosquitto_property *props;
+
+    if(!topic) return;
+    props = dap__request_properties(msg_data, dap_op_properties);
+    /* A request expires at its deadline, or earlier with the message. */
+    time_t until = deadline;
+    if(msg_data->expiry_time && msg_data->expiry_time < until){
+        until = msg_data->expiry_time;
+    }
+    if(dap__request_topic_ready(sub_id, topic)){
+        uint32_t expiry_interval = until > db.now_real_s ? (uint32_t)(until - db.now_real_s) : 0;
+        db__messages_easy_queue_with_purpose(NULL, topic, MOSQ_DAP_OP_PURPOSE, msg_data->qos,
+                msg_data->payloadlen, msg_data->payload, false, expiry_interval, &props);
+    }else if(db.dap_request_store){
+        if(dap_request_store_add(db.dap_request_store, sub_id, dap_op_properties->op_id_num, until,
+                msg_data->qos, msg_data->payload, msg_data->payloadlen, props) == 0){
+            props = NULL;
+        }
+    }
+    mosquitto_property_free_all(&props);
+    mosquitto_FREE(topic);
+}
+
+void broker_deliver_held_requests(struct mosquitto *context)
+{
+    struct dap_stored_request *held;
+    char *topic;
+
+    if(!context->id || !db.dap_request_store || !dap_request_store_has(db.dap_request_store, context->id)){
+        return;
+    }
+    topic = dap__request_topic(context->id);
+    if(!topic) return;
+    if(dap__request_topic_ready(context->id, topic)){
+        held = dap_request_store_take(db.dap_request_store, context->id, db.now_real_s);
+        for(struct dap_stored_request *r = held; r; r = r->next){
+            db__messages_easy_queue_with_purpose(NULL, topic, MOSQ_DAP_OP_PURPOSE, r->qos,
+                    r->payloadlen, r->payload, false, (uint32_t)(r->deadline - db.now_real_s), &r->properties);
+        }
+        dap_request_store_free_list(held);
+    }
+    mosquitto_FREE(topic);
+}
+
+/* Subscriber-involving dispatch (DELETE/RESTRICT/HISTORY/UPDATE). The relevant set
+ * was computed by dr__find_relevant_subscribers (topic/purpose/client filters +
+ * OpBefore/OpAfter bounds). (1) forward the request to each relevant subscriber on
+ * its ORS, carrying the numeric op id, holding it for one that is offline until it
+ * subscribes again; (2) register the op with the deadline tracker against the full
  * relevant set, so any subscriber that has not responded by the deadline is reported;
- * (3) echo a Pending ack with the op id + deadline back to the requester. Offline
- * relevant subs are not forwarded now; they remain unresponded and surface as
- * unreached clients when the deadline passes. */
+ * (3) echo a Pending ack with the op id + deadline back to the requester. */
 void broker_dispatch_pending_operation(const char *publisher_id, struct dr_sublist *relevant, struct mosquitto_base_msg *msg_data, struct dap__op_property *dap_op_properties, time_t deadline)
 {
     if(!publisher_id) return;
 
-    /* Count the relevant subs, then build both a transient subscriber_list (so the
-     * existing ORS forwarder can be reused) and a borrowed id array for the tracker. */
+    /* Count the relevant subs for the tracker's borrowed id array. */
     size_t n = 0;
     for(struct dr_sublist *s = relevant; s; s = s->next) n++;
 
@@ -296,29 +324,14 @@ void broker_dispatch_pending_operation(const char *publisher_id, struct dr_subli
         return;
     }
 
-    const char **ids = NULL;
-    if(n > 0){
-        ids = mosquitto_calloc(n, sizeof(char*));
-    }
-
-    struct subscriber_list *fwd = NULL;
+    const char **ids = mosquitto_calloc(n, sizeof(char*));
     size_t i = 0;
     for(struct dr_sublist *s = relevant; s; s = s->next){
-        struct subscriber_list *node = mosquitto_calloc(1, sizeof(*node));
-        if(node){
-            node->sub_id = mosquitto_strdup(s->sub_id);
-            node->next   = fwd;
-            fwd          = node;
-        }
         if(ids) ids[i] = s->sub_id; /* borrowed; the tracker copies on register */
         i++;
+        /* (1) Forward to the relevant subscriber, or hold it until they can receive it. */
+        dap__forward_request(s->sub_id, msg_data, dap_op_properties, deadline);
     }
-
-    /* (1) Forward to the online relevant subs; discard the offline list - the tracker,
-     * not an immediate failure, now owns the "didn't reach them" outcome. */
-    struct subscriber_list *offline = forward_request_to_connected(fwd, msg_data, dap_op_properties);
-    subscriber_list_free(fwd);
-    subscriber_list_free(offline);
 
     /* (2) Track the op so the main-loop sweep can report unresponded subs at expiry.
      * Guard the count against a failed ids allocation so a NULL array is never paired

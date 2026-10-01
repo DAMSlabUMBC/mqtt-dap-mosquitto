@@ -31,6 +31,7 @@ Contributors:
 #include "tls_mosq.h"
 #include "util_mosq.h"
 #include "will_mosq.h"
+#include "dap/rights_broker.h"
 
 #if defined(WITH_WEBSOCKETS) && WITH_WEBSOCKETS == WS_IS_LWS
 #  include <libwebsockets.h>
@@ -318,6 +319,8 @@ int connect__on_authorised(struct mosquitto *context, void *auth_data_out, uint1
 
 	if(rc == MOSQ_ERR_SUCCESS){
 		plugin__handle_connect(context);
+		/* Paper 6.3: requests held while a resumed session's subscriber was away. */
+		broker_deliver_held_requests(context);
 
 		if(context->session_expiry_interval != MQTT_SESSION_EXPIRY_IMMEDIATE){
 			plugin_persist__handle_client_add(context);

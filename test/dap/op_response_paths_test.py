@@ -2,7 +2,8 @@
 """Operation Failure/Success responses must not crash or leak the broker.
 
 Covers an unknown DAP-OpType, a DELETE with no relevant subscribers, HISTORY
-with offline and online subscribers, AUDIT, and how relevance is decided. Each case runs against a fresh broker,
+with offline and online subscribers, AUDIT, requests held for offline
+subscribers, and how relevance is decided. Each case runs against a fresh broker,
 which must exit cleanly (under make WITH_ASAN=yes a leak fails that check).
 
 Usage: python3 test/dap/op_response_paths_test.py [port]
@@ -103,10 +104,10 @@ class Client:
         self.c.on_message = lambda c, u, m: self.msgs.append((m.topic, m.payload, user_props(m)))
         clients.append(self)
 
-    def connect(self):
+    def connect(self, clean_start=False):
         props = Properties(PacketTypes.CONNECT)
         props.SessionExpiryInterval = 3600
-        self.c.connect(HOST, PORT, clean_start=False, properties=props)
+        self.c.connect(HOST, PORT, clean_start=clean_start, properties=props)
         self.c.loop_start()
         return self
 
@@ -233,6 +234,32 @@ def case_relevance_topic_wildcard(pub):
     return wait_for(lambda: sub.got(f"{OP_REQ}/subA"))
 
 
+def offline_request_case(pub, resume_session):
+    sub = subscribers_with_data(pub, ["subA"])[0]
+    sub.disconnect()
+    time.sleep(0.2)
+    pub.publish(OSYS, [("DAP-OpType", "DELETE"), ("DAP-OpTFs", TOPIC)])
+    if not wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Pending"})):
+        return False
+    sub = Client("subA").connect(clean_start=not resume_session)
+    if not resume_session:
+        # A new session subscribes to its request topic again, as PSMark does.
+        sub.subscribe(f"{OP_REQ}/subA", OP_PURPOSE)
+    if not wait_for(lambda: sub.got(f"{OP_REQ}/subA", **{"DAP-OpType": "DELETE"})):
+        return False
+    op_id = sub.got(f"{OP_REQ}/subA")[0][2].get("DAP-OpId")
+    sub.publish(OSYS, [("DAP-Status", "Success"), ("DAP-OpId", op_id)])
+    return wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Success", "DAP-Reason": "All subscribers responded"}))
+
+
+def case_offline_request_on_resubscribe(pub):
+    return offline_request_case(pub, resume_session=False)
+
+
+def case_offline_request_on_session_resume(pub):
+    return offline_request_case(pub, resume_session=True)
+
+
 def case_failure_to_response_topic(_):
     pub = requester(response_topic="op_resp/pub1")
     pub.publish(OSYS, [("DAP-OpType", "BOGUS")], response_topic="op_resp/pub1")
@@ -258,6 +285,8 @@ CASES = [
     ("HISTORY with many offline subscribers lists every one at the deadline", case_history_many_offline, True),
     ("HISTORY gets a Success once its subscriber responds", case_history_success, True),
     ("AUDIT returns the relevant subscriber ids", case_audit_lists_subscribers, True),
+    ("an offline subscriber gets the request when it subscribes again", case_offline_request_on_resubscribe, True),
+    ("an offline subscriber gets the request when its session resumes", case_offline_request_on_session_resume, True),
     ("AUDIT with no relevant subscribers gets a Failure", case_audit_no_relevant, True),
     ("relevance uses the SP in force at delivery", case_relevance_uses_delivery_time_sp, True),
     ("relevance matches DAP-OpTFs as MQTT topic filters", case_relevance_topic_wildcard, True),

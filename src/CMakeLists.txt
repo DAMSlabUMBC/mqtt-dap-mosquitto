@@ -77,6 +77,7 @@ add_executable(mosquitto
 	../lib/dap/dap_metrics.c ../lib/dap/dap_metrics.h
 	../lib/dap/dap_send_verify.c ../lib/dap/dap_send_verify.h
 	../lib/dap/dap_holding_list.c ../lib/dap/dap_holding_list.h
+	../lib/dap/dap_request_store.c ../lib/dap/dap_request_store.h
 	read_handle.c
 	../lib/read_handle.h
 	retain.c
