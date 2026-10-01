@@ -421,6 +421,8 @@ struct dap_holding_list;
 /* Operation requests held for subscribers that cannot receive them yet. */
 struct dap_request_store;
 
+#include "dap/dap_intake.h"
+
 /* Maps op id to requesting publisher, so status notifications can be routed back to
  * the requester even after the operation stops being tracked. Forward declared so the
  * db field can be a pointer. */

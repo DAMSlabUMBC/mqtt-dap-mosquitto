@@ -101,7 +101,7 @@ size_t dap_subscription_queues_topic_size(struct dap_subscription_queues *q, con
 /* Total number of messages across all of this subscription's topic queues. */
 size_t dap_subscription_queues_total_size(struct dap_subscription_queues *q);
 
-/* Free a stamped message (its op-id array and the wrapper), but not the base_msg. */
+/* Free a stamped message, but not its base_msg. */
 void dap_stamped_msg_free(struct dap_stamped_msg *msg);
 
 /* Free every topic queue and stamped message, leaving q empty and reusable. */

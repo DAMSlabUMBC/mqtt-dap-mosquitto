@@ -42,6 +42,9 @@ int send__disconnect(struct mosquitto *mosq, uint8_t reason_code, const mosquitt
 
 	assert(mosq);
 #ifdef WITH_BROKER
+	/* Data the client sent before this point is handled first: nothing may follow
+	 * the DISCONNECT. */
+	(void)dap_intake__flush(mosq);
 #  ifdef WITH_BRIDGE
 	if(mosq->bridge){
 		log__printf(mosq, MOSQ_LOG_DEBUG, "Bridge %s sending DISCONNECT", SAFE_PRINT(mosq->id));

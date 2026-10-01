@@ -129,12 +129,12 @@ class RawPublisher:
         connack = self.sock.recv(64)
         assert connack[0] == 0x20 and connack[3] == 0, "CONNACK failed"
 
-    def packet(self, topic, pairs, payload=b"", alias=None):
+    def packet(self, topic, pairs, payload=b"", alias=None, qos=0, mid=0, allow=True):
         props = b"".join(mqtt5_props.gen_string_pair_prop(mqtt5_props.USER_PROPERTY, k, v)
-                         for k, v in [("DAP-Allow", "1")] + pairs)
+                         for k, v in ([("DAP-Allow", "1")] if allow else []) + pairs)
         if alias is not None:
             props += mqtt5_props.gen_uint16_prop(mqtt5_props.TOPIC_ALIAS, alias)
-        return mosq_test.gen_publish(topic, 0, payload, proto_ver=5, properties=props)
+        return mosq_test.gen_publish(topic, qos, payload, mid=mid, proto_ver=5, properties=props)
 
     def send(self, *packets):
         self.sock.sendall(b"".join(packets))
@@ -625,6 +625,27 @@ def intake_own_order_case():
         check(broker.stop() == 0, "broker exits cleanly")
 
 
+def intake_error_order_case():
+    """A state change that goes ahead of the client's data and fails still lets that
+    data be acknowledged before the DISCONNECT, which must be the last packet."""
+    broker = Broker("use_metadata_operation_support true\n")
+    try:
+        sub = Subscriber("subN")
+        sub.subscribe("t/n", ["qa"])
+        pub = RawPublisher()
+        pub.send(pub.packet("$MP_REG", [("DAP-MP", "qa:t/n")]))
+        pub.sock.sendall(pub.packet("t/n", [], b"m1", qos=1, mid=7)
+                         + pub.packet(OSYS, [("DAP-OpType", "DELETE")], allow=False))
+        first = pub.sock.recv(1)
+        check(first == b"\x40", "the PUBACK for the earlier data comes before the DISCONNECT (got %s)" % first.hex())
+        check(payloads(sub.read_publishes(), "t/n") == [b"m1"], "the earlier data is delivered")
+        pub.close()
+        sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
 def stop_clients():
     for c in clients:
         c.stop()
@@ -661,6 +682,7 @@ def main():
     intake_disconnect_case(abrupt=True)
     intake_alias_case()
     intake_own_order_case()
+    intake_error_order_case()
 
     print()
     if failures:

@@ -78,10 +78,11 @@ static bool dap_intake__may_overtake(struct mosquitto *context)
 	mosquitto_property *properties = NULL;
 	uint16_t alias;
 	bool has_alias;
+	int len = dap_intake__topic_len(&packet);
 
-	if((packet.command & 0x06) != 0) return false;
+	if(len < 0 || (packet.command & 0x06) != 0) return false;
 	if(context->protocol != mosq_p_mqtt5) return true;
-	packet.pos = (uint32_t)dap_intake__topic_len(&packet) + 2;
+	packet.pos = (uint32_t)len + 2;
 	if(property__read_all(CMD_PUBLISH, &packet, &properties)) return false;
 	has_alias = mosquitto_property_read_int16(properties, MQTT_PROP_TOPIC_ALIAS, &alias, false) != NULL;
 	mosquitto_property_free_all(&properties);
@@ -187,8 +188,9 @@ void dap_intake__end(void)
 		rc = dap_intake__handle(p);
 		dap_intake__free(p);
 		if(rc){
-			handle__packet_error(context, rc);
+			/* The client's later data is not handled, as if it had not been read. */
 			dap_intake__purge(context);
+			handle__packet_error(context, rc);
 			do_disconnect(context, rc);
 		}
 	}
