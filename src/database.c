@@ -1681,12 +1681,14 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 				leaf->purpose_filters, leaf->purpose_filter_count, client_id,
 				base_msg->dap_order, NULL, &revoked);
 		if(is_holding){
-			/* Re-verify candidate: a DELETE drops it, and so does a publisher's current
-			 * MP, less the purposes a RESTRICT revoked, that no longer permits its
-			 * subscription's current SP. */
+			/* Re-verify candidate: a DELETE drops it, and so does an SP that is not
+			 * permitted both by the MP the message was published with and by the
+			 * publisher's current MP less the purposes a RESTRICT revoked. An update
+			 * can narrow what a message permits, never widen it (paper 4.3). */
 			if(action == DAP_OP_ACTION_DROP){
 				verdict = DAP_SEND_DROP_DELETE;
-			}else if(!purpose_mp_permits_unrevoked(cur_purpose, revoked,
+			}else if(!purpose_mp_permits(purpose, leaf->purpose_filters, leaf->purpose_filter_count)
+					|| !purpose_mp_permits_unrevoked(cur_purpose, revoked,
 					leaf->purpose_filters, leaf->purpose_filter_count)){
 				verdict = DAP_SEND_DROP_PURPOSE;
 			}else{

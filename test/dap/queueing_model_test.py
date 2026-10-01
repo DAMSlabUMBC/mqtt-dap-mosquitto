@@ -646,6 +646,32 @@ def intake_error_order_case():
         check(broker.stop() == 0, "broker exits cleanly")
 
 
+def mp_widen_case():
+    """A widened MP does not let a waiting message reach a purpose its own MP never permitted."""
+    broker = Broker()
+    try:
+        sub = Subscriber("subW", receive_maximum=1)
+        sub.subscribe("t/w", ["qa"])
+        pub = Publisher()
+        pub.register("qa", "t/w")
+        pub.publish("t/w", [], payload=b"m1")
+        pub.publish("t/w", [], payload=b"m2")
+        first = sub.read_publishes(idle=0.5, ack=False)
+        check(payloads(first, "t/w") == [b"m1"], "only m1 is in flight (receive maximum 1)")
+
+        pub.register("qa|qb", "t/w")  # MP widened while m2 waits
+        sub.subscribe("t/w", ["qb"])
+        sub.puback(first[0][2])
+        time.sleep(0.3)
+        pub.publish("t/w", [], payload=b"m3")
+        got = payloads(sub.read_publishes(), "t/w")
+        check(got == [b"m3"], "m2, published for qa only, is not delivered for qb (got %s)" % got)
+        sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
 def stop_clients():
     for c in clients:
         c.stop()
@@ -675,6 +701,7 @@ def main():
     sp_change_case(["qa", "qb"], still_allowed=False)
     mp_change_case("qa|qb", still_allowed=True)
     mp_change_case("qz", still_allowed=False)
+    mp_widen_case()
     print("# prioritized intake")
     intake_mp_case()
     intake_delete_case()
