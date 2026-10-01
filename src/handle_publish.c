@@ -488,6 +488,27 @@ static int register_mp_property(const char *client_id, const char *value)
 	return rc;
 }
 
+/* Set the DAP-ClientID of a data message to its publisher's connection-time ID
+ * (paper appendix A), replacing any value the client gave. */
+static int set_client_id_property(mosquitto_property **properties, const char *client_id)
+{
+	mosquitto_property **link = properties;
+	size_t key_len = strlen(MOSQ_DAP_ID_KEY);
+
+	while(*link){
+		mosquitto_property *p = *link;
+		if(p->identifier == MQTT_PROP_USER_PROPERTY && p->name.len == key_len
+				&& !memcmp(p->name.v, MOSQ_DAP_ID_KEY, key_len)){
+			*link = p->next;
+			p->next = NULL;
+			mosquitto_property_free_all(&p);
+		}else{
+			link = &p->next;
+		}
+	}
+	return mosquitto_property_add_string_pair(properties, MQTT_PROP_USER_PROPERTY, MOSQ_DAP_ID_KEY, client_id);
+}
+
 /* Replace *dst with a copy of value. */
 static void replace_string(char **dst, const char *value)
 {
@@ -797,6 +818,11 @@ int handle__publish(struct mosquitto *context, const struct dap_receipt *receipt
 				base_msg->data.purpose_filter = mosquitto_strdup(stored->purpose_filter);
 				base_msg->data.purpose_filter_version = stored->version;
 				base_msg->data.has_purpose_filter = true;
+				if(set_client_id_property(&base_msg->data.properties, context->id)){
+					mosquitto_property_free_all(&properties);
+					db__msg_store_free(base_msg);
+					return MOSQ_ERR_NOMEM;
+				}
 			}
 			else if(dap_is_op_system_topic(base_msg->data.topic))
 			{

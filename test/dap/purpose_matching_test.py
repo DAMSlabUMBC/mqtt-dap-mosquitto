@@ -111,6 +111,29 @@ def rejection_cases():
         cl.disconnect()
 
 
+def client_id_case():
+    """The broker sets DAP-ClientID on data to the publisher's connection-time ID."""
+    got = []
+    sub = mqtt.Client(CallbackAPIVersion.VERSION2, client_id="subC2", protocol=mqtt.MQTTv5)
+    sub.on_message = lambda cl, u, m: got.append([v for k, v in (m.properties.UserProperty or []) if k == "DAP-ClientID"])
+    sub.connect(HOST, PORT)
+    sub.loop_start()
+    pub = client("pubC2")
+    time.sleep(0.2)
+    sub.subscribe("pc/#", qos=0, properties=props(PacketTypes.SUBSCRIBE, [("DAP-SP", "qa")]))
+    pub.publish("$MP_REG", payload="", qos=0,
+                properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1"), ("DAP-MP", "qa:pc/a")]))
+    time.sleep(0.3)
+    pub.publish("pc/a", payload=b"1", qos=0, properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1")]))
+    pub.publish("pc/a", payload=b"2", qos=0,
+                properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1"), ("DAP-ClientID", "someone-else")]))
+    time.sleep(0.5)
+    check(got == [["pubC2"], ["pubC2"]], "data carries the publisher's own ID, added or corrected (got %s)" % got)
+    for cl in (sub, pub):
+        cl.loop_stop()
+        cl.disconnect()
+
+
 def main():
     subs = {}
     for cid, (topic_filter, sps, _) in CASES.items():
@@ -149,6 +172,7 @@ def main():
     check(rejected and received["subZ"] == [],
           "a subscription whose only SP is bound to another topic filter is rejected")
     rejection_cases()
+    client_id_case()
 
     print()
     if failures:
