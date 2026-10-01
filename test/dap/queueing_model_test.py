@@ -106,8 +106,11 @@ class Publisher:
         self.publish("$MP_REG", [("DAP-MP", f"{mp}:{topic}")], qos=0)
         time.sleep(0.2)
 
-    def operation(self, op, topic_filter):
-        self.publish(OSYS, [("DAP-OpType", op), ("DAP-OpTFs", topic_filter)])
+    def operation(self, op, topic_filter, purposes=None):
+        pairs = [("DAP-OpType", op), ("DAP-OpTFs", topic_filter)]
+        if purposes is not None:
+            pairs.append(("DAP-OpPFs", purposes))
+        self.publish(OSYS, pairs)
 
     def got_status(self, status):
         return [m for m in self.msgs if m[1].get("DAP-Status") == status]
@@ -280,6 +283,39 @@ def delete_case(overflow=False, gap=False):
         check(broker.stop() == 0, "broker exits cleanly")
 
 
+def scoped_op_case(op, topic_filter, purposes, sps_kept):
+    """An operation reaches the queued copies whose topic matches its DAP-OpTFs and
+    whose subscription's SP shares a purpose with its DAP-OpPFs. A RESTRICT revokes
+    those purposes, so it drops a copy whose SP uses one of them."""
+    broker = Broker("use_metadata_operation_support true\n")
+    try:
+        subs = {}
+        for i, sp in enumerate(sps_kept):
+            sub = Subscriber("subS%d" % i, persistent=True)
+            sub.subscribe("t/s/1", sp.split("|"))
+            subs[sp] = sub
+        pub = Publisher()
+        pub.register("qa|qb|qc", "t/s/1")
+        pub.publish("t/s/1", [], payload=b"m0")
+        for sp, sub in subs.items():
+            check(payloads(sub.read_publishes(), "t/s/1") == [b"m0"], "SP %s receives data before the %s" % (sp, op))
+            sub.disconnect()
+        pub.publish("t/s/1", [], payload=b"m1")
+        time.sleep(1.1)  # the operation is received after m1 (1 s resolution)
+        pub.operation(op, topic_filter, purposes)
+        check(wait_for(lambda: pub.msgs), "requester gets a reply to the %s" % op)
+        for sp, sub in subs.items():
+            sub.connect()
+            got = payloads(sub.read_publishes(), "t/s/1")
+            expected = [b"m1"] if sps_kept[sp] else []
+            check(got == expected, "%s on %s for %s: SP %s got %s (expected %s)"
+                  % (op, topic_filter, purposes, sp, got, expected))
+            sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
 def drop_then_stale_case():
     """After a reconnect, a DELETEd message followed by stale ones keeps publish order."""
     broker = Broker("use_metadata_operation_support true\n")
@@ -447,6 +483,12 @@ def main():
     delete_case(overflow=True)
     delete_case(gap=True)
     drop_refill_case()
+    scoped_op_case("DELETE", "t/+/1", "qb", {"qa": True, "qb": False, "qa|qc": True, "qb|qc": False})
+    scoped_op_case("DELETE", "t/s/#", "qx", {"qa": True, "qb": True})
+    scoped_op_case("DELETE", "t/other", None, {"qa": True})
+    print("# RESTRICT on queued messages")
+    scoped_op_case("RESTRICT", "t/s/1", "qa", {"qa": False, "qb": True, "qb|qc": True, "qa|qb": False})
+    scoped_op_case("RESTRICT", "t/s/1", None, {"qa": False, "qb|qc": False})
     print("# re-verification of stale stamps")
     stale_mp_case()
     drop_then_stale_case()

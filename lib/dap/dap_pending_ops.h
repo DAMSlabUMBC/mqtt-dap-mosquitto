@@ -2,6 +2,7 @@
 #ifndef DAP_PENDING_OPS_H
 #define DAP_PENDING_OPS_H
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <time.h>
@@ -27,11 +28,11 @@ enum dap_op_action {
 };
 
 /*
- * A single pending operation for one publisher. Each filter (DAP-OpTFs,
- * DAP-OpPFs, DAP-OpClients) is a list and matches a message field when any one
- * element matches; "*" means any. An operation only applies to messages from the
- * publisher that invoked it. Topic elements are compared exactly or via "*";
- * MQTT topic wildcards (+/#) are not yet honoured.
+ * A single pending operation for one publisher. It applies to a message queued for
+ * a subscription when the message's topic matches one of its DAP-OpTFs (MQTT topic
+ * filters), the subscription's SP shares a purpose with its DAP-OpPFs, and the
+ * subscriber is one of its DAP-OpClients. An absent filter, or "*", matches anything.
+ * An operation only applies to messages from the publisher that invoked it.
  */
 struct dap_pending_op {
     uint64_t op_id;              /* broker-assigned, unique within the map */
@@ -39,8 +40,7 @@ struct dap_pending_op {
     enum dap_op_type type;
     char **topic_filters;        /* DAP-OpTFs; any element may match, "*" = any */
     size_t num_topic_filters;
-    char **purpose_filters;      /* DAP-OpPFs; any element may match, "*" = any */
-    size_t num_purpose_filters;
+    char *purposes;              /* DAP-OpPFs as a canonical purpose set; NULL = any */
     char **subscriber_filters;   /* DAP-OpClients; any element may match, "*" = any */
     size_t num_subscriber_filters;
     struct dap_pending_op *next; /* next op for the same publisher */
@@ -63,12 +63,11 @@ struct dap_pending_ops {
 int dap_pending_ops_init(struct dap_pending_ops *map);
 
 /*
- * Insert a pending operation for pub_id. topic_filters, purpose_filters and
- * subscriber_filters are comma-separated lists; the operation applies when one
- * element of each list matches the message field. Pass "*" or NULL for a list
- * that matches anything. The strings are copied. The assigned operation id is
- * written to *op_id_out when non-NULL. Returns 0 on success, non-zero on a bad
- * argument or allocation failure.
+ * Insert a pending operation for pub_id. topic_filters and subscriber_filters are
+ * comma-separated lists, and purpose_filters a purpose filter collection. Pass "*"
+ * or NULL for a filter that matches anything. The strings are copied. The assigned
+ * operation id is written to *op_id_out when non-NULL. Returns 0 on success,
+ * non-zero on a bad argument, an invalid filter or allocation failure.
  */
 int dap_pending_ops_insert_operation(struct dap_pending_ops *map,
                                      const char *pub_id,
@@ -115,20 +114,24 @@ int dap_pending_ops_remove_operation_by_id(struct dap_pending_ops *map, uint64_t
 void dap_pending_ops_destroy(struct dap_pending_ops *map);
 
 /*
- * Decide what happens to a message from pub_id given the operations pending for
- * that publisher. An operation applies when each of its filter lists matches and
- * the message was enqueued at or before the operation (msg_timestamp <=
- * op->timestamp). DELETE supersedes RESTRICT: any applicable DELETE gives
- * DAP_OP_ACTION_DROP, otherwise the most recent matching RESTRICT wins. The
- * deciding op id is written to *op_id_out for DROP and RESTRICT, or 0 for NONE.
+ * Decide what happens to a message from pub_id queued for a subscription with the
+ * sorted purpose set sp (NULL when the subscription is unknown, which every purpose
+ * filter matches). An operation applies when each of its filters matches and the
+ * message was enqueued at or before the operation (msg_timestamp <= op->timestamp).
+ * DELETE supersedes RESTRICT: any applicable DELETE gives DAP_OP_ACTION_DROP,
+ * otherwise the most recent applicable RESTRICT wins. The deciding op id is written
+ * to *op_id_out for DROP and RESTRICT, or 0 for NONE. For RESTRICT, *revoked_out is
+ * set to the canonical purposes it revokes ("*" for all), and to NULL otherwise.
  */
 enum dap_op_action dap_pending_ops_match(struct dap_pending_ops *map,
                                          const char *pub_id,
                                          const char *topic,
-                                         const char *purpose,
+                                         char *const *sp,
+                                         uint32_t sp_count,
                                          const char *subscriber_id,
                                          time_t msg_timestamp,
-                                         uint64_t *op_id_out);
+                                         uint64_t *op_id_out,
+                                         const char **revoked_out);
 
 #ifdef __cplusplus
 }

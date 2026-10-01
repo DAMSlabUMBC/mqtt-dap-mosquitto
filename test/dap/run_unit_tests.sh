@@ -17,6 +17,7 @@ if command -v pkg-config > /dev/null && pkg-config --exists libcjson; then
 	INC+=($(pkg-config --cflags libcjson))
 fi
 MEM="$R/libcommon/memory_common.c"
+TOPIC="$R/libcommon/topic_common.c"
 SAN=(-fsanitize=address,undefined -fno-omit-frame-pointer -g -O0)
 
 # name | sources (relative to lib/dap unless absolute) | extra flags
@@ -24,11 +25,11 @@ TESTS=(
 	"dap_deadline_tracker_test|dap_deadline_tracker.c $MEM|"
 	"dap_holding_list_test|dap_holding_list.c $MEM|"
 	"dap_op_requester_test|dap_op_requester.c $MEM|"
-	"dap_op_request_test|dap_op_request.c dap_pending_ops.c $MEM|"
-	"dap_pending_ops_test|dap_pending_ops.c $MEM|"
+	"dap_op_request_test|dap_op_request.c dap_pending_ops.c purpose_filters.c $TOPIC $MEM|"
+	"dap_pending_ops_test|dap_pending_ops.c purpose_filters.c $TOPIC $MEM|"
 	"dap_pqueue_test|dap_pqueue.c|"
 	"dap_send_verify_test|dap_send_verify.c|"
-	"dap_stamp_test|dap_stamp.c dap_subscription_queues.c dap_pending_ops.c mp_registry.c $MEM|"
+	"dap_stamp_test|dap_stamp.c dap_subscription_queues.c mp_registry.c $MEM|"
 	"dap_subscription_queues_test|dap_subscription_queues.c $MEM|"
 	"dap_timestamp_test|dap_timestamp.c|"
 	"dap_topics_test|dap_topics.c|"

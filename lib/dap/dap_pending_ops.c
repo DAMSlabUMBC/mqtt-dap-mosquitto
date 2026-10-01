@@ -9,6 +9,7 @@
 #include "mosquitto_internal.h"
 #include "util_mosq.h"
 #include "dap_pending_ops.h"
+#include "purpose_filters.h"
 
 /* Initialize an empty map. */
 int dap_pending_ops_init(struct dap_pending_ops *map)
@@ -32,7 +33,7 @@ static void dap__free_filter_list(char **list, size_t n)
 static void dap__free_op(struct dap_pending_op *op)
 {
     dap__free_filter_list(op->topic_filters, op->num_topic_filters);
-    dap__free_filter_list(op->purpose_filters, op->num_purpose_filters);
+    mosquitto_FREE(op->purposes);
     dap__free_filter_list(op->subscriber_filters, op->num_subscriber_filters);
     mosquitto_FREE(op);
 }
@@ -114,10 +115,16 @@ static int dap__add_operation(struct dap_pending_ops *map,
     op->timestamp = timestamp;
     op->type      = type;
     if(dap__parse_filter_list(topic_filters, &op->topic_filters, &op->num_topic_filters)
-            || dap__parse_filter_list(purpose_filters, &op->purpose_filters, &op->num_purpose_filters)
             || dap__parse_filter_list(subscriber_filters, &op->subscriber_filters, &op->num_subscriber_filters)){
         dap__free_op(op);
         return 1;
+    }
+    /* An absent or empty DAP-OpPFs scopes the operation to every purpose. */
+    if(purpose_filters && purpose_filters[0] != '\0' && strcmp(purpose_filters, "*")){
+        if(purpose_filter_canonical(purpose_filters, &op->purposes)){
+            dap__free_op(op);
+            return 1;
+        }
     }
 
     /* Find or create the publisher's entry. */
@@ -282,14 +289,27 @@ static bool dap__filter_list_matches(char **list, size_t n, const char *value)
     return false;
 }
 
-/* True when every filter list matches and the message was enqueued at or before the op. */
-static bool dap__op_applies(const struct dap_pending_op *op,
-                            const char *topic, const char *purpose,
+/* A topic filter list matches when any element is "*" or an MQTT filter matching the topic. */
+static bool dap__topic_list_matches(char **list, size_t n, const char *topic)
+{
+    for(size_t i = 0; i < n; i++){
+        bool result = false;
+        if(!strcmp(list[i], "*")) return true;
+        if(topic && mosquitto_topic_matches_sub(list[i], topic, &result) == MOSQ_ERR_SUCCESS && result){
+            return true;
+        }
+    }
+    return false;
+}
+
+/* True when every filter matches and the message was enqueued at or before the op. */
+static bool dap__op_applies(const struct dap_pending_op *op, const char *topic,
+                            char *const *sp, uint32_t sp_count,
                             const char *subscriber_id, time_t msg_timestamp)
 {
     if(msg_timestamp > op->timestamp) return false;
-    if(!dap__filter_list_matches(op->topic_filters, op->num_topic_filters, topic)) return false;
-    if(!dap__filter_list_matches(op->purpose_filters, op->num_purpose_filters, purpose)) return false;
+    if(!dap__topic_list_matches(op->topic_filters, op->num_topic_filters, topic)) return false;
+    if(op->purposes && sp && !purpose_set_intersects(op->purposes, sp, sp_count)) return false;
     if(!dap__filter_list_matches(op->subscriber_filters, op->num_subscriber_filters, subscriber_id)) return false;
     return true;
 }
@@ -297,12 +317,15 @@ static bool dap__op_applies(const struct dap_pending_op *op,
 enum dap_op_action dap_pending_ops_match(struct dap_pending_ops *map,
                                          const char *pub_id,
                                          const char *topic,
-                                         const char *purpose,
+                                         char *const *sp,
+                                         uint32_t sp_count,
                                          const char *subscriber_id,
                                          time_t msg_timestamp,
-                                         uint64_t *op_id_out)
+                                         uint64_t *op_id_out,
+                                         const char **revoked_out)
 {
     if(op_id_out) *op_id_out = 0;
+    if(revoked_out) *revoked_out = NULL;
     if(!map || !pub_id) return DAP_OP_ACTION_NONE;
 
     struct dap_pub_entry *entry = dap__find_publisher(map, pub_id);
@@ -312,7 +335,7 @@ enum dap_op_action dap_pending_ops_match(struct dap_pending_ops *map,
      * keeping the most recent matching RESTRICT. */
     struct dap_pending_op *best_restrict = NULL;
     for(struct dap_pending_op *op = entry->ops; op; op = op->next){
-        if(!dap__op_applies(op, topic, purpose, subscriber_id, msg_timestamp)){
+        if(!dap__op_applies(op, topic, sp, sp_count, subscriber_id, msg_timestamp)){
             continue;
         }
         if(op->type == DAP_OP_DELETE){
@@ -326,6 +349,7 @@ enum dap_op_action dap_pending_ops_match(struct dap_pending_ops *map,
 
     if(best_restrict){
         if(op_id_out) *op_id_out = best_restrict->op_id;
+        if(revoked_out) *revoked_out = best_restrict->purposes ? best_restrict->purposes : "*";
         return DAP_OP_ACTION_RESTRICT;
     }
     return DAP_OP_ACTION_NONE;

@@ -158,6 +158,17 @@ static void test_intersection(void)
     assert(intersect("*", "operations/forecast"));
     assert(intersect("maintenance/{predictive,routine}", "maintenance/routine,vendor/x"));
     assert(!intersect("", "quality/assurance"));
+
+    char *ops = canonical("maintenance/{predictive,routine}");
+    char **sp = NULL;
+    uint32_t n = 0;
+    assert(purpose_set_expand("quality|maintenance/routine", &sp, &n) == 0);
+    assert(purpose_set_intersects(ops, sp, n));
+    assert(purpose_set_intersects("*", sp, n));
+    assert(!purpose_set_intersects("vendor", sp, n));
+    assert(!purpose_set_intersects(ops, sp, 0));
+    purpose_set_free(sp, n);
+    mosquitto_free(ops);
     printf("ok - purpose sets intersect when they share a purpose\n");
 }
 

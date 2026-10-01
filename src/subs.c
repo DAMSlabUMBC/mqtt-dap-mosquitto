@@ -210,10 +210,8 @@ static int subs__process(struct mosquitto__subhier *hier, const char *source_id,
 				}
 			}
 			if(leaf->dap_queues){
-				const char *purpose = stored->data.has_purpose_filter ? stored->data.purpose_filter : NULL;
-				dap_stamp_and_enqueue(leaf->dap_queues, db.dap_pending_ops,
-						stored->data.source_id, leaf->context->id, topic,
-						cmsg_id, leaf->sp_version, purpose, stored, stored->dap_recv_time, NULL);
+				dap_stamp_and_enqueue(leaf->dap_queues, stored->data.source_id, topic,
+						cmsg_id, leaf->sp_version, stored, stored->dap_recv_time);
 				if(stored->data.has_purpose_filter){
 					stored->dap_subs_matched++;
 				}

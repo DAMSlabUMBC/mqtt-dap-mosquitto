@@ -40,8 +40,8 @@ enum dap_send_verdict dap_verify_for_send(const struct dap_stamped_msg *stamped,
         return DAP_SEND_FAIL_SP;
     }
 
-    /* A RESTRICT passes only if the message already carries its op id; an
-     * uncovered RESTRICT arrived after stamping, so re-verify to re-stamp it. */
+    /* A RESTRICT passes only if the message already carries its op id; otherwise
+     * re-verify it against the purposes the RESTRICT revoked. */
     if (current_op_action == DAP_OP_ACTION_RESTRICT && !stamp_covers_op(stamped, current_op_id)) {
         return DAP_SEND_FAIL_OP_MISSING;
     }
@@ -65,9 +65,9 @@ enum dap_send_disposition dap_send_decide(bool has_stamp,
         if (this_id != pending_id) {
             return DAP_DISP_SKIP;
         }
-        /* The re-verify candidate terminates this pass: a DELETE, or a purpose its
-         * subscription no longer admits, drops it, otherwise it delivers. It must
-         * never bump again, which would spin. */
+        /* The re-verify candidate terminates this pass: a DELETE, or a current MP
+         * that no longer permits the current SP, drops it, otherwise it delivers. It
+         * must never bump again, which would spin. */
         return (verdict == DAP_SEND_DROP_DELETE || verdict == DAP_SEND_DROP_PURPOSE)
                 ? DAP_DISP_DROP : DAP_DISP_DELIVER;
     }

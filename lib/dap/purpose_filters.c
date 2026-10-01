@@ -335,6 +335,13 @@ bool purpose_mp_permits_unrevoked(const char *mp, const char *revoked, char *con
     return pf__subset(revoked, sp, sp_count, true);
 }
 
+bool purpose_set_intersects(const char *canonical, char *const *sorted, uint32_t n)
+{
+    if(!canonical || canonical[0] == '\0' || !sorted || n == 0) return false;
+    if(!strcmp(canonical, "*")) return true;
+    return !pf__subset(canonical, sorted, n, true);
+}
+
 bool purpose_sets_intersect(const char *a, const char *b)
 {
     struct pf_cursor ca = {a, NULL, 0};

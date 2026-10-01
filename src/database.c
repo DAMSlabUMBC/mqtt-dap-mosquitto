@@ -1664,15 +1664,18 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 		}
 		uint32_t cur_sp = leaf->sp_version;
 		uint64_t op_id = 0;
+		const char *revoked = NULL;
 		enum dap_op_action action = dap_pending_ops_match(db.dap_pending_ops, pub_id, topic,
-				purpose, client_id, base_msg->dap_recv_time, &op_id);
+				leaf->purpose_filters, leaf->purpose_filter_count, client_id,
+				base_msg->dap_recv_time, &op_id, &revoked);
 		if(is_holding){
 			/* Re-verify candidate: a DELETE drops it, and so does a publisher's current
-			 * MP that no longer permits its subscription's current SP; a new RESTRICT is
-			 * re-stamped and delivered. */
+			 * MP, less the purposes a RESTRICT revoked, that no longer permits its
+			 * subscription's current SP. */
 			if(action == DAP_OP_ACTION_DROP){
 				verdict = DAP_SEND_DROP_DELETE;
-			}else if(!purpose_mp_permits(cur_purpose, leaf->purpose_filters, leaf->purpose_filter_count)){
+			}else if(!purpose_mp_permits_unrevoked(cur_purpose, revoked,
+					leaf->purpose_filters, leaf->purpose_filter_count)){
 				verdict = DAP_SEND_DROP_PURPOSE;
 			}else{
 				verdict = DAP_SEND_PASS;
@@ -1684,11 +1687,10 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 
 	enum dap_send_disposition disp = dap_send_decide(has_stamp, is_holding, pending_id, this_id, verdict);
 
-	/* Restored messages have no stamp; still apply DELETE. */
+	/* Restored messages have no stamp or subscription; still apply DELETE. */
 	if(!has_stamp && base_msg->dap_restored && db.dap_pending_ops){
-		const char *purpose = base_msg->data.has_purpose_filter ? base_msg->data.purpose_filter : NULL;
 		if(dap_pending_ops_match(db.dap_pending_ops, base_msg->data.source_id, topic,
-				purpose, client_id, base_msg->dap_recv_time, NULL) == DAP_OP_ACTION_DROP){
+				NULL, 0, client_id, base_msg->dap_recv_time, NULL, NULL) == DAP_OP_ACTION_DROP){
 
 			disp = DAP_DISP_DROP;
 		}
