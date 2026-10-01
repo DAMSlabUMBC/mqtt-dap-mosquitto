@@ -144,6 +144,28 @@ def retained_case():
     pub.disconnect()
 
 
+def shared_case():
+    """A shared subscription group delivers each message to a member whose SP the MP permits."""
+    members = {cid: client(cid) for cid in ("subG1", "subG2")}
+    time.sleep(0.2)
+    members["subG1"].subscribe("$share/g/ps/s", qos=0, properties=props(PacketTypes.SUBSCRIBE, [("DAP-SP", "qa")]))
+    members["subG2"].subscribe("$share/g/ps/s", qos=0, properties=props(PacketTypes.SUBSCRIBE, [("DAP-SP", "qb")]))
+    pub = client("pubG")
+    time.sleep(0.3)
+    pub.publish("$MP_REG", payload="", qos=0,
+                properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1"), ("DAP-MP", "qa:ps/s")]))
+    time.sleep(0.3)
+    for i in range(4):
+        pub.publish("ps/s", payload=b"%d" % i, qos=0, properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1")]))
+    time.sleep(0.5)
+    check(len(received["subG1"]) == 4 and received["subG2"] == [],
+          "every message goes to the member the MP permits (got %d and %d)"
+          % (len(received["subG1"]), len(received["subG2"])))
+    for c in list(members.values()) + [pub]:
+        c.loop_stop()
+        c.disconnect()
+
+
 def client_id_case():
     """The broker sets DAP-ClientID on data to the publisher's connection-time ID."""
     got = []
@@ -207,6 +229,7 @@ def main():
     rejection_cases()
     client_id_case()
     retained_case()
+    shared_case()
 
     print()
     if failures:
