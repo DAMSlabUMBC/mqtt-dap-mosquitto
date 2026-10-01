@@ -741,14 +741,14 @@ int handle__publish(struct mosquitto *context, const struct dap_receipt *receipt
 			}
 		}
 
+		/* Paper appendix A: the broker discards a message without DAP-Allow=1. */
 		if(!consent_given)
 		{
 			log__printf(NULL, MOSQ_LOG_INFO,
-				"Consent not given for packet from %s, rejecting.",
+				"Consent not given for packet from %s, discarding.",
 				context->id);
 			mosquitto_property_free_all(&properties);
-			db__msg_store_free(base_msg);
-			return MOSQ_ERR_MALFORMED_PACKET;
+			return process_bad_message(context, base_msg, MQTT_RC_NOT_AUTHORIZED);
 		}
 
 		/* Check if this is a registration message on the registration topic */
@@ -809,14 +809,12 @@ int handle__publish(struct mosquitto *context, const struct dap_receipt *receipt
 			else
 			{
 				/* Paper 4.3: reject data messages on topics with no
-					* registered MP, matching the PER_MSG path, rather than
-					* silently applying a deny-all filter. */
+					* registered MP rather than silently applying a deny-all filter. */
 				log__printf(NULL, MOSQ_LOG_INFO,
-					"No message purpose (MP) registered for topic %s from %s, rejecting.",
+					"No message purpose (MP) registered for topic %s from %s, discarding.",
 					base_msg->data.topic, context->id);
 				mosquitto_property_free_all(&properties);
-				db__msg_store_free(base_msg);
-				return MOSQ_ERR_MALFORMED_PACKET;
+				return process_bad_message(context, base_msg, MQTT_RC_NOT_AUTHORIZED);
 			}
 		}
 

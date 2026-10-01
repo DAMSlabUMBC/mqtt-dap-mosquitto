@@ -4,6 +4,7 @@
 A subscription receives a message when its topic filter matches and every purpose
 its SP describes is permitted by the message's MP, or the MP is "*". SPs are given
 bare or as <SP>:<topic_filter>, which binds them to one subscription of the packet.
+Data without consent or a registered MP is discarded.
 
 Usage: the broker must already be running on HOST:PORT with allow_anonymous.
   python3 purpose_matching_test.py [host] [port]
@@ -75,6 +76,41 @@ def props(packet_type, pairs):
     return p
 
 
+def rejection_cases():
+    """Data without consent or without a registered MP is discarded, not the client:
+    QoS 1 is acknowledged with Not authorized and the connection stays up."""
+    acks = {}
+    c = mqtt.Client(CallbackAPIVersion.VERSION2, client_id="pubR", protocol=mqtt.MQTTv5)
+    c.on_publish = lambda cl, u, mid, rc, p: acks.__setitem__(mid, rc.value)
+    disconnected.pop("pubR", None)
+    c.on_disconnect = lambda cl, u, f, rc, p: disconnected.__setitem__("pubR", True)
+    c.connect(HOST, PORT)
+    c.loop_start()
+    time.sleep(0.2)
+    sub = client("subR")
+    time.sleep(0.2)
+    sub.subscribe("pr/#", qos=1, properties=props(PacketTypes.SUBSCRIBE, [("DAP-SP", "qa")]))
+    c.publish("$MP_REG", payload="", qos=0,
+              properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1"), ("DAP-MP", "qa:pr/ok")]))
+    time.sleep(0.3)
+    no_consent = c.publish("pr/ok", payload=b"x", qos=1, properties=props(PacketTypes.PUBLISH, []))
+    no_mp = c.publish("pr/none", payload=b"y", qos=1, properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1")]))
+    ok = c.publish("pr/ok", payload=b"z", qos=1, properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1")]))
+    for info in (no_consent, no_mp, ok):
+        info.wait_for_publish(5)
+    time.sleep(0.5)
+    check(acks.get(no_consent.mid) == 0x87, "data without DAP-Allow is acknowledged with Not authorized (%s)"
+          % acks.get(no_consent.mid))
+    check(acks.get(no_mp.mid) == 0x87, "data on a topic without an MP is acknowledged with Not authorized (%s)"
+          % acks.get(no_mp.mid))
+    check(not disconnected.get("pubR") and acks.get(ok.mid) == 0,
+          "the publisher stays connected and its valid data is accepted")
+    check(received["subR"] == ["pr/ok"], "only the valid data is delivered (got %s)" % received["subR"])
+    for cl in (c, sub):
+        cl.loop_stop()
+        cl.disconnect()
+
+
 def main():
     subs = {}
     for cid, (topic_filter, sps, _) in CASES.items():
@@ -112,6 +148,7 @@ def main():
               % (cid, topic_filter, sps, got, sorted(expected)))
     check(rejected and received["subZ"] == [],
           "a subscription whose only SP is bound to another topic filter is rejected")
+    rejection_cases()
 
     print()
     if failures:

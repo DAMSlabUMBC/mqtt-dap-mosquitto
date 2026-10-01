@@ -129,9 +129,9 @@ class RawPublisher:
         connack = self.sock.recv(64)
         assert connack[0] == 0x20 and connack[3] == 0, "CONNACK failed"
 
-    def packet(self, topic, pairs, payload=b"", alias=None, qos=0, mid=0, allow=True):
+    def packet(self, topic, pairs, payload=b"", alias=None, qos=0, mid=0):
         props = b"".join(mqtt5_props.gen_string_pair_prop(mqtt5_props.USER_PROPERTY, k, v)
-                         for k, v in ([("DAP-Allow", "1")] if allow else []) + pairs)
+                         for k, v in [("DAP-Allow", "1")] + pairs)
         if alias is not None:
             props += mqtt5_props.gen_uint16_prop(mqtt5_props.TOPIC_ALIAS, alias)
         return mosq_test.gen_publish(topic, qos, payload, mid=mid, proto_ver=5, properties=props)
@@ -628,16 +628,18 @@ def intake_own_order_case():
 def intake_error_order_case():
     """A state change that goes ahead of the client's data and fails still lets that
     data be acknowledged before the DISCONNECT, which must be the last packet."""
-    broker = Broker("use_metadata_operation_support true\n")
+    broker = Broker()
     try:
         sub = Subscriber("subN")
         sub.subscribe("t/n", ["qa"])
         pub = RawPublisher()
         pub.send(pub.packet("$MP_REG", [("DAP-MP", "qa:t/n")]))
         pub.sock.sendall(pub.packet("t/n", [], b"m1", qos=1, mid=7)
-                         + pub.packet(OSYS, [("DAP-OpType", "DELETE")], allow=False))
+                         + pub.packet("$MP_REG", [("DAP-MP", "no-separator")]))
         first = pub.sock.recv(1)
         check(first == b"\x40", "the PUBACK for the earlier data comes before the DISCONNECT (got %s)" % first.hex())
+        rest = pub.sock.recv(64)
+        check(b"\xe0" in rest, "the malformed registration then ends the connection")
         check(payloads(sub.read_publishes(), "t/n") == [b"m1"], "the earlier data is delivered")
         pub.close()
         sub.close()
