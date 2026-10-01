@@ -1662,10 +1662,16 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 		enum dap_op_action action = dap_pending_ops_match(db.dap_pending_ops, pub_id, topic,
 				purpose, client_id, base_msg->dap_recv_time, &op_id);
 		if(is_holding){
-			/* Re-verify candidate: re-stamping under the current versions makes the
-			 * version checks pass, so only a freshly-applicable DELETE can still stop
-			 * it (a new RESTRICT is re-stamped and delivered). */
-			verdict = (action == DAP_OP_ACTION_DROP) ? DAP_SEND_DROP_DELETE : DAP_SEND_PASS;
+			/* Re-verify candidate: a DELETE drops it, and so does a purpose its
+			 * subscription's current SP no longer admits; a new RESTRICT is re-stamped
+			 * and delivered. */
+			if(action == DAP_OP_ACTION_DROP){
+				verdict = DAP_SEND_DROP_DELETE;
+			}else if(!sub__purpose_allows(leaf, base_msg)){
+				verdict = DAP_SEND_DROP_PURPOSE;
+			}else{
+				verdict = DAP_SEND_PASS;
+			}
 		}else{
 			verdict = dap_verify_for_send(stamp, cur_mp, cur_sp, action, op_id);
 		}

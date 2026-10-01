@@ -24,6 +24,7 @@ enum dap_send_verdict {
     DAP_SEND_FAIL_SP,         /* SP version changed since stamping - re-verify */
     DAP_SEND_FAIL_OP_MISSING, /* a RESTRICT now applies that the stamp does not cover - re-verify */
     DAP_SEND_DROP_DELETE,     /* a DELETE now applies - drop without delivering */
+    DAP_SEND_DROP_PURPOSE,    /* re-verified: the current SP no longer admits the purpose - drop */
 };
 
 /*
@@ -68,12 +69,13 @@ enum dap_send_disposition {
  *   pending_id  - the cmsg_id of that re-verify candidate (meaningful only when holding).
  *   this_id     - the cmsg_id of the message being written now.
  *   verdict     - dap_verify_for_send's result for this message. For the holding
- *                 candidate the caller passes the post-re-stamp verdict (PASS unless
- *                 a DELETE now applies), so the candidate terminates in DELIVER or DROP.
+ *                 candidate the caller passes the re-verification result (PASS, or a
+ *                 DROP_* when a DELETE applies or the current SP no longer admits the
+ *                 message's purpose), so the candidate terminates in DELIVER or DROP.
  *
- * Not holding: PASS->DELIVER, DROP_DELETE->DROP, any FAIL_*->BUMP. Holding and this
- * is the candidate (this_id == pending_id): DROP_DELETE->DROP, otherwise DELIVER
- * (never BUMP again - that would spin). Holding and this is some other message: SKIP.
+ * Not holding: PASS->DELIVER, DROP_*->DROP, any FAIL_*->BUMP. Holding and this is
+ * the candidate (this_id == pending_id): DROP_*->DROP, otherwise DELIVER (never BUMP
+ * again - that would spin). Holding and this is some other message: SKIP.
  */
 enum dap_send_disposition dap_send_decide(bool has_stamp,
                                           bool is_holding,

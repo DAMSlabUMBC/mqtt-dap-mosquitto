@@ -358,6 +358,7 @@ def main():
     delete_case(overflow=True)
     print("# re-verification of stale stamps")
     stale_mp_case()
+    sp_change_case(["qb"], still_allowed=False)
     sp_change_case(["qa", "qz"], still_allowed=True)
 
     print()

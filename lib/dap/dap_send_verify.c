@@ -65,10 +65,11 @@ enum dap_send_disposition dap_send_decide(bool has_stamp,
         if (this_id != pending_id) {
             return DAP_DISP_SKIP;
         }
-        /* The re-verify candidate terminates this pass: a DELETE that arrived
-         * during the hold drops it, otherwise it delivers. It must never bump
-         * again, which would spin. */
-        return (verdict == DAP_SEND_DROP_DELETE) ? DAP_DISP_DROP : DAP_DISP_DELIVER;
+        /* The re-verify candidate terminates this pass: a DELETE, or a purpose its
+         * subscription no longer admits, drops it, otherwise it delivers. It must
+         * never bump again, which would spin. */
+        return (verdict == DAP_SEND_DROP_DELETE || verdict == DAP_SEND_DROP_PURPOSE)
+                ? DAP_DISP_DROP : DAP_DISP_DELIVER;
     }
 
     /* Not holding: act on the verdict directly. */
@@ -76,6 +77,7 @@ enum dap_send_disposition dap_send_decide(bool has_stamp,
         case DAP_SEND_PASS:
             return DAP_DISP_DELIVER;
         case DAP_SEND_DROP_DELETE:
+        case DAP_SEND_DROP_PURPOSE:
             return DAP_DISP_DROP;
         case DAP_SEND_FAIL_MP:
         case DAP_SEND_FAIL_SP:

@@ -145,6 +145,27 @@ static int subs__shared_process(struct mosquitto__subhier *hier, const char *top
 }
 
 
+bool sub__purpose_allows(const struct mosquitto__subleaf *leaf, const struct mosquitto__base_msg *stored)
+{
+	if(!stored->data.has_purpose_filter){
+		return false;
+	}
+	if(!strcmp(stored->data.purpose_filter, "*")){
+		return true;
+	}
+	/* Reject if the subscription has no purpose filter */
+	if(leaf->purpose_filter_count <= 0){
+		return false;
+	}
+	/* Match the message's MP against the subscription's SP set under match-any
+	 * semantics: the MP (and each SP entry) may carry several alternative filters
+	 * joined by '|', and the message is deliverable when any MP filter equals any SP
+	 * filter. A "*" SP entry matches any publisher purpose. */
+	return purpose_filter_mp_matches_sp(stored->data.purpose_filter,
+			leaf->purpose_filters, leaf->purpose_filter_count);
+}
+
+
 static int subs__process(struct mosquitto__subhier *hier, const char *source_id, const char *topic, uint8_t qos, int retain, struct mosquitto__base_msg *stored)
 {
 	int rc = 0;
@@ -160,35 +181,10 @@ static int subs__process(struct mosquitto__subhier *hier, const char *source_id,
 			continue;
 		}
 
-		if(!stored->data.has_purpose_filter)
+		if(!sub__purpose_allows(leaf, stored))
 		{
 			leaf = leaf->next;
 			continue;
-		}
-
-		bool allow_all_purposes = ((strcmp(stored->data.purpose_filter, "*") == 0));
-
-		/* Retrieve the purpose filter for the subscriber */
-		if(!allow_all_purposes)
-		{
-			/* Reject if the subscription has no purpose filter */
-			if(leaf->purpose_filter_count <= 0)
-			{
-				leaf = leaf->next;
-				continue;
-			}
-
-			/* Match the message's MP against the subscription's SP set under
-				* match-any semantics: the MP (and each SP entry) may carry several
-				* alternative filters joined by '|', and the message is deliverable
-				* when any MP filter equals any SP filter. A "*" SP entry matches any
-				* publisher purpose. */
-			if(!purpose_filter_mp_matches_sp(stored->data.purpose_filter,
-					leaf->purpose_filters, leaf->purpose_filter_count))
-			{
-				leaf = leaf->next;
-				continue;
-			}
 		}
 
 		if(db.config->metadata_operation_handling)

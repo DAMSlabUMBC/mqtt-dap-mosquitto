@@ -166,6 +166,14 @@ static void test_decide_candidate_delete_drops(void)
     printf("ok - decide: holding candidate hit by a DELETE drops\n");
 }
 
+/* Holding candidate whose purpose the subscription's current SP no longer admits drops. */
+static void test_decide_candidate_purpose_drops(void)
+{
+    assert(dap_send_decide(true, true, 11, 11, DAP_SEND_DROP_PURPOSE) == DAP_DISP_DROP);
+    assert(dap_send_decide(true, false, 0, 11, DAP_SEND_DROP_PURPOSE) == DAP_DISP_DROP);
+    printf("ok - decide: a purpose the current SP no longer admits drops\n");
+}
+
 /* Holding candidate: a FAIL verdict must NOT bump again (that would spin); after a
  * re-stamp it cannot legitimately occur, so the safe terminating action is deliver. */
 static void test_decide_candidate_fail_delivers_not_bump(void)
@@ -202,6 +210,7 @@ int main(void)
     test_decide_failures_bump();
     test_decide_candidate_pass_delivers();
     test_decide_candidate_delete_drops();
+    test_decide_candidate_purpose_drops();
     test_decide_candidate_fail_delivers_not_bump();
     test_decide_non_candidate_skips();
     printf("\nAll dap_send_verify tests passed.\n");

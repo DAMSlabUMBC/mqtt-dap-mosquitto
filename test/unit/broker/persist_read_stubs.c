@@ -302,3 +302,11 @@ int sub__init(void)
 {
 	return MOSQ_ERR_SUCCESS;
 }
+
+
+bool sub__purpose_allows(const struct mosquitto__subleaf *leaf, const struct mosquitto__base_msg *stored)
+{
+	UNUSED(leaf);
+	UNUSED(stored);
+	return true;
+}
