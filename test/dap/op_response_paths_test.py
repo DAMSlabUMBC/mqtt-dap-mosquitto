@@ -195,6 +195,18 @@ def case_failure_to_response_topic(_):
     return wait_for(lambda: pub.got("op_resp/pub1", **{"DAP-Status": "Failure"}))
 
 
+def case_control_publish(_):
+    # Takes an early return in handle__publish after the request struct is allocated.
+    c = mqtt.Client(CallbackAPIVersion.VERSION2, client_id="control-pub", protocol=mqtt.MQTTv311)
+    c.connect(HOST, PORT)
+    c.loop_start()
+    c.publish("$CONTROL/broker/v1", payload=b"{}", qos=1).wait_for_publish(5)
+    time.sleep(0.2)
+    c.loop_stop()
+    c.disconnect()
+    return True
+
+
 CASES = [
     ("unrecognised DAP-OpType gets a Failure", case_unknown_op, True),
     ("DELETE with no relevant subscribers gets a Failure", case_delete_no_relevant, True),
@@ -202,6 +214,7 @@ CASES = [
     ("HISTORY with many offline subscribers lists every one", case_history_many_offline, True),
     ("HISTORY with all subscribers online gets a Success", case_history_success, True),
     ("Failure goes to the request's ResponseTopic", case_failure_to_response_topic, False),
+    ("PUBLISH to $CONTROL frees the request", case_control_publish, False),
 ]
 
 

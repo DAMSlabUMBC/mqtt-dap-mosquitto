@@ -417,8 +417,6 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 		}
 	}
 
-	deallocate_dap_properties(dap_op_properties);
-
 	/* Hold a metrics-window ref so the post-fanout check below can read stored
 	 * even if sub__messages_queue's internal dec would otherwise free it. */
 	struct mosquitto__base_msg *metrics_msg = stored;
@@ -945,15 +943,17 @@ int handle__publish(struct mosquitto *context)
 	log__printf(NULL, MOSQ_LOG_DEBUG, "Received PUBLISH from %s (d%d, q%d, r%d, m%d, '%s', ... (%ld bytes))", context->id, dup, base_msg->data.qos, base_msg->data.retain, base_msg->data.source_mid, base_msg->data.topic, (long)base_msg->data.payloadlen);
 
 	if(!strncmp(base_msg->data.topic, "$CONTROL/", 9)){
+		deallocate_dap_properties(dap_op_properties);
 #ifdef WITH_CONTROL
 		rc = control__process(context, base_msg);
 		db__msg_store_free(base_msg);
 		return rc;
 #else
-		deallocate_dap_properties(dap_op_properties);
 		return process_bad_message(context, base_msg, MQTT_RC_IMPLEMENTATION_SPECIFIC);
 #endif
 	}
 
-	return handle__accepted_publish(context, base_msg, mid, dup, &message_expiry_interval, dap_op_properties);
+	rc = handle__accepted_publish(context, base_msg, mid, dup, &message_expiry_interval, dap_op_properties);
+	deallocate_dap_properties(dap_op_properties);
+	return rc;
 }
