@@ -127,7 +127,6 @@ int connect__on_authorised(struct mosquitto *context, void *auth_data_out, uint1
 
 				memcpy(&context->msgs_in, &found_context->msgs_in, sizeof(struct mosquitto_msg_data));
 				memcpy(&context->msgs_out, &found_context->msgs_out, sizeof(struct mosquitto_msg_data));
-				context->last_cmsg_id = found_context->last_cmsg_id;
 
 				memset(&found_context->msgs_in, 0, sizeof(struct mosquitto_msg_data));
 				memset(&found_context->msgs_out, 0, sizeof(struct mosquitto_msg_data));
@@ -139,6 +138,8 @@ int connect__on_authorised(struct mosquitto *context, void *auth_data_out, uint1
 
 				db__message_reconnect_reset(context);
 			}
+			/* The subscriptions' DAP stamps refer to client messages by cmsg_id. */
+			context->last_cmsg_id = found_context->last_cmsg_id;
 			context->subs = found_context->subs;
 			found_context->subs = NULL;
 			context->subs_capacity = found_context->subs_capacity;
