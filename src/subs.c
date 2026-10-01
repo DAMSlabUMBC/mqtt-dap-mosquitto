@@ -132,6 +132,7 @@ static int subs__shared_process(struct mosquitto__subhier *hier, const char *top
 		leaf = shared->subs;
 		rc2 = subs__send(leaf, topic, qos, retain, stored, NULL);
 		(void)db__message_write_inflight_out_latest(leaf->context);
+		(void)db__message_write_queued_out(leaf->context);
 		/* Remove current from the top, add back to the bottom */
 		DL_DELETE(shared->subs, leaf);
 		DL_APPEND(shared->subs, leaf);
@@ -230,6 +231,7 @@ static int subs__process(struct mosquitto__subhier *hier, const char *source_id,
 
 		/* Write here; the send-path gate consults the stamp queued above. */
 		(void)db__message_write_inflight_out_latest(leaf->context);
+		(void)db__message_write_queued_out(leaf->context);
 
 		if(rc2){
 			rc = 1;

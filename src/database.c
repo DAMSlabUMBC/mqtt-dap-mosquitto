@@ -466,10 +466,6 @@ void db__msg_store_compact(void)
 }
 
 
-/* Set by the send-path gate when a bump or a resolved hold leaves messages that can
- * now be written; the write loops then refill from the queue and make another pass. */
-static bool dap_write_again = false;
-
 /* The DAP stamp of an outgoing client message, and the subscription leaf holding it. */
 static struct dap_stamped_msg *db__dap_find_stamp(struct mosquitto *context,
 		struct mosquitto__client_msg *client_msg, struct mosquitto__subleaf **leaf_out)
@@ -508,7 +504,7 @@ static void db__dap_discard_stamp(struct mosquitto *context, struct mosquitto__c
 			&& dap_holding_list_is_holding(db.dap_holding_list, context->id)
 			&& dap_holding_list_pending_id(db.dap_holding_list, context->id) == client_msg->data.cmsg_id){
 		dap_holding_list_free_held(dap_holding_list_flush(db.dap_holding_list, context->id));
-		dap_write_again = true;
+		context->dap_write_again = true;
 	}
 }
 
@@ -1706,7 +1702,7 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 				/* Candidate resolved: clear the hold (no messages were parked in the
 				 * holding list itself - skip-in-place leaves them in flight). */
 				dap_holding_list_free_held(dap_holding_list_flush(hl, client_id));
-				dap_write_again = true;
+				context->dap_write_again = true;
 			}
 			if(base_msg->data.has_purpose_filter){
 				base_msg->dap_subs_resolved++;
@@ -1726,7 +1722,11 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 			}
 			if(is_holding){
 				dap_holding_list_free_held(dap_holding_list_flush(hl, client_id));
-				dap_write_again = true;
+			}
+			/* A resolved hold or a queued message waiting for the freed slot needs
+			 * another pass. */
+			if(is_holding || context->msgs_out.queued){
+				context->dap_write_again = true;
 			}
 			/* Drop without delivering, mirroring the message-expired branch below. */
 			if(client_msg->data.direction == mosq_md_out && client_msg->data.qos > 0){
@@ -1745,6 +1745,9 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 			return DAP_HOOK_HANDLED;
 
 		case DAP_DISP_BUMP:
+			if(dap_holding_list_start_holding(hl, client_id, this_id)){
+				return DAP_HOOK_HANDLED; /* out of memory: retry on a later pass */
+			}
 			/* Leave the stamp in its topic queue for re-verification. Move
 			 * the message from in flight back to the front of the queue, reversing the
 			 * dequeue's quota decrement, and mark the client as holding it by its cmsg_id. */
@@ -1757,11 +1760,10 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 			DL_PREPEND(context->msgs_out.queued, client_msg);
 			db__msg_add_to_queued_stats(&context->msgs_out, client_msg);
 			plugin_persist__handle_client_msg_update(context, client_msg);
-			dap_holding_list_start_holding(hl, client_id, this_id);
 			if(base_msg->data.has_purpose_filter){
 				base_msg->dap_bump_count++;
 			}
-			dap_write_again = true;
+			context->dap_write_again = true;
 			return DAP_HOOK_HANDLED;
 
 		case DAP_DISP_SKIP:
@@ -1892,18 +1894,23 @@ int db__message_write_inflight_out_all(struct mosquitto *context)
 		return MOSQ_ERR_SUCCESS;
 	}
 
+	/* The DAP gate sets dap_write_again after a drop, bump or resolved hold: refill
+	 * from the queue and restart from the head, so skipped messages keep their order. */
 	do{
-		dap_write_again = false;
+		if(context->dap_write_again){
+			context->dap_write_again = false;
+			db__fill_inflight_out_from_queue(context);
+		}
 		DL_FOREACH_SAFE(context->msgs_out.inflight, client_msg, tmp){
 			rc = db__message_write_inflight_out_single(context, client_msg);
 			if(rc){
 				return rc;
 			}
+			if(context->dap_write_again){
+				break;
+			}
 		}
-		if(dap_write_again){
-			db__fill_inflight_out_from_queue(context);
-		}
-	}while(dap_write_again);
+	}while(context->dap_write_again);
 	return MOSQ_ERR_SUCCESS;
 }
 
@@ -1913,6 +1920,9 @@ int db__message_write_inflight_out_latest(struct mosquitto *context)
 	struct mosquitto__client_msg *client_msg, *next;
 	int rc;
 
+	if(context->dap_write_again){
+		return db__message_write_inflight_out_all(context);
+	}
 	if(context->state != mosq_cs_active
 			|| !net__is_connected(context)
 			|| context->msgs_out.inflight == NULL){
@@ -1920,7 +1930,6 @@ int db__message_write_inflight_out_latest(struct mosquitto *context)
 		return MOSQ_ERR_SUCCESS;
 	}
 
-	dap_write_again = false;
 	if(context->msgs_out.inflight->prev == context->msgs_out.inflight){
 		/* Only one message */
 		rc = db__message_write_inflight_out_single(context, context->msgs_out.inflight);
@@ -1952,11 +1961,13 @@ int db__message_write_inflight_out_latest(struct mosquitto *context)
 			if(rc){
 				return rc;
 			}
+			if(context->dap_write_again){
+				break;
+			}
 			client_msg = next;
 		}
 	}
-	if(dap_write_again){
-		db__fill_inflight_out_from_queue(context);
+	if(context->dap_write_again){
 		return db__message_write_inflight_out_all(context);
 	}
 	return MOSQ_ERR_SUCCESS;

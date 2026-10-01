@@ -386,6 +386,7 @@ struct mosquitto {
 	bool is_dropping;
 	bool is_bridge;
 	bool is_persisted;
+	bool dap_write_again; /* the DAP send-path gate left messages ready for another write pass */
 	struct mosquitto__bridge *bridge;
 	struct mosquitto_msg_data msgs_in;
 	struct mosquitto_msg_data msgs_out;

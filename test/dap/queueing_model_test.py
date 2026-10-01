@@ -280,6 +280,60 @@ def delete_case(overflow=False, gap=False):
         check(broker.stop() == 0, "broker exits cleanly")
 
 
+def drop_then_stale_case():
+    """After a reconnect, a DELETEd message followed by stale ones keeps publish order."""
+    broker = Broker("use_metadata_operation_support true\n")
+    try:
+        sub = Subscriber("subE", persistent=True, receive_maximum=3)
+        sub.subscribe("t/e", ["qa"])
+        pub = Publisher()
+        pub.register("qa", "t/e")
+        pub.publish("t/e", [], payload=b"m0")
+        check(payloads(sub.read_publishes(), "t/e") == [b"m0"], "subscriber receives data before the DELETE")
+        sub.disconnect()
+        pub.publish("t/e", [], payload=b"m1")
+        time.sleep(1.1)  # the DELETE covers m1 only
+        pub.operation("DELETE", "t/e")
+        check(wait_for(lambda: pub.got_status("Pending")), "requester gets a Pending ack for the DELETE")
+        time.sleep(1.1)  # m2-m4 are received after the DELETE
+        for i in range(2, 5):
+            pub.publish("t/e", [], payload=b"m%d" % i)
+        pub.register("qa", "t/e")  # MP version 2: the stamps of m2-m4 are stale
+        sub.connect()
+        got = payloads(sub.read_publishes(), "t/e")
+        check(got == [b"m2", b"m3", b"m4"], "m1 is dropped and the rest keep their order (got %s)" % got)
+        sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
+def drop_refill_case():
+    """A message dropped from the queue does not stall the messages behind it."""
+    broker = Broker("use_metadata_operation_support true\n")
+    try:
+        sub = Subscriber("subF", receive_maximum=1)
+        sub.subscribe("t/f", ["qa"])
+        pub = Publisher()
+        pub.register("qa", "t/f")
+        pub.publish("t/f", [], payload=b"m1")
+        pub.publish("t/f", [], payload=b"m2")
+        first = sub.read_publishes(idle=0.5, ack=False)
+        check(payloads(first, "t/f") == [b"m1"], "only m1 is in flight (receive maximum 1)")
+        time.sleep(1.1)  # the DELETE covers m1 and m2, not m3
+        pub.operation("DELETE", "t/f")
+        check(wait_for(lambda: pub.got_status("Pending")), "requester gets a Pending ack for the DELETE")
+        time.sleep(1.1)  # m3 is received after the DELETE
+        pub.publish("t/f", [], payload=b"m3")
+        sub.puback(first[0][2])
+        got = payloads(sub.read_publishes(), "t/f")
+        check(got == [b"m3"], "m2 is dropped and m3 follows without further traffic (got %s)" % got)
+        sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
 def stale_mp_case():
     """QoS 0 messages queued while offline, stamped under an older MP, all arrive in order."""
     broker = Broker("queue_qos0_messages true\n")
@@ -370,8 +424,10 @@ def main():
     delete_case()
     delete_case(overflow=True)
     delete_case(gap=True)
+    drop_refill_case()
     print("# re-verification of stale stamps")
     stale_mp_case()
+    drop_then_stale_case()
     sp_change_case(["qb"], still_allowed=False)
     sp_change_case(["qa", "qz"], still_allowed=True)
     print("# op/PBMR priority")
