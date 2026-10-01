@@ -54,6 +54,7 @@ fi
 run op_persistence_test "$BROKER" "$PLUGIN" $((PORT + 1))
 run user_property_robustness_test $((PORT + 2))
 run op_response_paths_test $((PORT + 3))
+run queueing_model_test $((PORT + 4))
 
 echo
 echo "DAP integration tests: $pass passed, $fail failed"
