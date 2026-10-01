@@ -374,7 +374,12 @@ struct subscriber_list *forward_request_to_connected(struct subscriber_list *sub
                 mosquitto_property_add_string(&props, MQTT_PROP_RESPONSE_TOPIC, dap_op_properties->response_topic);
             }
 
-            db__messages_easy_queue_with_purpose(NULL, ors_topic, MOSQ_DAP_OP_PURPOSE, msg_data->qos, msg_data->payloadlen, msg_data->payload, msg_data->retain, (uint32_t)msg_data->expiry_time, &props);
+            /* expiry_time is absolute; the forwarded copy carries what is left of it. */
+            uint32_t expiry_interval = 0;
+            if(msg_data->expiry_time > db.now_real_s){
+                expiry_interval = (uint32_t)(msg_data->expiry_time - db.now_real_s);
+            }
+            db__messages_easy_queue_with_purpose(NULL, ors_topic, MOSQ_DAP_OP_PURPOSE, msg_data->qos, msg_data->payloadlen, msg_data->payload, msg_data->retain, expiry_interval, &props);
         } else {
             struct subscriber_list *off = mosquitto_calloc(1, sizeof(*off));
             if(off){
