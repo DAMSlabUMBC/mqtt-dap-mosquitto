@@ -35,6 +35,7 @@ add_executable(mosquitto
 	../include/mosquitto_broker.h mosquitto_broker_internal.h
 	mux.c mux.h mux_epoll.c mux_kqueue.c mux_poll.c
 	dap/rights_broker.c dap/rights_broker.h
+	dap/dap_intake.c dap/dap_intake.h
 	dap/dap_persist.c dap/dap_persist.h
 	net.c
 	../lib/net_mosq_ocsp.c ../lib/net_mosq.c ../lib/net_mosq.h
@@ -77,6 +78,7 @@ add_executable(mosquitto
 	../lib/dap/dap_metrics.c ../lib/dap/dap_metrics.h
 	../lib/dap/dap_send_verify.c ../lib/dap/dap_send_verify.h
 	../lib/dap/dap_holding_list.c ../lib/dap/dap_holding_list.h
+	../lib/dap/dap_request_store.c ../lib/dap/dap_request_store.h
 	read_handle.c
 	../lib/read_handle.h
 	retain.c

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Send-time verification and op/PBMR priority on the broker's outgoing path.
+"""Send-time verification on the broker's outgoing path.
 
 Covers DELETE on queued messages (including after a subscriber's queue
-overflowed), re-verification of messages whose stamp went stale (MP or SP
-change), and op requests overtaking data backed up for a slow subscriber.
+overflowed), re-verification of messages whose stamp went stale against
+the current MP and SP, and prioritized intake of state changes.
 
 Usage: python3 test/dap/queueing_model_test.py [port]
 """
@@ -106,8 +106,11 @@ class Publisher:
         self.publish("$MP_REG", [("DAP-MP", f"{mp}:{topic}")], qos=0)
         time.sleep(0.2)
 
-    def operation(self, op, topic_filter):
-        self.publish(OSYS, [("DAP-OpType", op), ("DAP-OpTFs", topic_filter)])
+    def operation(self, op, topic_filter, purposes=None):
+        pairs = [("DAP-OpType", op), ("DAP-OpTFs", topic_filter)]
+        if purposes is not None:
+            pairs.append(("DAP-OpPFs", purposes))
+        self.publish(OSYS, pairs)
 
     def got_status(self, status):
         return [m for m in self.msgs if m[1].get("DAP-Status") == status]
@@ -115,6 +118,30 @@ class Publisher:
     def stop(self):
         self.c.loop_stop()
         self.c.disconnect()
+
+
+class RawPublisher:
+    """Raw MQTT v5 publisher, so several packets reach the broker in one read."""
+
+    def __init__(self, client_id="rawpub"):
+        self.sock = socket.create_connection((HOST, PORT), timeout=5)
+        self.sock.send(mosq_test.gen_connect(client_id, proto_ver=5))
+        connack = self.sock.recv(64)
+        assert connack[0] == 0x20 and connack[3] == 0, "CONNACK failed"
+
+    def packet(self, topic, pairs, payload=b"", alias=None, qos=0, mid=0, allow=True):
+        props = b"".join(mqtt5_props.gen_string_pair_prop(mqtt5_props.USER_PROPERTY, k, v)
+                         for k, v in ([("DAP-Allow", "1")] if allow else []) + pairs)
+        if alias is not None:
+            props += mqtt5_props.gen_uint16_prop(mqtt5_props.TOPIC_ALIAS, alias)
+        return mosq_test.gen_publish(topic, qos, payload, mid=mid, proto_ver=5, properties=props)
+
+    def send(self, *packets):
+        self.sock.sendall(b"".join(packets))
+        time.sleep(0.2)
+
+    def close(self):
+        self.sock.close()
 
 
 class Subscriber:
@@ -266,7 +293,6 @@ def delete_case(overflow=False, gap=False):
 
         sub.disconnect()
         pub.publish("t/a", [], payload=b"m3")
-        time.sleep(1.1)  # the DELETE must be received after m3 (1 s resolution)
         pub.operation("DELETE", "t/a")
         check(wait_for(lambda: pub.got_status("Pending")), "requester gets a Pending ack for the DELETE")
         sub.connect()
@@ -274,6 +300,62 @@ def delete_case(overflow=False, gap=False):
         check(b"m3" not in got, "DELETE drops the queued message%s%s (got %s)"
               % (" after the queue overflowed" if overflow else "",
                  " after an earlier unsubscribe" if gap else "", got))
+        sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
+def scoped_op_case(op, topic_filter, purposes, sps_kept):
+    """An operation reaches the queued copies whose topic matches its DAP-OpTFs and
+    whose subscription's SP shares a purpose with its DAP-OpPFs. A RESTRICT revokes
+    those purposes, so it drops a copy whose SP uses one of them."""
+    broker = Broker("use_metadata_operation_support true\n")
+    try:
+        subs = {}
+        for i, sp in enumerate(sps_kept):
+            sub = Subscriber("subS%d" % i, persistent=True)
+            sub.subscribe("t/s/1", sp.split("|"))
+            subs[sp] = sub
+        pub = Publisher()
+        pub.register("qa|qb|qc", "t/s/1")
+        pub.publish("t/s/1", [], payload=b"m0")
+        for sp, sub in subs.items():
+            check(payloads(sub.read_publishes(), "t/s/1") == [b"m0"], "SP %s receives data before the %s" % (sp, op))
+            sub.disconnect()
+        pub.publish("t/s/1", [], payload=b"m1")
+        pub.operation(op, topic_filter, purposes)
+        check(wait_for(lambda: pub.msgs), "requester gets a reply to the %s" % op)
+        for sp, sub in subs.items():
+            sub.connect()
+            got = payloads(sub.read_publishes(), "t/s/1")
+            expected = [b"m1"] if sps_kept[sp] else []
+            check(got == expected, "%s on %s for %s: SP %s got %s (expected %s)"
+                  % (op, topic_filter, purposes, sp, got, expected))
+            sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
+def same_second_case():
+    """A DELETE covers exactly the messages received before it, even within one second."""
+    broker = Broker("use_metadata_operation_support true\n")
+    try:
+        sub = Subscriber("subT", persistent=True)
+        sub.subscribe("t/t", ["qa"])
+        pub = Publisher()
+        pub.register("qa", "t/t")
+        pub.publish("t/t", [], payload=b"m0")
+        check(payloads(sub.read_publishes(), "t/t") == [b"m0"], "subscriber receives data before the DELETE")
+        sub.disconnect()
+        pub.publish("t/t", [], payload=b"m1")
+        pub.operation("DELETE", "t/t")
+        pub.publish("t/t", [], payload=b"m2")
+        check(wait_for(lambda: pub.got_status("Pending")), "requester gets a Pending ack for the DELETE")
+        sub.connect()
+        got = payloads(sub.read_publishes(), "t/t")
+        check(got == [b"m2"], "the DELETE drops m1 but not m2 published right after it (got %s)" % got)
         sub.close()
     finally:
         stop_clients()
@@ -292,10 +374,8 @@ def drop_then_stale_case():
         check(payloads(sub.read_publishes(), "t/e") == [b"m0"], "subscriber receives data before the DELETE")
         sub.disconnect()
         pub.publish("t/e", [], payload=b"m1")
-        time.sleep(1.1)  # the DELETE covers m1 only
         pub.operation("DELETE", "t/e")
         check(wait_for(lambda: pub.got_status("Pending")), "requester gets a Pending ack for the DELETE")
-        time.sleep(1.1)  # m2-m4 are received after the DELETE
         for i in range(2, 5):
             pub.publish("t/e", [], payload=b"m%d" % i)
         pub.register("qa", "t/e")  # MP version 2: the stamps of m2-m4 are stale
@@ -320,10 +400,8 @@ def drop_refill_case():
         pub.publish("t/f", [], payload=b"m2")
         first = sub.read_publishes(idle=0.5, ack=False)
         check(payloads(first, "t/f") == [b"m1"], "only m1 is in flight (receive maximum 1)")
-        time.sleep(1.1)  # the DELETE covers m1 and m2, not m3
         pub.operation("DELETE", "t/f")
         check(wait_for(lambda: pub.got_status("Pending")), "requester gets a Pending ack for the DELETE")
-        time.sleep(1.1)  # m3 is received after the DELETE
         pub.publish("t/f", [], payload=b"m3")
         sub.puback(first[0][2])
         got = payloads(sub.read_publishes(), "t/f")
@@ -388,7 +466,7 @@ def sp_change_case(new_sps, still_allowed):
         sub = Subscriber("subC", receive_maximum=1)
         sub.subscribe("t/c", ["qa"])
         pub = Publisher()
-        pub.register("qa", "t/c")
+        pub.register("qa|qz", "t/c")
         pub.publish("t/c", [], payload=b"m1")
         pub.publish("t/c", [], payload=b"m2")
         first = sub.read_publishes(idle=0.5, ack=False)
@@ -396,7 +474,8 @@ def sp_change_case(new_sps, still_allowed):
 
         sub.subscribe("t/c", new_sps)  # SP version 2 while m2 waits
         sub.puback(first[0][2])
-        pub.register(new_sps[0], "t/c")
+        time.sleep(0.3)  # m2 is re-checked before the MP below changes
+        pub.register("|".join(new_sps), "t/c")
         pub.publish("t/c", [], payload=b"m3")
         got = payloads(sub.read_publishes(), "t/c")
         expected = [b"m2", b"m3"] if still_allowed else [b"m3"]
@@ -407,31 +486,186 @@ def sp_change_case(new_sps, still_allowed):
         check(broker.stop() == 0, "broker exits cleanly")
 
 
-def priority_case():
-    """An op request overtakes data backed up in a slow subscriber's write queue."""
+def mp_change_case(new_mp, still_allowed):
+    """A message waiting while its publisher changes the topic's MP is re-checked against the new MP."""
+    broker = Broker()
+    try:
+        sub = Subscriber("subM", receive_maximum=1)
+        sub.subscribe("t/m", ["qa"])
+        pub = Publisher()
+        pub.register("qa|qz", "t/m")
+        pub.publish("t/m", [], payload=b"m1")
+        pub.publish("t/m", [], payload=b"m2")
+        first = sub.read_publishes(idle=0.5, ack=False)
+        check(payloads(first, "t/m") == [b"m1"], "only m1 is in flight (receive maximum 1)")
+
+        pub.register(new_mp, "t/m")  # MP version 2 while m2 waits
+        sub.puback(first[0][2])
+        time.sleep(0.3)  # m2 is re-checked before the MP below changes
+        pub.register("qa", "t/m")
+        pub.publish("t/m", [], payload=b"m3")
+        got = payloads(sub.read_publishes(), "t/m")
+        expected = [b"m2", b"m3"] if still_allowed else [b"m3"]
+        check(got == expected, "after the MP becomes %s, delivered %s (expected %s)" % (new_mp, got, expected))
+        sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
+def intake_mp_case():
+    """An MP update read together with earlier data is applied before that data."""
+    broker = Broker()
+    try:
+        sub = Subscriber("subI")
+        sub.subscribe("t/i", ["qa"])
+        pub = RawPublisher()
+        pub.send(pub.packet("$MP_REG", [("DAP-MP", "qa:t/i")]))
+        pub.send(pub.packet("t/i", [], b"m0"))
+        check(payloads(sub.read_publishes(), "t/i") == [b"m0"], "subscriber receives data before the MP update")
+        pub.send(pub.packet("t/i", [], b"m1"),
+                 pub.packet("$MP_REG", [("DAP-MP", "qb:t/i")]),
+                 pub.packet("t/i", [], b"m2"))
+        got = payloads(sub.read_publishes(), "t/i")
+        check(got == [], "the MP update read with m1 and m2 applies to both (got %s)" % got)
+        pub.close()
+        sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
+def intake_delete_case():
+    """A DELETE read together with earlier data reaches broker state first and covers it."""
     broker = Broker("use_metadata_operation_support true\n")
     try:
-        sub = Subscriber("subD", rcvbuf=4096)
-        sub.subscribe("t/d", ["qa"], qos=0)
-        sub.subscribe("OP_REQ/subD", [OP_PURPOSE], qos=0)
-        pub = Publisher()
-        pub.register("qa", "t/d")
-        count = 600
-        filler = b"x" * 32768
-        for i in range(count):
-            pub.publish("t/d", [], payload=b"%04d" % i + filler, qos=0)
-        time.sleep(1.0)  # the subscriber is not reading, so the broker's queue for it backs up
-        pub.operation("RESTRICT", "t/d")
-        time.sleep(0.5)
+        sub = Subscriber("subJ")
+        sub.subscribe("t/j", ["qa"])
+        pub = RawPublisher()
+        pub.send(pub.packet("$MP_REG", [("DAP-MP", "qa:t/j")]))
+        pub.send(pub.packet("t/j", [], b"m0"))
+        check(payloads(sub.read_publishes(), "t/j") == [b"m0"], "subscriber receives data before the DELETE")
+        pub.send(pub.packet("t/j", [], b"m1"),
+                 pub.packet(OSYS, [("DAP-OpType", "DELETE"), ("DAP-OpTFs", "t/j")]),
+                 pub.packet("t/j", [], b"m2"))
+        got = payloads(sub.read_publishes(), "t/j")
+        check(got == [b"m2"], "the DELETE covers m1, read before it, but not m2 (got %s)" % got)
+        pub.close()
+        sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
 
-        got = sub.read_publishes(idle=2.0)
-        topics = [t for t, _, _ in got]
-        seq = [int(p[:4]) for t, p, _ in got if t == "t/d"]
-        check(seq == sorted(seq), "data keeps its order")
-        check("OP_REQ/subD" in topics, "the operation request reaches the subscriber")
-        if "OP_REQ/subD" in topics:
-            after = len(topics) - 1 - topics.index("OP_REQ/subD")
-            check(after > 0, "the operation request overtakes queued data (%d data messages after it)" % after)
+
+def intake_disconnect_case(abrupt=False):
+    """Data read together with the end of the publisher's connection is still delivered, in order."""
+    broker = Broker()
+    try:
+        sub = Subscriber("subK")
+        sub.subscribe("t/k", ["qa"])
+        pub = RawPublisher()
+        pub.send(pub.packet("$MP_REG", [("DAP-MP", "qa:t/k")]))
+        data = [pub.packet("t/k", [], b"m1"), pub.packet("t/k", [], b"m2")]
+        if abrupt:
+            pub.sock.sendall(b"".join(data))
+            pub.close()
+        else:
+            pub.send(*data, mosq_test.gen_disconnect(proto_ver=5))
+        got = payloads(sub.read_publishes(), "t/k")
+        check(got == [b"m1", b"m2"], "data sent before the connection %s is delivered (got %s)"
+              % ("closed" if abrupt else "sent DISCONNECT", got))
+        pub.close()
+        sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
+def intake_alias_case():
+    """A PUBLISH that names its topic only by alias keeps its place behind the
+    PUBLISH that set the alias, even within one read."""
+    broker = Broker()
+    try:
+        sub = Subscriber("subL")
+        sub.subscribe("t/l/#", ["qa"])
+        pub = RawPublisher()
+        pub.send(pub.packet("$MP_REG", [("DAP-MP", "qa:t/l/a"), ("DAP-MP", "qa:t/l/b")]))
+        pub.send(pub.packet("t/l/a", [], b"m1", alias=1), pub.packet("", [], b"m2", alias=1))
+        pub.send(pub.packet("t/l/b", [], b"m3", alias=1), pub.packet("", [], b"m4", alias=1))
+        got = [(t, p) for t, p, _ in sub.read_publishes()]
+        expected = [("t/l/a", b"m1"), ("t/l/a", b"m2"), ("t/l/b", b"m3"), ("t/l/b", b"m4")]
+        check(got == expected, "aliases set and used within one read resolve in order (got %s)" % got)
+        pub.close()
+        sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
+def intake_own_order_case():
+    """A client's SUBSCRIBE does not go ahead of its own earlier PUBLISH."""
+    broker = Broker()
+    try:
+        client = Subscriber("subM2")
+        mp = b"".join(mqtt5_props.gen_string_pair_prop(mqtt5_props.USER_PROPERTY, k, v)
+                      for k, v in [("DAP-Allow", "1"), ("DAP-MP", "qa:t/o")])
+        client.sock.send(mosq_test.gen_publish("$MP_REG", 0, b"", proto_ver=5, properties=mp))
+        time.sleep(0.2)
+        allow = mqtt5_props.gen_string_pair_prop(mqtt5_props.USER_PROPERTY, "DAP-Allow", "1")
+        sp = mqtt5_props.gen_string_pair_prop(mqtt5_props.USER_PROPERTY, "DAP-SP", "qa")
+        client.sock.send(mosq_test.gen_publish("t/o", 0, b"m1", proto_ver=5, properties=allow)
+                         + mosq_test.gen_subscribe(1, "t/o", 0, proto_ver=5, properties=sp))
+        cmd, _ = client.read_packet(5)
+        check(cmd & 0xF0 == 0x90, "SUBACK comes first")
+        got = payloads(client.read_publishes(), "t/o")
+        check(got == [], "the client does not receive its own earlier PUBLISH (got %s)" % got)
+        client.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
+def intake_error_order_case():
+    """A state change that goes ahead of the client's data and fails still lets that
+    data be acknowledged before the DISCONNECT, which must be the last packet."""
+    broker = Broker("use_metadata_operation_support true\n")
+    try:
+        sub = Subscriber("subN")
+        sub.subscribe("t/n", ["qa"])
+        pub = RawPublisher()
+        pub.send(pub.packet("$MP_REG", [("DAP-MP", "qa:t/n")]))
+        pub.sock.sendall(pub.packet("t/n", [], b"m1", qos=1, mid=7)
+                         + pub.packet(OSYS, [("DAP-OpType", "DELETE")], allow=False))
+        first = pub.sock.recv(1)
+        check(first == b"\x40", "the PUBACK for the earlier data comes before the DISCONNECT (got %s)" % first.hex())
+        check(payloads(sub.read_publishes(), "t/n") == [b"m1"], "the earlier data is delivered")
+        pub.close()
+        sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
+def mp_widen_case():
+    """A widened MP does not let a waiting message reach a purpose its own MP never permitted."""
+    broker = Broker()
+    try:
+        sub = Subscriber("subW", receive_maximum=1)
+        sub.subscribe("t/w", ["qa"])
+        pub = Publisher()
+        pub.register("qa", "t/w")
+        pub.publish("t/w", [], payload=b"m1")
+        pub.publish("t/w", [], payload=b"m2")
+        first = sub.read_publishes(idle=0.5, ack=False)
+        check(payloads(first, "t/w") == [b"m1"], "only m1 is in flight (receive maximum 1)")
+
+        pub.register("qa|qb", "t/w")  # MP widened while m2 waits
+        sub.subscribe("t/w", ["qb"])
+        sub.puback(first[0][2])
+        time.sleep(0.3)
+        pub.publish("t/w", [], payload=b"m3")
+        got = payloads(sub.read_publishes(), "t/w")
+        check(got == [b"m3"], "m2, published for qa only, is not delivered for qb (got %s)" % got)
         sub.close()
     finally:
         stop_clients()
@@ -450,14 +684,32 @@ def main():
     delete_case(overflow=True)
     delete_case(gap=True)
     drop_refill_case()
+    same_second_case()
+    scoped_op_case("DELETE", "t/+/1", "qb", {"qa": True, "qb": False, "qa|qc": True, "qb|qc": False})
+    scoped_op_case("DELETE", "t/s/#", "qx", {"qa": True, "qb": True})
+    scoped_op_case("DELETE", "t/other", None, {"qa": True})
+    print("# RESTRICT on queued messages")
+    scoped_op_case("RESTRICT", "t/s/1", "qa", {"qa": False, "qb": True, "qb|qc": True, "qa|qb": False})
+    scoped_op_case("RESTRICT", "t/s/1", None, {"qa": False, "qb|qc": False})
     print("# re-verification of stale stamps")
     stale_mp_case()
     drop_then_stale_case()
     qos0_quota_case()
+    # m1 and m2 carry MP qa|qz; an SP is admitted only when the MP permits all of it.
     sp_change_case(["qb"], still_allowed=False)
     sp_change_case(["qa", "qz"], still_allowed=True)
-    print("# op/PBMR priority")
-    priority_case()
+    sp_change_case(["qa", "qb"], still_allowed=False)
+    mp_change_case("qa|qb", still_allowed=True)
+    mp_change_case("qz", still_allowed=False)
+    mp_widen_case()
+    print("# prioritized intake")
+    intake_mp_case()
+    intake_delete_case()
+    intake_disconnect_case()
+    intake_disconnect_case(abrupt=True)
+    intake_alias_case()
+    intake_own_order_case()
+    intake_error_order_case()
 
     print()
     if failures:

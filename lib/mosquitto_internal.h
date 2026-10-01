@@ -190,7 +190,6 @@ struct mosquitto__packet {
 	uint16_t mid;
 	uint8_t command;
 	int8_t remaining_count;
-	bool dap_priority; /* MQTT-DAP op/PBMR publish, written ahead of queued data */
 	uint8_t payload[];
 };
 
@@ -387,6 +386,7 @@ struct mosquitto {
 	bool is_bridge;
 	bool is_persisted;
 	bool dap_write_again; /* the DAP send-path gate left messages ready for another write pass */
+	int dap_set_aside; /* PUBLISHes read this pass and set aside by DAP intake */
 	struct mosquitto__bridge *bridge;
 	struct mosquitto_msg_data msgs_in;
 	struct mosquitto_msg_data msgs_out;

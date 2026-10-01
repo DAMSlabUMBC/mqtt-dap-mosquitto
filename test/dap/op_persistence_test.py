@@ -158,8 +158,6 @@ def main():
     check(wait_for(lambda: len(subX.got("sensors/")) == 2 and len(subY.got("sensors/")) == 2),
           "online subscribers receive the data before the operation")
 
-    # DELETE must arrive after the data it covers (1 s resolution).
-    time.sleep(1.1)
     pub1.publish(OSYS, [("DAP-OpType", "DELETE"), ("DAP-OpTFs", "sensors/temp")])
     check(wait_for(lambda: pub1.got(OP_NOTIF, **{"DAP-Status": "Pending"})), "requester gets a Pending ack")
     pending = pub1.got(OP_NOTIF, **{"DAP-Status": "Pending"})

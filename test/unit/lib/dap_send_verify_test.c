@@ -25,17 +25,13 @@
 static char msg_slot[8];
 #define MSG ((struct mosquitto__base_msg *)&msg_slot[0])
 
-/* Build a stamped message on the stack with the given versions and applied ops.
- * applied is borrowed (the caller keeps it alive for the duration of the call). */
-static struct dap_stamped_msg make_stamp(uint32_t mp, uint32_t sp,
-                                         uint64_t *applied, size_t num_applied)
+/* Build a stamped message on the stack with the given versions. */
+static struct dap_stamped_msg make_stamp(uint32_t mp, uint32_t sp)
 {
     struct dap_stamped_msg m;
     m.base_msg = MSG;
     m.mp_version = mp;
     m.sp_version = sp;
-    m.applied_op_ids = applied;
-    m.num_applied_op_ids = num_applied;
     m.enqueue_time = 0;
     m.prev = NULL;
     m.next = NULL;
@@ -45,76 +41,55 @@ static struct dap_stamped_msg make_stamp(uint32_t mp, uint32_t sp,
 /* A retained message arrives with no stamp at all; it always passes. */
 static void test_null_stamp_passes(void)
 {
-    assert(dap_verify_for_send(NULL, 5, 7, DAP_OP_ACTION_NONE, 0) == DAP_SEND_PASS);
+    assert(dap_verify_for_send(NULL, 5, 7, DAP_OP_ACTION_NONE) == DAP_SEND_PASS);
     printf("ok - a NULL stamp (retained message) passes\n");
 }
 
 /* Versions match and no op applies: deliver as stamped. */
 static void test_all_match_passes(void)
 {
-    struct dap_stamped_msg m = make_stamp(3, 4, NULL, 0);
-    assert(dap_verify_for_send(&m, 3, 4, DAP_OP_ACTION_NONE, 0) == DAP_SEND_PASS);
+    struct dap_stamped_msg m = make_stamp(3, 4);
+    assert(dap_verify_for_send(&m, 3, 4, DAP_OP_ACTION_NONE) == DAP_SEND_PASS);
     printf("ok - matching versions with no pending op passes\n");
 }
 
 /* The MP version moved on since stamping: re-verify. */
 static void test_mp_mismatch_fails(void)
 {
-    struct dap_stamped_msg m = make_stamp(3, 4, NULL, 0);
-    assert(dap_verify_for_send(&m, 9, 4, DAP_OP_ACTION_NONE, 0) == DAP_SEND_FAIL_MP);
+    struct dap_stamped_msg m = make_stamp(3, 4);
+    assert(dap_verify_for_send(&m, 9, 4, DAP_OP_ACTION_NONE) == DAP_SEND_FAIL_MP);
     printf("ok - a stale MP version returns FAIL_MP\n");
 }
 
 /* The SP version moved on since stamping (MP still matches): re-verify. */
 static void test_sp_mismatch_fails(void)
 {
-    struct dap_stamped_msg m = make_stamp(3, 4, NULL, 0);
-    assert(dap_verify_for_send(&m, 3, 9, DAP_OP_ACTION_NONE, 0) == DAP_SEND_FAIL_SP);
+    struct dap_stamped_msg m = make_stamp(3, 4);
+    assert(dap_verify_for_send(&m, 3, 9, DAP_OP_ACTION_NONE) == DAP_SEND_FAIL_SP);
     printf("ok - a stale SP version returns FAIL_SP\n");
 }
 
-/* A RESTRICT applies and its op id is already stamped on the message: pass. */
-static void test_restrict_stamped_passes(void)
+/* A RESTRICT applies: re-verify against the purposes it revoked. */
+static void test_restrict_reverifies(void)
 {
-    uint64_t applied[] = {11, 42, 7};
-    struct dap_stamped_msg m = make_stamp(3, 4, applied, 3);
-    assert(dap_verify_for_send(&m, 3, 4, DAP_OP_ACTION_RESTRICT, 42) == DAP_SEND_PASS);
-    printf("ok - a RESTRICT whose op id is already stamped passes\n");
-}
-
-/* A RESTRICT applies but its op id is NOT stamped (it arrived after stamping):
- * re-verify so the message can be re-stamped under the current op. */
-static void test_restrict_unstamped_fails(void)
-{
-    uint64_t applied[] = {11, 7};
-    struct dap_stamped_msg m = make_stamp(3, 4, applied, 2);
-    assert(dap_verify_for_send(&m, 3, 4, DAP_OP_ACTION_RESTRICT, 42) == DAP_SEND_FAIL_OP_MISSING);
-    printf("ok - a RESTRICT whose op id is not yet stamped returns FAIL_OP_MISSING\n");
+    struct dap_stamped_msg m = make_stamp(3, 4);
+    assert(dap_verify_for_send(&m, 3, 4, DAP_OP_ACTION_RESTRICT) == DAP_SEND_FAIL_RESTRICT);
+    printf("ok - a pending RESTRICT returns FAIL_RESTRICT\n");
 }
 
 /* A DELETE applies: drop the message without delivering it. */
 static void test_delete_drops(void)
 {
-    struct dap_stamped_msg m = make_stamp(3, 4, NULL, 0);
-    assert(dap_verify_for_send(&m, 3, 4, DAP_OP_ACTION_DROP, 99) == DAP_SEND_DROP_DELETE);
+    struct dap_stamped_msg m = make_stamp(3, 4);
+    assert(dap_verify_for_send(&m, 3, 4, DAP_OP_ACTION_DROP) == DAP_SEND_DROP_DELETE);
     printf("ok - a pending DELETE returns DROP_DELETE\n");
-}
-
-/* No op applies and versions match, but the message still carries an older
- * applied op id from a previous pass: it passes (NONE wins, the old id is inert). */
-static void test_none_with_stale_op_passes(void)
-{
-    uint64_t applied[] = {42};
-    struct dap_stamped_msg m = make_stamp(3, 4, applied, 1);
-    assert(dap_verify_for_send(&m, 3, 4, DAP_OP_ACTION_NONE, 0) == DAP_SEND_PASS);
-    printf("ok - NONE with an older stamped op id still passes\n");
 }
 
 /* A DELETE outranks a stale version: it drops rather than asking to re-verify. */
 static void test_delete_precedes_version_mismatch(void)
 {
-    struct dap_stamped_msg m = make_stamp(3, 4, NULL, 0);
-    assert(dap_verify_for_send(&m, 9, 9, DAP_OP_ACTION_DROP, 99) == DAP_SEND_DROP_DELETE);
+    struct dap_stamped_msg m = make_stamp(3, 4);
+    assert(dap_verify_for_send(&m, 9, 9, DAP_OP_ACTION_DROP) == DAP_SEND_DROP_DELETE);
     printf("ok - a DELETE outranks a stale MP/SP version\n");
 }
 
@@ -147,7 +122,7 @@ static void test_decide_failures_bump(void)
 {
     assert(dap_send_decide(true, false, 0, 11, DAP_SEND_FAIL_MP) == DAP_DISP_BUMP);
     assert(dap_send_decide(true, false, 0, 11, DAP_SEND_FAIL_SP) == DAP_DISP_BUMP);
-    assert(dap_send_decide(true, false, 0, 11, DAP_SEND_FAIL_OP_MISSING) == DAP_DISP_BUMP);
+    assert(dap_send_decide(true, false, 0, 11, DAP_SEND_FAIL_RESTRICT) == DAP_DISP_BUMP);
     printf("ok - decide: FAIL_MP/SP/OP_MISSING while not holding bump\n");
 }
 
@@ -199,10 +174,8 @@ int main(void)
     test_all_match_passes();
     test_mp_mismatch_fails();
     test_sp_mismatch_fails();
-    test_restrict_stamped_passes();
-    test_restrict_unstamped_fails();
+    test_restrict_reverifies();
     test_delete_drops();
-    test_none_with_stale_op_passes();
     test_delete_precedes_version_mismatch();
     test_decide_no_stamp_delivers();
     test_decide_pass_delivers();

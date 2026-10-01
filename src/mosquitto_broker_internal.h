@@ -418,6 +418,11 @@ struct dap_deadline_tracker;
  * is re-verified at send time. Forward declared so the db field can be a pointer. */
 struct dap_holding_list;
 
+/* Operation requests held for subscribers that cannot receive them yet. */
+struct dap_request_store;
+
+#include "dap/dap_intake.h"
+
 /* Maps op id to requesting publisher, so status notifications can be routed back to
  * the requester even after the operation stops being tracked. Forward declared so the
  * db field can be a pointer. */
@@ -453,6 +458,14 @@ struct mosquitto__retainhier {
 	char topic[];
 };
 
+/* When the broker read a PUBLISH (paper 5.2(i)). */
+struct dap_receipt {
+	time_t time;     /* seconds since the epoch, the DAP-Timestamp */
+	uint64_t ns_wall; /* CLOCK_REALTIME */
+	uint64_t ns_mono; /* CLOCK_MONOTONIC */
+	uint64_t order;  /* strictly increasing across receipts */
+};
+
 struct mosquitto__base_msg {
 	UT_hash_handle hh;
 	struct mosquitto_base_msg data;
@@ -465,6 +478,8 @@ struct mosquitto__base_msg {
 	time_t dap_recv_time; /* DAP receipt timestamp: single reference time for ordering
 	                       * and operation matching, stamped once at PUBLISH receipt */
 	bool dap_restored;    /* restored from persistence, has no DAP stamp */
+	uint64_t dap_order;   /* strictly increasing receipt order (ns since the epoch), which
+	                       * orders data against operations */
 	uint64_t dap_recv_time_ns_wall; /* CLOCK_REALTIME at PUBLISH receipt, for the metrics row */
 	uint64_t dap_recv_time_ns_mono; /* CLOCK_MONOTONIC at PUBLISH receipt, for delta computation */
 	int dap_subs_matched;           /* leaves the message fanned out to */
@@ -544,9 +559,11 @@ struct mosquitto_db {
 #endif
 	struct mosquitto__message_v5 *plugin_msgs;
 	struct dap_pending_ops *dap_pending_ops; /* DAP pending-operation map */
+	uint64_t dap_last_order; /* the most recent PUBLISH receipt order */
 	struct dap_deadline_tracker *dap_deadline_tracker; /* DAP operation deadline tracker */
 	struct dap_holding_list *dap_holding_list; /* DAP per-client send-path hold list */
 	struct dap_op_requester *dap_op_requester; /* DAP op id -> requesting publisher */
+	struct dap_request_store *dap_request_store; /* DAP requests held for offline subscribers */
 #ifdef WITH_TLS
 	/* tls_keylog can't be in the config struct because it is used
 	   before the config is allocated. Config probably
@@ -730,10 +747,12 @@ int net__load_certificates(struct mosquitto__listener *listener);
  * Read handling functions
  * ============================================================ */
 int handle__packet(struct mosquitto *context);
+/* Tell a v5 client why the packet it sent ends its connection. */
+void handle__packet_error(struct mosquitto *context, int rc);
 int handle__connack(struct mosquitto *context);
 int handle__connect(struct mosquitto *context);
 int handle__disconnect(struct mosquitto *context);
-int handle__publish(struct mosquitto *context);
+int handle__publish(struct mosquitto *context, const struct dap_receipt *receipt);
 int handle__subscribe(struct mosquitto *context);
 int handle__unsubscribe(struct mosquitto *context);
 int handle__auth(struct mosquitto *context);

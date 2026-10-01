@@ -2,31 +2,31 @@
 #include "dr_registry.h"
 #include "mosquitto_internal.h"
 #include "util_mosq.h"
+#include "purpose_filters.h"
 
 
 struct dr_entry *dr_head = NULL;
 struct dr_retained_entry *dr_retained_head = NULL;
+/* The entries of dr_head, hashed by publisher and topic. */
+static struct dr_entry *dr_index = NULL;
 
 void dr_registry_init(void)
 {
     dr_head = NULL;
+    dr_index = NULL;
     dr_retained_head = NULL;
 }
 
 void dr_registry_cleanup(void)
 {
+    HASH_CLEAR(hh, dr_index);
     while(dr_head){
         struct dr_entry *e = dr_head;
         dr_head = dr_head->next;
         mosquitto_FREE(e->pub_id);
         mosquitto_FREE(e->topic);
-        while(e->sub_list){
-            struct dr_sublist *s = e->sub_list;
-            e->sub_list = s->next;
-            mosquitto_FREE(s->sub_id);
-            mosquitto_FREE(s->sp);
-            mosquitto_FREE(s);
-        }
+        mosquitto_FREE(e->key);
+        dr__free_sublist(e->sub_list);
         mosquitto_FREE(e);
     }
 
@@ -42,80 +42,67 @@ void dr_registry_cleanup(void)
 
 static struct dr_entry *dr__find_or_create(const char *pub_id, const char *topic)
 {
-    struct dr_entry *cur = dr_head;
-    while(cur){
-        if(!strcmp(cur->pub_id, pub_id) && !strcmp(cur->topic, topic)){
-            return cur;
+    size_t plen = strlen(pub_id);
+    size_t len = plen + 1 + strlen(topic);
+    char stack_key[256];
+    char *key = len <= sizeof(stack_key) ? stack_key : mosquitto_malloc(len);
+    struct dr_entry *e = NULL;
+
+    if(!key) return NULL;
+    memcpy(key, pub_id, plen + 1);
+    memcpy(key + plen + 1, topic, len - plen - 1);
+    HASH_FIND(hh, dr_index, key, len, e);
+    if(!e){
+        e = mosquitto_calloc(1, sizeof(*e));
+        if(e){
+            e->pub_id = mosquitto_strdup(pub_id);
+            e->topic = mosquitto_strdup(topic);
+            e->key = mosquitto_malloc(len);
         }
-        cur = cur->next;
+        if(e && (!e->pub_id || !e->topic || !e->key)){
+            mosquitto_FREE(e->pub_id);
+            mosquitto_FREE(e->topic);
+            mosquitto_FREE(e->key);
+            mosquitto_FREE(e);
+        }
+        if(e){
+            memcpy(e->key, key, len);
+            HASH_ADD_KEYPTR(hh, dr_index, e->key, len, e);
+            e->next = dr_head;
+            dr_head = e;
+        }
     }
-    struct dr_entry *e = mosquitto_calloc(1, sizeof(*e));
-    if(!e) return NULL;
-    e->pub_id = mosquitto_strdup(pub_id);
-    e->topic  = mosquitto_strdup(topic);
-    e->sub_list = NULL;
-    e->next = dr_head;
-    dr_head = e;
+    if(key != stack_key) mosquitto_FREE(key);
     return e;
 }
 
-void dr__record_recipient(const char *pub_id, const char *topic, const char *sub_id, time_t recv_time)
-{
-    dr__record_recipient_with_sp(pub_id, topic, sub_id, NULL, recv_time);
-}
-
-void dr__record_recipient_with_sp(const char *pub_id, const char *topic, const char *sub_id, const char *sp, time_t recv_time)
+int dr__record_flow(const char *pub_id, const char *topic, const char *sub_id,
+                    char *const *sp, uint32_t sp_count, time_t recv_time)
 {
     struct dr_entry *entry = dr__find_or_create(pub_id, topic);
-    if(!entry) return;
-    /* Check if sub_id is already in sub_list */
-    struct dr_sublist *s = entry->sub_list;
-    while(s){
-        if(!strcmp(s->sub_id, sub_id)){
-            /* Already stored; refresh the SP when a newer one is supplied, and
-             * advance the receipt time to the most recent flow. */
-            if(sp){
-                mosquitto_FREE(s->sp);
-                s->sp = mosquitto_strdup(sp);
-            }
-            if(recv_time) s->recv_time = recv_time;
-            return;
+    struct dr_sublist *s;
+
+    if(!entry) return MOSQ_ERR_NOMEM;
+    for(s = entry->sub_list; s; s = s->next){
+        if(!strcmp(s->sub_id, sub_id) && purpose_set_is(s->sp, sp, sp_count)){
+            if(recv_time < s->first_time) s->first_time = recv_time;
+            if(recv_time > s->last_time) s->last_time = recv_time;
+            return MOSQ_ERR_SUCCESS;
         }
-        s = s->next;
     }
     s = mosquitto_calloc(1, sizeof(*s));
-    if(!s) return;
+    if(!s) return MOSQ_ERR_NOMEM;
     s->sub_id = mosquitto_strdup(sub_id);
-    s->sp = sp ? mosquitto_strdup(sp) : NULL;
-    s->recv_time = recv_time;
+    s->sp = purpose_set_join(sp, sp_count);
+    if(!s->sub_id || !s->sp){
+        dr__free_sublist(s);
+        return MOSQ_ERR_NOMEM;
+    }
+    s->first_time = recv_time;
+    s->last_time = recv_time;
     s->next = entry->sub_list;
     entry->sub_list = s;
-}
-
-struct dr_sublist *dr__get_recipients(const char *pub_id, const char *topic)
-{
-    struct dr_entry *cur = dr_head;
-    while(cur){
-        if(!strcmp(cur->pub_id, pub_id) && !strcmp(cur->topic, topic)){
-            /* Build a shallow copy of sub_list so the caller can iterate. */
-            struct dr_sublist *copy_head = NULL;
-            struct dr_sublist *orig = cur->sub_list;
-            while(orig){
-                struct dr_sublist *tmp = mosquitto_calloc(1, sizeof(*tmp));
-                if(!tmp){
-                    dr__free_sublist(copy_head);
-                    return NULL;
-                }
-                tmp->sub_id = mosquitto_strdup(orig->sub_id);
-                tmp->next = copy_head;
-                copy_head = tmp;
-                orig = orig->next;
-            }
-            return copy_head;
-        }
-        cur = cur->next;
-    }
-    return NULL;
+    return MOSQ_ERR_SUCCESS;
 }
 
 void dr__record_retained_publisher(const char* pub_id, const char * topic)
@@ -171,7 +158,7 @@ static bool dr__filter_is_any(const char *filter_csv)
     return !filter_csv || filter_csv[0] == '\0' || dr__csv_has_token(filter_csv, "*", 1);
 }
 
-/* Condition for a single-valued field (receipt topic, subscriber id). */
+/* Condition for the subscriber id. */
 static bool dr__field_matches(const char *filter_csv, const char *value)
 {
     if(dr__filter_is_any(filter_csv)) return true;
@@ -179,22 +166,24 @@ static bool dr__field_matches(const char *filter_csv, const char *value)
     return dr__csv_has_token(filter_csv, value, strlen(value));
 }
 
-/*
- * Condition for the SP recorded at receipt time against the purpose filters: a
- * "*" SP matches any filter; otherwise at least one purpose named in the SP
- * must also appear among the purpose filters.
- */
-static bool dr__purpose_matches(const char *pf_csv, const char *sp_csv)
+/* Condition for the topic: any element of the list is an MQTT filter matching it. */
+static bool dr__topic_matches(const char *filter_csv, const char *topic)
 {
-    if(dr__filter_is_any(pf_csv)) return true;
-    if(!sp_csv) return false;
-    if(dr__filter_is_any(sp_csv)) return true;
+    if(dr__filter_is_any(filter_csv)) return true;
 
-    const char *p = sp_csv;
+    const char *p = filter_csv;
     while(*p){
         const char *comma = strchr(p, ',');
         size_t len = comma ? (size_t)(comma - p) : strlen(p);
-        if(len > 0 && dr__csv_has_token(pf_csv, p, len)) return true;
+        if(len > 0){
+            char *filter = mosquitto_strndup(p, len);
+            bool result = false;
+            if(filter && mosquitto_topic_matches_sub(filter, topic, &result) != MOSQ_ERR_SUCCESS){
+                result = false;
+            }
+            mosquitto_FREE(filter);
+            if(result) return true;
+        }
         if(!comma) break;
         p = comma + 1;
     }
@@ -213,39 +202,47 @@ static bool dr__result_has(struct dr_sublist *list, const char *sub_id)
 struct dr_sublist *dr__find_relevant_subscribers(const char *pub_id, struct dap__op_property *dap_op_properties)
 {
     struct dr_sublist *result = NULL;
+    char *purposes = NULL;
 
     if(!pub_id) return NULL;
+    if(!dr__filter_is_any(dap_op_properties->op_purpose_filters)
+            && purpose_filter_canonical(dap_op_properties->op_purpose_filters, &purposes)){
+        return NULL;
+    }
 
     /* Walk every recorded (pub_id, topic) flow for this publisher. */
     for(struct dr_entry *e = dr_head; e; e = e->next){
         if(strcmp(e->pub_id, pub_id)) continue;
 
-        /* The receipt topic must match a topic filter. */
-        if(!dr__field_matches(dap_op_properties->op_topic_filters, e->topic)) continue;
+        /* The topic must match a topic filter. */
+        if(!dr__topic_matches(dap_op_properties->op_topic_filters, e->topic)) continue;
 
         for(struct dr_sublist *s = e->sub_list; s; s = s->next){
             /* The subscriber id must be in the client filters. */
             if(!dr__field_matches(dap_op_properties->op_client_filters, s->sub_id)) continue;
-            /* The SP at receipt must share a purpose with the filters. */
-            if(!dr__purpose_matches(dap_op_properties->op_purpose_filters, s->sp)) continue;
-            /* The receipt time must fall within the DAP-OpAfter/OpBefore bounds;
-             * a 0 bound is unbounded on that side. */
-            if(dap_op_properties->op_after && s->recv_time < dap_op_properties->op_after) continue;
-            if(dap_op_properties->op_before && s->recv_time > dap_op_properties->op_before) continue;
+            /* The SP at delivery must share a purpose with the filters. */
+            if(purposes && !purpose_sets_intersect(s->sp, purposes)) continue;
+            /* The flow must overlap the DAP-OpAfter/OpBefore bounds; a 0 bound is
+             * unbounded on that side. */
+            if(dap_op_properties->op_after && s->last_time < dap_op_properties->op_after) continue;
+            if(dap_op_properties->op_before && s->first_time > dap_op_properties->op_before) continue;
             /* Receipt itself is implicit: only recorded recipients are walked. */
 
             /* A subscriber relevant via several flows is still returned once. */
             if(dr__result_has(result, s->sub_id)) continue;
 
             struct dr_sublist *node = mosquitto_calloc(1, sizeof(*node));
-            if(!node){
+            if(node) node->sub_id = mosquitto_strdup(s->sub_id);
+            if(!node || !node->sub_id){
+                mosquitto_FREE(node);
                 dr__free_sublist(result);
+                mosquitto_FREE(purposes);
                 return NULL;
             }
-            node->sub_id = mosquitto_strdup(s->sub_id);
             node->next = result;
             result = node;
         }
     }
+    mosquitto_FREE(purposes);
     return result;
 }

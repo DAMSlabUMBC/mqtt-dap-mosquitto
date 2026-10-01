@@ -29,11 +29,12 @@ Contributors:
 #include "dap/dap_pending_ops.h"
 #include "dap/dap_deadline_tracker.h"
 #include "dap/dap_holding_list.h"
+#include "dap/dap_request_store.h"
 #include "dap/dap_op_requester.h"
 #include "dap/dap_subscription_queues.h"
 #include "dap/dap_send_verify.h"
-#include "dap/output_priority.h"
 #include "dap/mp_registry.h"
+#include "dap/purpose_filters.h"
 #include "dap/dr_registry.h"
 #include "dap/dap_metrics.h"
 
@@ -245,6 +246,13 @@ int db__open(struct mosquitto__config *config)
 		dap_op_requester_init(db.dap_op_requester);
 	}
 
+	/* Broker-wide store of operation requests for relevant subscribers that cannot
+	 * receive them yet, delivered when they subscribe to their request topic. */
+	db.dap_request_store = mosquitto_calloc(1, sizeof(struct dap_request_store));
+	if(db.dap_request_store){
+		dap_request_store_init(db.dap_request_store);
+	}
+
 	db.config->security_options.unpwd = NULL;
 
 #ifdef WITH_PERSISTENCE
@@ -373,6 +381,11 @@ int db__close(void)
 	if(db.dap_op_requester){
 		dap_op_requester_destroy(db.dap_op_requester);
 		mosquitto_FREE(db.dap_op_requester);
+	}
+
+	if(db.dap_request_store){
+		dap_request_store_destroy(db.dap_request_store);
+		mosquitto_FREE(db.dap_request_store);
 	}
 
 	return MOSQ_ERR_SUCCESS;
@@ -867,7 +880,7 @@ int db__message_insert_outgoing(struct mosquitto *context, uint64_t cmsg_id, uin
 	client_msg->data.subscription_identifier = subscription_identifier;
 
 	if(state == mosq_ms_queued){
-		db__queued_insert_prioritized(msg_data, client_msg, base_msg->data.topic);
+		DL_APPEND(msg_data->queued, client_msg);
 		db__msg_add_to_queued_stats(msg_data, client_msg);
 	}else{
 		DL_APPEND(msg_data->inflight, client_msg);
@@ -1655,37 +1668,43 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 		
 		uint32_t cur_mp = 0;
 		struct mp_entry *stored = mp__lookup(pub_id, topic);
+		/* Operation messages have no registration and keep the purpose they were sent with. */
+		const char *cur_purpose = purpose;
 		if(stored)
 		{
 			cur_mp = stored->version;
+			cur_purpose = stored->purpose_filter;
 		}
 		uint32_t cur_sp = leaf->sp_version;
-		uint64_t op_id = 0;
+		const char *revoked = NULL;
 		enum dap_op_action action = dap_pending_ops_match(db.dap_pending_ops, pub_id, topic,
-				purpose, client_id, base_msg->dap_recv_time, &op_id);
+				leaf->purpose_filters, leaf->purpose_filter_count, client_id,
+				base_msg->dap_order, NULL, &revoked);
 		if(is_holding){
-			/* Re-verify candidate: a DELETE drops it, and so does a purpose its
-			 * subscription's current SP no longer admits; a new RESTRICT is re-stamped
-			 * and delivered. */
+			/* Re-verify candidate: a DELETE drops it, and so does an SP that is not
+			 * permitted both by the MP the message was published with and by the
+			 * publisher's current MP less the purposes a RESTRICT revoked. An update
+			 * can narrow what a message permits, never widen it (paper 4.3). */
 			if(action == DAP_OP_ACTION_DROP){
 				verdict = DAP_SEND_DROP_DELETE;
-			}else if(!sub__purpose_allows(leaf, base_msg)){
+			}else if(!purpose_mp_permits(purpose, leaf->purpose_filters, leaf->purpose_filter_count)
+					|| !purpose_mp_permits_unrevoked(cur_purpose, revoked,
+					leaf->purpose_filters, leaf->purpose_filter_count)){
 				verdict = DAP_SEND_DROP_PURPOSE;
 			}else{
 				verdict = DAP_SEND_PASS;
 			}
 		}else{
-			verdict = dap_verify_for_send(stamp, cur_mp, cur_sp, action, op_id);
+			verdict = dap_verify_for_send(stamp, cur_mp, cur_sp, action);
 		}
 	}
 
 	enum dap_send_disposition disp = dap_send_decide(has_stamp, is_holding, pending_id, this_id, verdict);
 
-	/* Restored messages have no stamp; still apply DELETE. */
+	/* Restored messages have no stamp or subscription; still apply DELETE. */
 	if(!has_stamp && base_msg->dap_restored && db.dap_pending_ops){
-		const char *purpose = base_msg->data.has_purpose_filter ? base_msg->data.purpose_filter : NULL;
 		if(dap_pending_ops_match(db.dap_pending_ops, base_msg->data.source_id, topic,
-				purpose, client_id, base_msg->dap_recv_time, NULL) == DAP_OP_ACTION_DROP){
+				NULL, 0, client_id, base_msg->dap_order, NULL, NULL) == DAP_OP_ACTION_DROP){
 
 			disp = DAP_DISP_DROP;
 		}
@@ -1696,8 +1715,12 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 			if(db.config->metadata_operation_handling){
 				bool is_op_system = base_msg->data.has_purpose_filter
 					&& !strcmp(base_msg->data.purpose_filter, MOSQ_DAP_OP_PURPOSE);
-				if(!is_op_system){
-					dr__record_recipient(base_msg->data.source_id, topic, client_id, base_msg->dap_recv_time);
+				if(!is_op_system && base_msg->data.source_id){
+					/* Paper 6.1: the flow keeps the SP in force at delivery. A message
+					 * restored without its subscription records an empty SP. */
+					dr__record_flow(base_msg->data.source_id, topic, client_id,
+							leaf ? leaf->purpose_filters : NULL, leaf ? leaf->purpose_filter_count : 0,
+							base_msg->dap_recv_time);
 				}
 			}
 			if(has_stamp){

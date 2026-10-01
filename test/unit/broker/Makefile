@@ -10,7 +10,7 @@ LOCAL_CPPFLAGS+=-DWITH_BROKER -I${R}/src -I${R}/test -I${R}/lib -DTEST_SOURCE_DI
 LOCAL_LDFLAGS+=-coverage
 LOCAL_LDADD+=-lcunit ${LIBMOSQ_COMMON}
 
-ALL_TESTS:=keepalive_test subs_test queued_priority_test
+ALL_TESTS:=keepalive_test subs_test
 
 ifeq ($(WITH_BRIDGE),yes)
 	ALL_TESTS+=bridge_topic_test
@@ -32,6 +32,7 @@ DAP_LIB_OBJS = \
 		${R}/src/dap_op_request.o \
 		${R}/src/dap_op_requester.o \
 		${R}/src/dap_pending_ops.o \
+		${R}/src/dap_request_store.o \
 		${R}/src/dap_send_verify.o \
 		${R}/src/dap_stamp.o \
 		${R}/src/dap_subscription_queues.o \
@@ -187,21 +188,6 @@ ${R}/src/util_mosq.o : ${R}/lib/util_mosq.c
 ${DAP_LIB_OBJS} : ${R}/src/%.o : ${R}/lib/dap/%.c
 	$(MAKE) -C ${R}/src/ $*.o
 
-# Standalone (no CUnit) test for the output-side priority queue, MQTT-DAP paper
-# 5.2(ii). The header-defined helper (src/dap/output_priority.h) compiles into the
-# test directly, so this links only dap_topics.o - it does not pull in database.o and
-# is therefore independent of the database.o-linking tests above.
-QUEUED_PRIORITY_TEST_OBJS = queued_priority_test.o
-QUEUED_PRIORITY_OBJS = ${R}/src/dap_topics.o
-
-queued_priority_test : ${QUEUED_PRIORITY_TEST_OBJS} ${QUEUED_PRIORITY_OBJS}
-	$(CROSS_COMPILE)$(CC) $(LOCAL_LDFLAGS) -o $@ $^
-
-${QUEUED_PRIORITY_TEST_OBJS} : %.o: %.c
-	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
-
-queued-priority : queued_priority_test
-	${SANITIZER_COMMAND} ./queued_priority_test
 build : ${ALL_TESTS}
 
 test : build

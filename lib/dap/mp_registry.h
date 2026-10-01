@@ -9,6 +9,7 @@ extern "C" {
 
 /* A single entry in the hash chain. */
 struct mp_entry {
+    char *id;              /* publisher client id */
     char *topic;           /* "sensors/temp" */
     char *purpose_filter;  /* "ads/targeted" */
     uint32_t version;      /* MP version, starts at 1 and bumps on every update */
@@ -21,12 +22,12 @@ void mp_registry_init(void);
 /* Cleans up all the stored entries */
 void mp_registry_cleanup(void);
 
-/* Registers or overwrites a purpose filter for the given topic */
-void mp__register_topic(const char* id, const char *topic, const char *mp_value);
+/* Registers or overwrites the purpose filter of a publisher's topic. Returns
+ * MOSQ_ERR_SUCCESS or MOSQ_ERR_NOMEM. */
+int mp__register_topic(const char *id, const char *topic, const char *mp_value);
 
-/* Looks up the stored purpose filter for a given topic. */
-
-struct mp_entry *mp__lookup(const char* id, const char *topic);
+/* Looks up the stored purpose filter of a publisher's topic. */
+struct mp_entry *mp__lookup(const char *id, const char *topic);
 
 #ifdef __cplusplus
 }

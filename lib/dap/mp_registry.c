@@ -14,12 +14,18 @@
 static struct mp_entry *g_mp_buckets[MPREG_HASH_SIZE];
 
 
-static unsigned int mp__hashstr(const char *str)
+/* djb2 over the id, a NUL separator and the topic, so "ab"+"c" and "a"+"bc" differ. */
+static unsigned int mp__hash(const char *id, const char *topic)
 {
-    unsigned long hash = 5381; 
-    unsigned long c;
-    while((c = (unsigned char) *str++)){
-        hash = ((hash << 5) + hash) + c;
+    unsigned long hash = 5381;
+    const char *p;
+
+    for(p = id; *p; p++){
+        hash = ((hash << 5) + hash) + (unsigned char)*p;
+    }
+    hash = (hash << 5) + hash;
+    for(p = topic; *p; p++){
+        hash = ((hash << 5) + hash) + (unsigned char)*p;
     }
     return (unsigned int)(hash % MPREG_HASH_SIZE);
 }
@@ -38,6 +44,7 @@ void mp_registry_cleanup(void)
         while(curr){
             struct mp_entry *tmp = curr;
             curr = curr->next;
+            mosquitto_FREE(tmp->id);
             mosquitto_FREE(tmp->topic);
             mosquitto_FREE(tmp->purpose_filter);
             mosquitto_FREE(tmp);
@@ -46,53 +53,54 @@ void mp_registry_cleanup(void)
     }
 }
 
-/* Store or overwrite a purpose filter for a given topic */
-void mp__register_topic(const char* id, const char *topic, const char *mp_value)
+/* Store or overwrite the purpose filter of a publisher's topic */
+int mp__register_topic(const char *id, const char *topic, const char *mp_value)
 {
-    char* hash_string = mosquitto_malloc(strlen(id) + strlen(topic) + 1);
-    strcpy(hash_string, id);
-    strcat(hash_string, topic);
-    unsigned int bucket_index = mp__hashstr(hash_string);
-    mosquitto_FREE(hash_string);
+    unsigned int bucket_index = mp__hash(id, topic);
+    struct mp_entry *entry = mp__lookup(id, topic);
+    char *mp = mosquitto_strdup(mp_value);
 
-    /* Search this chain for an existing entry with the same topic */
-    struct mp_entry *curr = g_mp_buckets[bucket_index];
-    while(curr){
-        if(!strcmp(curr->topic, topic)){
-            /* Found existing so overwrite the purpose filter and bump the version */
-            mosquitto_FREE(curr->purpose_filter);
-            curr->purpose_filter = mosquitto_strdup(mp_value);
-            curr->version++;
-            return;
-        }
-        curr = curr->next;
+    if(!mp) return MOSQ_ERR_NOMEM;
+    if(entry){
+        /* Overwrite the purpose filter and bump the version */
+        mosquitto_FREE(entry->purpose_filter);
+        entry->purpose_filter = mp;
+        entry->version++;
+        return MOSQ_ERR_SUCCESS;
     }
 
     /* Not found so create a new entry and link to head of chain */
-    struct mp_entry *entry = mosquitto_calloc(1, sizeof(*entry));
-    entry->topic          = mosquitto_strdup(topic);
-    entry->purpose_filter = mosquitto_strdup(mp_value);
-    entry->version        = 1; /* first registration starts at version 1 */
-    entry->next           = g_mp_buckets[bucket_index];
+    entry = mosquitto_calloc(1, sizeof(*entry));
+    if(entry){
+        entry->id = mosquitto_strdup(id);
+        entry->topic = mosquitto_strdup(topic);
+    }
+    if(!entry || !entry->id || !entry->topic){
+        if(entry){
+            mosquitto_FREE(entry->id);
+            mosquitto_FREE(entry->topic);
+            mosquitto_FREE(entry);
+        }
+        mosquitto_FREE(mp);
+        return MOSQ_ERR_NOMEM;
+    }
+    entry->purpose_filter = mp;
+    entry->version = 1; /* first registration starts at version 1 */
+    entry->next = g_mp_buckets[bucket_index];
     g_mp_buckets[bucket_index] = entry;
+    return MOSQ_ERR_SUCCESS;
 }
 
-/* Look up the purpose filter for a given topic */
-struct mp_entry *mp__lookup(const char* id, const char *topic)
+/* Look up the purpose filter of a publisher's topic */
+struct mp_entry *mp__lookup(const char *id, const char *topic)
 {
-    char* hash_string = mosquitto_malloc(strlen(id) + strlen(topic) + 1);
-    strcpy(hash_string, id);
-    strcat(hash_string, topic);
-    unsigned int bucket_index = mp__hashstr(hash_string);
-    mosquitto_FREE(hash_string);
+    struct mp_entry *curr;
 
-    struct mp_entry *curr = g_mp_buckets[bucket_index];
-
-    while(curr){
-        if(!strcmp(curr->topic, topic)){
-            return curr; /* Found it */
+    if(!id || !topic) return NULL;
+    for(curr = g_mp_buckets[mp__hash(id, topic)]; curr; curr = curr->next){
+        if(!strcmp(curr->id, id) && !strcmp(curr->topic, topic)){
+            return curr;
         }
-        curr = curr->next;
     }
-    return NULL; /* Not found */
+    return NULL;
 }

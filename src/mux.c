@@ -18,6 +18,7 @@ Contributors:
 */
 
 #include "mux.h"
+#include "dap/dap_intake.h"
 
 
 int mux__init(void)
@@ -106,22 +107,28 @@ int mux__delete(struct mosquitto *context)
 
 int mux__handle(struct mosquitto__listener_sock *listensock, int listensock_count)
 {
+	int rc;
+
+	dap_intake__begin();
 #ifdef WITH_EPOLL
 	UNUSED(listensock);
 	UNUSED(listensock_count);
-	return mux_epoll__handle();
+	rc = mux_epoll__handle();
 #elif defined(WITH_KQUEUE)
 	UNUSED(listensock);
 	UNUSED(listensock_count);
-	return mux_kqueue__handle();
+	rc = mux_kqueue__handle();
 #else
-	return mux_poll__handle(listensock, listensock_count);
+	rc = mux_poll__handle(listensock, listensock_count);
 #endif
+	dap_intake__end();
+	return rc;
 }
 
 
 int mux__cleanup(void)
 {
+	dap_intake__cleanup();
 #ifdef WITH_EPOLL
 	return mux_epoll__cleanup();
 #elif defined(WITH_KQUEUE)

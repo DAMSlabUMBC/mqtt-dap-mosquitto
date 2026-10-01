@@ -6,6 +6,7 @@ set(DAP_LIB_SOURCES
     ../../../lib/dap/dap_op_request.c
     ../../../lib/dap/dap_op_requester.c
     ../../../lib/dap/dap_pending_ops.c
+    ../../../lib/dap/dap_request_store.c
     ../../../lib/dap/dap_send_verify.c
     ../../../lib/dap/dap_stamp.c
     ../../../lib/dap/dap_subscription_queues.c

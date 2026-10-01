@@ -37,6 +37,7 @@ Contributors:
 #include "dap/dap_timestamp.h"
 #include "dap/dap_topics.h"
 #include "dap/dap_metrics.h"
+#include "dap/purpose_filters.h"
 #include "property_common.h"
 #include "property_mosq.h"
 #include "read_handle.h"
@@ -245,16 +246,8 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 		dr__record_retained_publisher(context->id, stored->data.topic);
 	}
 
-	/* Read all potential operational properties for later. A request carries
-	* DAP-OpType (found_op); a subscriber status notification carries DAP-Status. */
-	/* The immediate-forward path (HISTORY and other non-pending rights) scopes its
-	 * recipient lookup by op_info, but the parser fills the operation's topic-filter
-	 * list into op_topic_filters (from DAP-OpTFs) and left op_info unset, so that path
-	 * never matched. Alias op_info to the parsed topic filters. Borrowed pointer:
-	 * op_topic_filters remains the owner and is freed once in the cleanup below;
-	 * op_info is never freed, so there is no double free. */
-	char* op_info = dap_op_properties->op_topic_filters;
-
+	/* A request carries DAP-OpType (op_present); a subscriber status notification
+	 * carries DAP-Status. */
 	if(db.config->metadata_operation_handling && (dap_op_properties->op_present || dap_op_properties->op_status))
 	{
 		if(!strncmp(stored->data.topic, MOSQ_DAP_TOPIC_OSYS, 5))
@@ -265,21 +258,6 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 					* terminal status, advance the deadline tracker. */
 				handle_dap_status_notification(context, stored, dap_op_properties);
 			}
-			/* C1 Operations */
-			else if(!strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_AUDIT))
-			{
-				subscription_list *subs = find_subscriptions_for_publisher(context->id);
-				for(subscription_list *s = subs; s; s = s->next){
-					const char *info = ri__lookup_info(s->subscriber_id);
-					if(info){
-						broker_send_response_success(context->id, dap_op_properties->op_id, dap_op_properties->correlation_data, 
-							dap_op_properties->correlation_data_len, info, dap_op_properties->response_topic);
-						ri__mark_sent_to_pub(context->id, s->subscriber_id);
-					}
-				}
-				subscription_list_free(subs);
-			}
-
 			/* REGISTER-INFO: store the requester's info for later auto-fulfilment.
 				* "Informed-Reg" is the original name and is still accepted. */
 			else if(!strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_REGISTER_INFO))
@@ -287,17 +265,12 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 				ri__register_info(context->id, stored->data.payload);
 			}
 
-			/* C2/C3 Operations */
-			else if (!strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_HISTORY)
-			|| !strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_DELETE) || !strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_RESTRICT))
+			/* DELETE and RESTRICT also apply to queued data, through the pending-operation map. */
+			else if(!strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_DELETE) || !strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_RESTRICT))
 			{
-				/* DELETE/RESTRICT become pending operations in the broker-wide map;
-					* dap_op_request_insert succeeds for exactly those two and assigns the
-					* numeric op id. Every other right (Access/Portability/Rectification/
-					* Object/AutoDecision) falls through to the unchanged immediate path. */
 				uint64_t pending_op_id = 0;
 				bool is_pending_op = (dap_op_request_insert(db.dap_pending_ops, context->id, dap_op_properties,
-							stored->dap_recv_time, &pending_op_id) == 0);
+							stored->dap_order, &pending_op_id) == 0);
 
 				if(is_pending_op)
 				{
@@ -336,20 +309,8 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 				}
 				else
 				{
-					/* Non-pending rights: immediate forward + Success/Failure. */
-					subscriber_list *sub_list = find_subscribers_with_data(context->id, op_info);
-					subscriber_list *offline = forward_request_to_connected(sub_list, &stored->data, dap_op_properties);
-					if(offline){
-						dap_op_set_reason(dap_op_properties, "Subscriber not connected");
-						broker_send_response_failure(context->id, dap_op_properties, offline);
-					}
-					else
-					{
-						broker_send_response_success(context->id, dap_op_properties->op_id, dap_op_properties->correlation_data, 
-							dap_op_properties->correlation_data_len, NULL, dap_op_properties->response_topic);
-					}
-					subscriber_list_free(offline);
-					subscriber_list_free(sub_list);
+					dap_op_set_reason(dap_op_properties, "Invalid operation filters");
+					broker_send_response_failure(context->id, dap_op_properties);
 				}
 			}
 
@@ -362,8 +323,8 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 				struct dr_sublist *relevant = dr__find_relevant_subscribers(context->id, dap_op_properties);
 				if(!relevant)
 				{
-					dap_op_set_reason(dap_op_properties, "No relevant subscribers");
-					broker_send_response_failure(context->id, dap_op_properties, NULL);
+					dap_op_set_reason(dap_op_properties, "No relevant subscribers found");
+					broker_send_response_failure(context->id, dap_op_properties);
 				}
 				else
 				{
@@ -412,7 +373,7 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 			{
 				/* Unrecognized right. */
 				dap_op_set_reason(dap_op_properties, "Unknown Operation");
-				broker_send_response_failure(context->id, dap_op_properties, NULL);
+				broker_send_response_failure(context->id, dap_op_properties);
 			}
 		}
 	}
@@ -493,28 +454,38 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 	return rc;
 }
 
-/* Register a '<MP>:<topic>' DAP-MP value; a NULL value or one without ':' is malformed. */
+/* Register a '<MP>:<topic>' DAP-MP value; a NULL value, one without ':', or an
+ * invalid MP is malformed. */
 static int register_mp_property(const char *client_id, const char *value)
 {
 	const char *sep = value ? strchr(value, ':') : NULL;
-	char *filter, *topic;
+	char *filter, *topic, *mp;
+	int rc;
 
 	if(sep == NULL){
 		return MOSQ_ERR_MALFORMED_PACKET;
 	}
 
 	filter = mosquitto_strndup(value, (size_t)(sep - value));
+	if(!filter){
+		return MOSQ_ERR_NOMEM;
+	}
+	/* Store the MP as its sorted purpose set so matching is a merge. */
+	rc = purpose_filter_canonical(filter, &mp);
+	mosquitto_FREE(filter);
+	if(rc){
+		return rc == MOSQ_ERR_NOMEM ? MOSQ_ERR_NOMEM : MOSQ_ERR_MALFORMED_PACKET;
+	}
 	topic = mosquitto_strdup(sep + 1);
-	if(!filter || !topic){
-		mosquitto_FREE(filter);
-		mosquitto_FREE(topic);
+	if(!topic){
+		mosquitto_FREE(mp);
 		return MOSQ_ERR_NOMEM;
 	}
 
-	mp__register_topic(client_id, topic, filter);
-	mosquitto_FREE(filter);
+	rc = mp__register_topic(client_id, topic, mp);
+	mosquitto_FREE(mp);
 	mosquitto_FREE(topic);
-	return MOSQ_ERR_SUCCESS;
+	return rc;
 }
 
 /* Replace *dst with a copy of value. */
@@ -593,7 +564,7 @@ static void read_dap_op_properties(const mosquitto_property *p, struct dap__op_p
 	}
 }
 
-int handle__publish(struct mosquitto *context)
+int handle__publish(struct mosquitto *context, const struct dap_receipt *receipt)
 {
 	uint8_t dup;
 	int rc = 0;
@@ -622,16 +593,12 @@ int handle__publish(struct mosquitto *context)
 		return MOSQ_ERR_NOMEM;
 	}
 
-	/* Stamp the receipt time once, before any other DAP processing, so a single
-	 * reference timestamp drives both queue ordering and pending-operation matchingn*/
-	base_msg->dap_recv_time = time(NULL);
-	{
-		struct timespec ts_wall, ts_mono;
-		clock_gettime(CLOCK_REALTIME, &ts_wall);
-		clock_gettime(CLOCK_MONOTONIC, &ts_mono);
-		base_msg->dap_recv_time_ns_wall = (uint64_t)ts_wall.tv_sec * 1000000000ULL + (uint64_t)ts_wall.tv_nsec;
-		base_msg->dap_recv_time_ns_mono = (uint64_t)ts_mono.tv_sec * 1000000000ULL + (uint64_t)ts_mono.tv_nsec;
-	}
+	/* The receipt stamp from when the packet was read drives both queue ordering and
+	 * pending-operation matching. */
+	base_msg->dap_recv_time = receipt->time;
+	base_msg->dap_recv_time_ns_wall = receipt->ns_wall;
+	base_msg->dap_recv_time_ns_mono = receipt->ns_mono;
+	base_msg->dap_order = receipt->order;
 
 	dup = (header & 0x08)>>3;
 	base_msg->data.qos = (header & 0x06)>>1;

@@ -49,7 +49,6 @@ static struct dap_topic_queue *dap__find_or_create_topic(struct dap_subscription
 void dap_stamped_msg_free(struct dap_stamped_msg *msg)
 {
     if(!msg) return;
-    mosquitto_FREE(msg->applied_op_ids);
     mosquitto_FREE(msg);
 }
 
@@ -59,8 +58,6 @@ int dap_subscription_queues_enqueue(struct dap_subscription_queues *q,
                                     uint64_t cmsg_id,
                                     uint32_t mp_version,
                                     uint32_t sp_version,
-                                    const uint64_t *applied_op_ids,
-                                    size_t num_applied_op_ids,
                                     time_t enqueue_time)
 {
     if(!q || !topic) return 1;
@@ -73,17 +70,6 @@ int dap_subscription_queues_enqueue(struct dap_subscription_queues *q,
     msg->mp_version   = mp_version;
     msg->sp_version   = sp_version;
     msg->enqueue_time = enqueue_time;
-
-    /* Copy the applied op-id list so the caller's storage need not outlive us. */
-    if(applied_op_ids && num_applied_op_ids > 0){
-        msg->applied_op_ids = mosquitto_malloc(sizeof(uint64_t) * num_applied_op_ids);
-        if(!msg->applied_op_ids){
-            dap_stamped_msg_free(msg);
-            return 1;
-        }
-        memcpy(msg->applied_op_ids, applied_op_ids, sizeof(uint64_t) * num_applied_op_ids);
-        msg->num_applied_op_ids = num_applied_op_ids;
-    }
 
     struct dap_topic_queue *tq = dap__find_or_create_topic(q, topic);
     if(!tq){

@@ -28,6 +28,7 @@ Contributors:
 #include "send_mosq.h"
 #include "sys_tree.h"
 #include "util_mosq.h"
+#include "dap/dap_intake.h"
 
 
 int handle__packet(struct mosquitto *context)
@@ -36,6 +37,15 @@ int handle__packet(struct mosquitto *context)
 
 	if(!context){
 		return MOSQ_ERR_INVAL;
+	}
+
+	/* The client's data set aside by DAP intake goes before its other packets. */
+	if((context->in_packet.command&0xF0) != CMD_PUBLISH){
+		rc = dap_intake__flush(context);
+		if(rc){
+			handle__packet_error(context, rc);
+			return rc;
+		}
 	}
 
 	switch((context->in_packet.command)&0xF0){
@@ -57,7 +67,7 @@ int handle__packet(struct mosquitto *context)
 			break;
 		case CMD_PUBLISH:
 			metrics__int_inc(mosq_counter_mqtt_publish_received, 1);
-			rc = handle__publish(context);
+			rc = dap_intake__publish(context);
 			break;
 		case CMD_PUBREC:
 			metrics__int_inc(mosq_counter_mqtt_pubrec_received, 1);
@@ -104,6 +114,13 @@ int handle__packet(struct mosquitto *context)
 			rc = MOSQ_ERR_PROTOCOL;
 	}
 
+	handle__packet_error(context, rc);
+	return rc;
+}
+
+
+void handle__packet_error(struct mosquitto *context, int rc)
+{
 	if(context->protocol == mosq_p_mqtt5){
 		if(rc == MOSQ_ERR_PROTOCOL || rc == MOSQ_ERR_DUPLICATE_PROPERTY){
 			send__disconnect(context, MQTT_RC_PROTOCOL_ERROR, NULL);
@@ -121,5 +138,4 @@ int handle__packet(struct mosquitto *context)
 			send__disconnect(context, MQTT_RC_UNSPECIFIED, NULL);
 		}
 	}
-	return rc;
 }

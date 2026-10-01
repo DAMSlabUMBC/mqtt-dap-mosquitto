@@ -56,7 +56,7 @@ set(C_SRC
 	dap/dap_op_request.c dap/dap_op_request.h
 	dap/dap_op_requester.c dap/dap_op_requester.h
 	dap/dap_pending_ops.c dap/dap_pending_ops.h
-	dap/dap_pqueue.c dap/dap_pqueue.h
+	dap/dap_request_store.c dap/dap_request_store.h
 	dap/dap_send_verify.c dap/dap_send_verify.h
 	dap/dap_stamp.c dap/dap_stamp.h
 	dap/dap_subscription_queues.c dap/dap_subscription_queues.h

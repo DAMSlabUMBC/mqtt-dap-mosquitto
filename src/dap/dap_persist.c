@@ -140,11 +140,18 @@ BROKER_EXPORT int mosquitto_persist_dap_op_add(const struct mosquitto_dap_op *op
 		return MOSQ_ERR_NOMEM;
 	}
 
+	/* Persistence keeps whole seconds: order a restored operation at the end of its
+	 * second, so it still covers every message received before it, and order every
+	 * message received from now on after it. */
+	uint64_t order = (uint64_t)op->timestamp * 1000000000ULL + 999999999ULL;
 	if(dap_pending_ops_restore_operation(db.dap_pending_ops, op->op_id, op->publisher_id,
-			(enum dap_op_type)op->op_type, op->timestamp,
+			(enum dap_op_type)op->op_type, order,
 			op->topic_filters, op->purpose_filters, op->client_filters)){
 
 		return MOSQ_ERR_INVAL;
+	}
+	if(order > db.dap_last_order){
+		db.dap_last_order = order;
 	}
 	return MOSQ_ERR_SUCCESS;
 }

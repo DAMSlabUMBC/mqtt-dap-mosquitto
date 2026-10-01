@@ -22,11 +22,26 @@
 #include "dap_op_request.h"
 #include "dap_pending_ops.h"
 #include "mosquitto/defs.h"
+#include "purpose_filters.h"
+
+/* Match a message queued for a subscription whose SP is the collection sp_filters. */
+static enum dap_op_action match(struct dap_pending_ops *map, const char *pub, const char *topic,
+                                const char *sp_filters, const char *sub, uint64_t order, uint64_t *op_id)
+{
+    char **sp = NULL;
+    uint32_t n = 0;
+    enum dap_op_action a;
+
+    assert(purpose_set_expand(sp_filters, &sp, &n) == 0);
+    a = dap_pending_ops_match(map, pub, topic, sp, n, sub, order, op_id, NULL);
+    purpose_set_free(sp, n);
+    return a;
+}
 
 /* Wrap the args into the dap__op_property the API now takes. */
 static int request_insert(struct dap_pending_ops *map, const char *pub_id, const char *op_type,
                           const char *topic_filters, const char *purpose_filters,
-                          const char *client_filters, time_t timestamp, uint64_t *op_id_out)
+                          const char *client_filters, uint64_t order, uint64_t *op_id_out)
 {
     struct dap__op_property props;
     memset(&props, 0, sizeof(props));
@@ -34,7 +49,7 @@ static int request_insert(struct dap_pending_ops *map, const char *pub_id, const
     props.op_topic_filters = (char *)topic_filters;
     props.op_purpose_filters = (char *)purpose_filters;
     props.op_client_filters = (char *)client_filters;
-    return dap_op_request_insert(map, pub_id, &props, timestamp, op_id_out);
+    return dap_op_request_insert(map, pub_id, &props, order, op_id_out);
 }
 
 /* How many ops are currently tracked for a publisher. */
@@ -61,8 +76,7 @@ static void test_erasure_inserts_delete(void)
     assert(count_ops(&map, "pub1") == 1);
 
     uint64_t matched = 0;
-    enum dap_op_action a = dap_pending_ops_match(&map, "pub1", "sensors/a", "research",
-                                                 "subX", 500, &matched);
+    enum dap_op_action a = match(&map, "pub1", "sensors/a", "research", "subX", 500, &matched);
     assert(a == DAP_OP_ACTION_DROP);
     assert(matched == op_id);
 
@@ -82,8 +96,7 @@ static void test_restriction_inserts_restrict(void)
     assert(op_id != 0);
 
     uint64_t matched = 0;
-    enum dap_op_action a = dap_pending_ops_match(&map, "pub1", "sensors/a", "research",
-                                                 "subX", 500, &matched);
+    enum dap_op_action a = match(&map, "pub1", "sensors/a", "research", "subX", 500, &matched);
     assert(a == DAP_OP_ACTION_RESTRICT);
     assert(matched == op_id);
 
@@ -102,13 +115,13 @@ static void test_filters_parsed_as_lists(void)
                                  "t/a,t/b,t/c", "*", "sub1,sub2", 1000, NULL) == 0);
 
     /* A middle topic element + a listed subscriber -> applies. */
-    assert(dap_pending_ops_match(&map, "pub1", "t/b", "p", "sub2", 500, NULL)
+    assert(match(&map, "pub1", "t/b", "p", "sub2", 500, NULL)
            == DAP_OP_ACTION_DROP);
     /* Topic outside the list -> no match. */
-    assert(dap_pending_ops_match(&map, "pub1", "t/z", "p", "sub2", 500, NULL)
+    assert(match(&map, "pub1", "t/z", "p", "sub2", 500, NULL)
            == DAP_OP_ACTION_NONE);
     /* Subscriber outside the list -> no match. */
-    assert(dap_pending_ops_match(&map, "pub1", "t/a", "p", "sub9", 500, NULL)
+    assert(match(&map, "pub1", "t/a", "p", "sub9", 500, NULL)
            == DAP_OP_ACTION_NONE);
 
     dap_pending_ops_destroy(&map);
@@ -123,7 +136,7 @@ static void test_null_filters_match_any(void)
 
     assert(request_insert(&map, "pub1", MOSQ_DAP_OP_DELETE,
                                  NULL, NULL, NULL, 1000, NULL) == 0);
-    assert(dap_pending_ops_match(&map, "pub1", "anything", "anyhow", "anyone", 500, NULL)
+    assert(match(&map, "pub1", "anything", "anyhow", "anyone", 500, NULL)
            == DAP_OP_ACTION_DROP);
 
     dap_pending_ops_destroy(&map);

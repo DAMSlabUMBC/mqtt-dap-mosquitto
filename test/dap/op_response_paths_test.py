@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Operation Failure/Success responses must not crash or leak the broker.
 
-Covers an unknown DAP-OpType, a DELETE with no relevant subscribers, and HISTORY
-with offline and online subscribers. Each case runs against a fresh broker,
+Covers an unknown DAP-OpType, a DELETE with no relevant subscribers, HISTORY
+with offline and online subscribers, AUDIT, requests held for offline
+subscribers, and how relevance is decided. Each case runs against a fresh broker,
 which must exit cleanly (under make WITH_ASAN=yes a leak fails that check).
 
 Usage: python3 test/dap/op_response_paths_test.py [port]
@@ -27,6 +28,7 @@ OSYS = "$OP_SYS"
 OP_REQ = "OP_REQ"
 OP_NOTIF = "OP_NOTIF"
 OP_PURPOSE = "DAP_OP"
+DEADLINE = 30  # MOSQ_DAP_DEFAULT_DEADLINE_SECS
 MP = "quality/assurance"
 TOPIC = "sensors/temp"
 
@@ -102,10 +104,10 @@ class Client:
         self.c.on_message = lambda c, u, m: self.msgs.append((m.topic, m.payload, user_props(m)))
         clients.append(self)
 
-    def connect(self):
+    def connect(self, clean_start=False):
         props = Properties(PacketTypes.CONNECT)
         props.SessionExpiryInterval = 3600
-        self.c.connect(HOST, PORT, clean_start=False, properties=props)
+        self.c.connect(HOST, PORT, clean_start=clean_start, properties=props)
         self.c.loop_start()
         return self
 
@@ -166,27 +168,112 @@ def case_history_subscriber_offline(pub):
     subs[0].disconnect()
     time.sleep(0.2)
     pub.publish(OSYS, [("DAP-OpType", "HISTORY"), ("DAP-OpTFs", TOPIC)])
-    return wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Failure", "DAP-Reason": "Subscriber not connected"}))
+    return wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Pending"}))
 
 
 def case_history_many_offline(pub):
     # Enough long ids to make DAP-UnreachedClients longer than 256 bytes.
     ids = ["offline-subscriber-with-a-long-client-id-%02d" % i for i in range(12)]
     subs = subscribers_with_data(pub, ids)
-    for s in subs:
-        s.disconnect()
-    time.sleep(0.3)
+    for sub in subs:
+        sub.disconnect()
+    time.sleep(0.2)
     pub.publish(OSYS, [("DAP-OpType", "HISTORY"), ("DAP-OpTFs", TOPIC)])
-    if not wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Failure"})):
+    # Unreached subscribers are reported when the deadline passes.
+    expired = {"DAP-Status": "Failure", "DAP-Reason": "Operation deadline expired"}
+    if not wait_for(lambda: pub.got(OP_NOTIF, **expired), timeout=DEADLINE + 10):
         return False
-    unreached = pub.got(OP_NOTIF, **{"DAP-Status": "Failure"})[0][2].get("DAP-UnreachedClients", "")
-    return all(i in unreached.split() for i in ids)
+    unreached = pub.got(OP_NOTIF, **expired)[0][2].get("DAP-UnreachedClients", "")
+    return sorted(unreached.split()) == sorted(ids)
 
 
 def case_history_success(pub):
-    subscribers_with_data(pub, ["subA"])
+    sub = subscribers_with_data(pub, ["subA"])[0]
     pub.publish(OSYS, [("DAP-OpType", "HISTORY"), ("DAP-OpTFs", TOPIC)])
-    return wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Success"}))
+    if not wait_for(lambda: sub.got(f"{OP_REQ}/subA") and pub.got(OP_NOTIF, **{"DAP-Status": "Pending"})):
+        return False
+    op_id = sub.got(f"{OP_REQ}/subA")[0][2].get("DAP-OpId")
+    sub.publish(OSYS, [("DAP-Status", "Success"), ("DAP-OpId", op_id)], payload=b"history")
+    return wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Success", "DAP-ClientID": "subA"})
+                    and pub.got(OP_NOTIF, **{"DAP-Status": "Success", "DAP-Reason": "All subscribers responded"}))
+
+
+def case_audit_lists_subscribers(pub):
+    subscribers_with_data(pub, ["subA", "subB"])
+    pub.publish(OSYS, [("DAP-OpType", "AUDIT"), ("DAP-OpTFs", TOPIC)])
+    if not wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Success"})):
+        return False
+    return sorted(pub.got(OP_NOTIF, **{"DAP-Status": "Success"})[0][1].split(b",")) == [b"subA", b"subB"]
+
+
+def case_audit_no_relevant(pub):
+    subscribers_with_data(pub, ["subA"])
+    pub.publish(OSYS, [("DAP-OpType", "AUDIT"), ("DAP-OpTFs", "other/topic")])
+    return wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Failure",
+                                                 "DAP-Reason": "No relevant subscribers found"}))
+
+
+def case_relevance_uses_delivery_time_sp(pub):
+    # subA receives data under one purpose, then changes its SP to another.
+    pub.publish("$MP_REG", [("DAP-MP", f"{MP}|operations/forecast:{TOPIC}")], qos=0)
+    time.sleep(0.2)
+    sub = subscribers_with_data(pub, ["subA"])[0]
+    sub.subscribe(TOPIC, "operations/forecast")
+    time.sleep(0.2)
+    pub.publish(OSYS, [("DAP-OpType", "DELETE"), ("DAP-OpTFs", TOPIC), ("DAP-OpPFs", MP)])
+    old_purpose = wait_for(lambda: sub.got(f"{OP_REQ}/subA"))
+    pub.publish(OSYS, [("DAP-OpType", "DELETE"), ("DAP-OpTFs", TOPIC), ("DAP-OpPFs", "operations/forecast")])
+    unused_purpose = wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Failure",
+                                                          "DAP-Reason": "No relevant subscribers found"}))
+    return old_purpose and unused_purpose
+
+
+def case_relevance_topic_wildcard(pub):
+    sub = subscribers_with_data(pub, ["subA"])[0]
+    pub.publish(OSYS, [("DAP-OpType", "DELETE"), ("DAP-OpTFs", TOPIC.split("/")[0] + "/#")])
+    return wait_for(lambda: sub.got(f"{OP_REQ}/subA"))
+
+
+def offline_request_case(pub, resume_session):
+    sub = subscribers_with_data(pub, ["subA"])[0]
+    sub.disconnect()
+    time.sleep(0.2)
+    pub.publish(OSYS, [("DAP-OpType", "DELETE"), ("DAP-OpTFs", TOPIC)])
+    if not wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Pending"})):
+        return False
+    sub = Client("subA").connect(clean_start=not resume_session)
+    if not resume_session:
+        # A new session subscribes to its request topic again, as PSMark does.
+        sub.subscribe(f"{OP_REQ}/subA", OP_PURPOSE)
+    if not wait_for(lambda: sub.got(f"{OP_REQ}/subA", **{"DAP-OpType": "DELETE"})):
+        return False
+    op_id = sub.got(f"{OP_REQ}/subA")[0][2].get("DAP-OpId")
+    sub.publish(OSYS, [("DAP-Status", "Success"), ("DAP-OpId", op_id)])
+    return wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Success", "DAP-Reason": "All subscribers responded"}))
+
+
+def case_request_held_for_inbox_without_op_purpose(pub):
+    # An inbox whose SP the DAP_OP purpose does not permit cannot receive the request,
+    # so it is held until the subscriber subscribes with one it does.
+    sub = subscribers_with_data(pub, ["subA"])[0]
+    sub.subscribe(f"{OP_REQ}/subA", f"{OP_PURPOSE}|analytics")
+    time.sleep(0.2)
+    pub.publish(OSYS, [("DAP-OpType", "DELETE"), ("DAP-OpTFs", TOPIC)])
+    if not wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Pending"})):
+        return False
+    time.sleep(0.3)
+    if sub.got(f"{OP_REQ}/subA"):
+        return False
+    sub.subscribe(f"{OP_REQ}/subA", OP_PURPOSE)
+    return wait_for(lambda: sub.got(f"{OP_REQ}/subA", **{"DAP-OpType": "DELETE"}))
+
+
+def case_offline_request_on_resubscribe(pub):
+    return offline_request_case(pub, resume_session=False)
+
+
+def case_offline_request_on_session_resume(pub):
+    return offline_request_case(pub, resume_session=True)
 
 
 def case_failure_to_response_topic(_):
@@ -210,9 +297,16 @@ def case_control_publish(_):
 CASES = [
     ("unrecognised DAP-OpType gets a Failure", case_unknown_op, True),
     ("DELETE with no relevant subscribers gets a Failure", case_delete_no_relevant, True),
-    ("HISTORY with an offline subscriber gets a Failure", case_history_subscriber_offline, True),
-    ("HISTORY with many offline subscribers lists every one", case_history_many_offline, True),
-    ("HISTORY with all subscribers online gets a Success", case_history_success, True),
+    ("HISTORY with an offline subscriber gets a Pending ack", case_history_subscriber_offline, True),
+    ("HISTORY with many offline subscribers lists every one at the deadline", case_history_many_offline, True),
+    ("HISTORY gets a Success once its subscriber responds", case_history_success, True),
+    ("AUDIT returns the relevant subscriber ids", case_audit_lists_subscribers, True),
+    ("an offline subscriber gets the request when it subscribes again", case_offline_request_on_resubscribe, True),
+    ("an offline subscriber gets the request when its session resumes", case_offline_request_on_session_resume, True),
+    ("a request waits for an inbox whose SP admits it", case_request_held_for_inbox_without_op_purpose, True),
+    ("AUDIT with no relevant subscribers gets a Failure", case_audit_no_relevant, True),
+    ("relevance uses the SP in force at delivery", case_relevance_uses_delivery_time_sp, True),
+    ("relevance matches DAP-OpTFs as MQTT topic filters", case_relevance_topic_wildcard, True),
     ("Failure goes to the request's ResponseTopic", case_failure_to_response_topic, False),
     ("PUBLISH to $CONTROL frees the request", case_control_publish, False),
 ]
