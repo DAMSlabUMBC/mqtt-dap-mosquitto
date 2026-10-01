@@ -162,6 +162,13 @@ class Subscriber:
                 return
             self.pending.append((cmd, body))
 
+    def unsubscribe(self, topic):
+        mid = self.next_mid
+        self.next_mid += 1
+        self.sock.send(mosq_test.gen_unsubscribe(mid, topic, proto_ver=5))
+        while self.read_packet(5)[0] & 0xF0 != 0xB0:
+            pass
+
     def puback(self, mid):
         self.sock.send(mosq_test.gen_puback(mid, proto_ver=5))
 
@@ -232,12 +239,17 @@ def payloads(publishes, topic):
     return [p for t, p, _ in publishes if t == topic]
 
 
-def delete_case(overflow):
+def delete_case(overflow=False, gap=False):
     """A DELETE drops a matching message still queued for an offline subscriber."""
     broker = Broker("use_metadata_operation_support true\nmax_queued_messages 1\n")
     try:
         sub = Subscriber("subA", persistent=True)
+        if gap:
+            # Unsubscribing leaves an empty slot ahead of the subscription below.
+            sub.subscribe("t/other", ["qa"])
         sub.subscribe("t/a", ["qa"])
+        if gap:
+            sub.unsubscribe("t/other")
         pub = Publisher()
         pub.register("qa", "t/a")
         pub.publish("t/a", [], payload=b"m0")
@@ -259,8 +271,9 @@ def delete_case(overflow):
         check(wait_for(lambda: pub.got_status("Pending")), "requester gets a Pending ack for the DELETE")
         sub.connect()
         got = payloads(sub.read_publishes(), "t/a")
-        check(b"m3" not in got, "DELETE drops the queued message%s (got %s)"
-              % (" after the queue overflowed" if overflow else "", got))
+        check(b"m3" not in got, "DELETE drops the queued message%s%s (got %s)"
+              % (" after the queue overflowed" if overflow else "",
+                 " after an earlier unsubscribe" if gap else "", got))
         sub.close()
     finally:
         stop_clients()
@@ -354,8 +367,9 @@ def stop_clients():
 
 def main():
     print("# DELETE on queued messages")
-    delete_case(overflow=False)
+    delete_case()
     delete_case(overflow=True)
+    delete_case(gap=True)
     print("# re-verification of stale stamps")
     stale_mp_case()
     sp_change_case(["qb"], still_allowed=False)

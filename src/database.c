@@ -474,7 +474,7 @@ static bool dap_write_again = false;
 static struct dap_stamped_msg *db__dap_find_stamp(struct mosquitto *context,
 		struct mosquitto__client_msg *client_msg, struct mosquitto__subleaf **leaf_out)
 {
-	for(int i = 0; i < context->subs_count; i++){
+	for(int i = 0; i < context->subs_capacity; i++){
 		struct mosquitto__subleaf *l = context->subs[i];
 		if(!l || !l->dap_queues){
 			continue;
