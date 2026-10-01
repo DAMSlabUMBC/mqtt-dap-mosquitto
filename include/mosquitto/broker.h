@@ -152,8 +152,10 @@ struct mosquitto_dap_tracked_op {
 	const char *const *expected_subs;
 	const bool *responded;             /* restore only, may be NULL */
 	size_t num_expected;
-	bool settled;                      /* restore only */
-	void *future[4];
+	bool settled;                      /* restore, and _DELETE: every subscriber responded before the deadline */
+	const char *const *statuses;       /* restore only, may be NULL, as may each entry */
+	const char *const *reasons;        /* restore only, may be NULL, as may each entry */
+	void *future[2];
 };
 
 struct mosquitto_client_msg {
@@ -464,12 +466,16 @@ struct mosquitto_evt_persist_dap_request {
 };
 
 
-/* Data for MOSQ_EVT_PERSIST_DAP_TRACKED_OP_*. _RESPONSE sets subscriber_id; _DELETE sets only op_id. */
+/* Data for MOSQ_EVT_PERSIST_DAP_TRACKED_OP_*. _RESPONSE sets subscriber_id, status and
+ * reason (may be NULL). _DELETE sets op_id and settled: true when the op settled and
+ * stays queryable until its deadline, false once the deadline has passed. */
 struct mosquitto_evt_persist_dap_tracked_op {
 	void *future;
 	struct mosquitto_dap_tracked_op data;
 	const char *subscriber_id;
-	void *future2[8];
+	const char *status;
+	const char *reason;
+	void *future2[6];
 };
 
 
@@ -1344,7 +1350,7 @@ mosq_EXPORT int mosquitto_persist_dap_op_add(const struct mosquitto_dap_op *op);
 
 /* Function: mosquitto_persist_dap_tracked_op_add
  *
- * Restore a DAP op's requester and, unless settled, its deadline tracking. For
+ * Restore a DAP op's requester and, until its deadline, its deadline tracking. For
  * persistence plugins during MOSQ_EVT_PERSIST_RESTORE.
  */
 mosq_EXPORT int mosquitto_persist_dap_tracked_op_add(const struct mosquitto_dap_tracked_op *op);

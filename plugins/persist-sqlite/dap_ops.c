@@ -2,6 +2,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <sqlite3.h>
 
 #include "mosquitto.h"
@@ -83,12 +84,17 @@ int persist_sqlite__dap_init(struct mosquitto_sqlite *ms)
 			"op_id INT64 NOT NULL,"
 			"sub_id TEXT NOT NULL,"
 			"responded INTEGER NOT NULL DEFAULT 0,"
+			"status TEXT,"
+			"reason TEXT,"
 			"PRIMARY KEY (op_id, sub_id)"
 			");",
 			NULL, NULL, NULL);
 	if(rc){
 		goto fail;
 	}
+	/* Tables created before statuses were persisted lack the columns. */
+	sqlite3_exec(ms->db, "ALTER TABLE dap_tracked_op_subs ADD COLUMN status TEXT", NULL, NULL, NULL);
+	sqlite3_exec(ms->db, "ALTER TABLE dap_tracked_op_subs ADD COLUMN reason TEXT", NULL, NULL, NULL);
 
 	rc = sqlite3_prepare_v3(ms->db,
 			"INSERT OR REPLACE INTO dap_ops "
@@ -165,7 +171,7 @@ int persist_sqlite__dap_init(struct mosquitto_sqlite *ms)
 	}
 
 	rc = sqlite3_prepare_v3(ms->db,
-			"UPDATE dap_tracked_op_subs SET responded=1 WHERE op_id=? AND sub_id=?",
+			"UPDATE dap_tracked_op_subs SET responded=1, status=?, reason=? WHERE op_id=? AND sub_id=?",
 			-1, SQLITE_PREPARE_PERSISTENT,
 			&ms->dap_tracked_op_response_stmt, NULL);
 	if(rc){
@@ -397,8 +403,10 @@ int persist_sqlite__dap_tracked_op_response_cb(int event, void *event_data, void
 
 	UNUSED(event);
 
-	if(sqlite3_bind_int64(stmt, 1, (int64_t)ed->data.op_id) == SQLITE_OK
-			&& bind_text(stmt, 2, ed->subscriber_id) == SQLITE_OK
+	if(bind_text(stmt, 1, ed->status) == SQLITE_OK
+			&& bind_text(stmt, 2, ed->reason) == SQLITE_OK
+			&& sqlite3_bind_int64(stmt, 3, (int64_t)ed->data.op_id) == SQLITE_OK
+			&& bind_text(stmt, 4, ed->subscriber_id) == SQLITE_OK
 			){
 
 		return step_and_reset(ms, stmt);
@@ -416,13 +424,14 @@ int persist_sqlite__dap_tracked_op_delete_cb(int event, void *event_data, void *
 
 	UNUSED(event);
 
-	/* Keep the requester row for late responses; drop the per-subscriber rows. */
+	/* Keep the requester row for late responses, and the per-subscriber rows until
+	 * the deadline so a settled op's status can still be requested. */
 	if(sqlite3_bind_int64(ms->dap_tracked_op_settle_stmt, 1, (int64_t)ed->data.op_id) != SQLITE_OK){
 		sqlite3_reset(ms->dap_tracked_op_settle_stmt);
 		return MOSQ_ERR_UNKNOWN;
 	}
 	rc = step_and_reset(ms, ms->dap_tracked_op_settle_stmt);
-	if(rc){
+	if(rc || ed->data.settled){
 		return rc;
 	}
 
@@ -475,21 +484,47 @@ static int dap_op_restore(struct mosquitto_sqlite *ms)
 }
 
 
-/* Load an op's expected subscribers (copied; sqlite reuses column text). */
+struct dap_tracked_subs {
+	char **subs;
+	bool *responded;
+	char **statuses;
+	char **reasons;
+	size_t n;
+};
+
+
+static void dap_tracked_subs_free(struct dap_tracked_subs *t)
+{
+	for(size_t i=0; i<t->n; i++){
+		free(t->subs[i]);
+		free(t->statuses[i]);
+		free(t->reasons[i]);
+	}
+	free(t->subs);
+	free(t->responded);
+	free(t->statuses);
+	free(t->reasons);
+	memset(t, 0, sizeof(*t));
+}
+
+
+static char *column_strdup(sqlite3_stmt *stmt, int col)
+{
+	const char *value = (const char *)sqlite3_column_text(stmt, col);
+	return value ? strdup(value) : NULL;
+}
+
+
+/* Load an op's expected subscribers and their responses (copied; sqlite reuses
+ * column text). */
 static int dap_tracked_op_load_subs(struct mosquitto_sqlite *ms, struct mosquitto_dap_tracked_op *op,
-		char ***subs_out, bool **responded_out)
+		struct dap_tracked_subs *t)
 {
 	sqlite3_stmt *stmt;
-	char **subs = NULL;
-	bool *responded = NULL;
-	size_t n = 0;
 	int rc;
 
-	*subs_out = NULL;
-	*responded_out = NULL;
-
 	rc = sqlite3_prepare_v2(ms->db,
-			"SELECT sub_id, responded FROM dap_tracked_op_subs WHERE op_id=? ORDER BY rowid",
+			"SELECT sub_id, responded, status, reason FROM dap_tracked_op_subs WHERE op_id=? ORDER BY rowid",
 			-1, &stmt, NULL);
 	if(rc != SQLITE_OK){
 		return MOSQ_ERR_UNKNOWN;
@@ -498,33 +533,44 @@ static int dap_tracked_op_load_subs(struct mosquitto_sqlite *ms, struct mosquitt
 
 	rc = MOSQ_ERR_SUCCESS;
 	while(sqlite3_step(stmt) == SQLITE_ROW){
-		char **new_subs = realloc(subs, (n+1)*sizeof(char *));
-		bool *new_responded = new_subs ? realloc(responded, (n+1)*sizeof(bool)) : NULL;
-		if(new_subs){
-			subs = new_subs;
+		size_t n = t->n + 1;
+		char **subs = realloc(t->subs, n*sizeof(char *));
+		if(subs){
+			t->subs = subs;
 		}
-		if(new_responded){
-			responded = new_responded;
+		bool *responded = subs ? realloc(t->responded, n*sizeof(bool)) : NULL;
+		if(responded){
+			t->responded = responded;
 		}
-		if(!new_subs || !new_responded){
+		char **statuses = responded ? realloc(t->statuses, n*sizeof(char *)) : NULL;
+		if(statuses){
+			t->statuses = statuses;
+		}
+		char **reasons = statuses ? realloc(t->reasons, n*sizeof(char *)) : NULL;
+		if(reasons){
+			t->reasons = reasons;
+		}
+		if(!reasons){
 			rc = MOSQ_ERR_NOMEM;
 			break;
 		}
-		subs[n] = strdup((const char *)sqlite3_column_text(stmt, 0));
-		if(!subs[n]){
+		t->subs[t->n] = strdup((const char *)sqlite3_column_text(stmt, 0));
+		t->responded[t->n] = sqlite3_column_int(stmt, 1) != 0;
+		t->statuses[t->n] = column_strdup(stmt, 2);
+		t->reasons[t->n] = column_strdup(stmt, 3);
+		t->n = n;
+		if(!t->subs[t->n-1]){
 			rc = MOSQ_ERR_NOMEM;
 			break;
 		}
-		responded[n] = sqlite3_column_int(stmt, 1) != 0;
-		n++;
 	}
 	sqlite3_finalize(stmt);
 
-	*subs_out = subs;
-	*responded_out = responded;
-	op->expected_subs = (const char *const *)subs;
-	op->responded = responded;
-	op->num_expected = n;
+	op->expected_subs = (const char *const *)t->subs;
+	op->responded = t->responded;
+	op->statuses = (const char *const *)t->statuses;
+	op->reasons = (const char *const *)t->reasons;
+	op->num_expected = t->n;
 	return rc;
 }
 
@@ -533,6 +579,7 @@ static int dap_tracked_op_restore(struct mosquitto_sqlite *ms)
 {
 	sqlite3_stmt *stmt;
 	struct mosquitto_dap_tracked_op op;
+	time_t now = time(NULL);
 	int rc;
 	long count = 0, failed = 0;
 
@@ -545,30 +592,26 @@ static int dap_tracked_op_restore(struct mosquitto_sqlite *ms)
 	}
 
 	while(sqlite3_step(stmt) == SQLITE_ROW){
-		char **subs = NULL;
-		bool *responded = NULL;
+		struct dap_tracked_subs subs;
 
 		memset(&op, 0, sizeof(op));
+		memset(&subs, 0, sizeof(subs));
 		op.op_id = (uint64_t)sqlite3_column_int64(stmt, 0);
 		op.publisher_id = (const char *)sqlite3_column_text(stmt, 1);
 		op.deadline = (time_t)sqlite3_column_int64(stmt, 2);
 		op.settled = sqlite3_column_int(stmt, 3) != 0;
 
 		rc = MOSQ_ERR_SUCCESS;
-		if(!op.settled){
-			rc = dap_tracked_op_load_subs(ms, &op, &subs, &responded);
+		/* A settled op's statuses can be requested until its deadline. */
+		if(!op.settled || op.deadline > now){
+			rc = dap_tracked_op_load_subs(ms, &op, &subs);
 		}
 		if(rc == MOSQ_ERR_SUCCESS && mosquitto_persist_dap_tracked_op_add(&op) == MOSQ_ERR_SUCCESS){
 			count++;
 		}else{
 			failed++;
 		}
-
-		for(size_t i=0; i<op.num_expected; i++){
-			free(subs[i]);
-		}
-		free(subs);
-		free(responded);
+		dap_tracked_subs_free(&subs);
 	}
 	sqlite3_finalize(stmt);
 

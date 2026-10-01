@@ -194,7 +194,7 @@ static void dap_deadline__check(void)
 
 	struct dap_expired_op *expired = dap_deadline_tracker_check_expired(db.dap_deadline_tracker, db.now_real_s);
 	for(struct dap_expired_op *e = expired; e; e = e->next){
-		dap_persist__tracked_op_delete(e->op_id);
+		dap_persist__tracked_op_delete(e->op_id, false);
 		if(e->settled){
 			/* Its final Success went out when the last subscriber responded. */
 		}else if(e->num_unresponded > 0){

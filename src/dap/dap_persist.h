@@ -31,11 +31,12 @@ void dap_persist__flow_add(const char *publisher_id, const char *topic, const st
 void dap_persist__tracked_op_add(uint64_t op_id, const char *publisher_id,
 		const char *const *expected_subs, size_t num_expected, time_t deadline);
 
-/* Subscriber responded to an op. */
-void dap_persist__tracked_op_response(uint64_t op_id, const char *subscriber_id);
+/* Subscriber responded to an op with status and reason (may be NULL). */
+void dap_persist__tracked_op_response(uint64_t op_id, const char *subscriber_id, const char *status, const char *reason);
 
-/* Op settled; only its requester mapping is kept. */
-void dap_persist__tracked_op_delete(uint64_t op_id);
+/* Op settled (settled = true), keeping its statuses until its deadline, or its deadline
+ * passed (false); only its requester mapping is kept after that. */
+void dap_persist__tracked_op_delete(uint64_t op_id, bool settled);
 
 /* DAP-Timestamp from a message's properties, or 0. */
 time_t dap_persist__recv_time(const struct mqtt5__property *properties);

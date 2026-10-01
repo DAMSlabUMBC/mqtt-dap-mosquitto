@@ -7,6 +7,7 @@ them after the restart.
 
 Usage: python3 test/dap/op_persistence_test.py [broker] [plugin.so] [port]
 """
+import json
 import os
 import signal
 import sqlite3
@@ -167,6 +168,91 @@ def held_request_case():
     check(rc == 0, f"broker exits cleanly (rc={rc})")
 
 
+def status_after_restart_case():
+    """Each subscriber's status and reason survive a restart, for an unsettled operation
+    and for one that settled before its deadline (paper 6.3)."""
+    workdir = tempfile.mkdtemp(prefix="dap-persist-status-")
+    broker = Broker(workdir)
+    broker.start("status-1")
+    subs = [Client(i).connect() for i in ("subS", "subT")]
+    for s in subs:
+        s.subscribe("sensors/temp", MP)
+        s.subscribe(f"{OP_REQ}/{s.id}", OP_PURPOSE)
+    pub3 = Client("pub3").connect()
+    pub3.subscribe(f"{OP_NOTIF}/pub3", OP_PURPOSE)
+    time.sleep(0.3)
+    pub3.publish("$MP_REG", [("DAP-MP", f"{MP}:sensors/temp")], qos=0)
+    time.sleep(0.2)
+    data(pub3, "sensors/temp", b"temp")
+    check(wait_for(lambda: all(s.got("sensors/temp") for s in subs)), "both subscribers receive data")
+
+    def operation(op, deadline):
+        before = len(pub3.got(OP_NOTIF, **{"DAP-Status": "Pending"}))
+        pub3.publish(OSYS, [("DAP-OpType", op), ("DAP-OpTFs", "sensors/temp"), ("DAP-Deadline", str(deadline))])
+        if not wait_for(lambda: len(pub3.got(OP_NOTIF, **{"DAP-Status": "Pending"})) > before):
+            return None
+        return pub3.got(OP_NOTIF, **{"DAP-Status": "Pending"})[-1][2].get("DAP-OpId")
+
+    def respond(sub, op_id, status, reason=None):
+        pairs = [("DAP-Status", status), ("DAP-OpId", op_id)]
+        if reason:
+            pairs.append(("DAP-Reason", reason))
+        sub.publish(OSYS, pairs)
+
+    def status(op_id):
+        before = len(pub3.got(OP_NOTIF, **{"DAP-OpType": "STATUS"}))
+        pub3.publish(OSYS, [("DAP-OpType", "STATUS"), ("DAP-OpId", op_id)])
+        if not wait_for(lambda: len(pub3.got(OP_NOTIF, **{"DAP-OpType": "STATUS"})) > before):
+            return None
+        reply = pub3.got(OP_NOTIF, **{"DAP-OpType": "STATUS"})[-1]
+        if reply[2].get("DAP-Status") != "Success":
+            return None
+        return {e["id"]: {k: v for k, v in e.items() if k not in ("id", "remaining")}
+                for e in json.loads(reply[1])["subscribers"]}
+
+    open_id = operation("HISTORY", int(time.time()) + 60)
+    respond(subs[0], open_id, "Failure", "retention obligation")
+    settled_id = operation("DELETE", int(time.time()) + 60)
+    respond(subs[0], settled_id, "Success")
+    respond(subs[1], settled_id, "Failure", "legal hold")
+    check(wait_for(lambda: pub3.got(OP_NOTIF, **{"DAP-OpId": settled_id, "DAP-Reason": "All subscribers responded"})),
+          "the DELETE settles before the restart")
+    time.sleep(2.5)  # wait for the plugin flush
+    for c in subs + [pub3]:
+        c.c.loop_stop()
+    broker.kill()
+
+    broker.start("status-2")
+    pub3 = Client("pub3").connect()
+    time.sleep(0.3)
+    got = status(open_id)
+    check(got == {"subS": {"status": "Failure", "reason": "retention obligation"}, "subT": {"status": "Pending"}},
+          f"an unsettled operation's statuses and reasons survive the restart: {got}")
+    got = status(settled_id)
+    check(got == {"subS": {"status": "Success"}, "subT": {"status": "Failure", "reason": "legal hold"}},
+          f"a settled operation can still be asked about after the restart: {got}")
+
+    # Once a settled operation's deadline passes, its per-subscriber rows go.
+    subs = [Client(i).connect() for i in ("subS", "subT")]
+    time.sleep(0.3)
+    short_id = operation("DELETE", int(time.time()) + 2)
+    for s in subs:
+        respond(s, short_id, "Success")
+    check(wait_for(lambda: pub3.got(OP_NOTIF, **{"DAP-OpId": short_id, "DAP-Reason": "All subscribers responded"})),
+          "a short DELETE settles")
+    time.sleep(4.5)  # past the deadline, then the plugin flush
+    db = sqlite3.connect(os.path.join(workdir, "mosquitto.sqlite3"))
+    left = db.execute("SELECT COUNT(*) FROM dap_tracked_op_subs WHERE op_id=?", (int(short_id),)).fetchone()
+    db.close()
+    check(left == (0,), "a settled operation's per-subscriber rows are cleared at its deadline")
+    check(status(short_id) is None, "and its status can no longer be asked for")
+
+    for c in subs + [pub3]:
+        c.disconnect()
+    rc = broker.stop()
+    check(rc == 0, f"broker exits cleanly (rc={rc})")
+
+
 def main():
     workdir = tempfile.mkdtemp(prefix="dap-persist-")
     broker = Broker(workdir)
@@ -310,11 +396,10 @@ def main():
           f"the expired DELETE is reclaimed from disk, the live RESTRICT is kept: {ops}")
     settled = db.execute("SELECT settled FROM dap_tracked_ops WHERE op_id=?", (int(op_id),)).fetchone()
     check(settled == (1,), f"the settled operation is marked settled on disk: {settled}")
-    left = db.execute("SELECT COUNT(*) FROM dap_tracked_op_subs WHERE op_id=?", (int(op_id),)).fetchone()
-    check(left == (0,), "its per-subscriber rows are cleared")
     db.close()
 
     held_request_case()
+    status_after_restart_case()
 
     if failures:
         print(f"\nOP PERSISTENCE TEST FAILED ({len(failures)} checks); broker logs in {workdir}")

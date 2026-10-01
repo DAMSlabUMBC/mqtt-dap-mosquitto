@@ -119,7 +119,8 @@ static void handle_dap_status_notification(struct mosquitto *context, struct mos
 	}
 	if(strcmp(dap_op_properties->op_status, "Success") && strcmp(dap_op_properties->op_status, "Failure")) return;
 
-	dap_persist__tracked_op_response(dap_op_properties->op_id_num, context->id);
+	dap_persist__tracked_op_response(dap_op_properties->op_id_num, context->id,
+			dap_op_properties->op_status, dap_op_properties->op_reason);
 	const struct dap_tracked_op *op = dap_deadline_tracker_lookup(db.dap_deadline_tracker, dap_op_properties->op_id_num);
 	if(!op->settled && dap_deadline_tracker_all_responded(db.dap_deadline_tracker, dap_op_properties->op_id_num)){
 		if(requester){
@@ -127,7 +128,7 @@ static void handle_dap_status_notification(struct mosquitto *context, struct mos
 		}
 		/* Kept until its deadline so its status can still be requested. */
 		dap_deadline_tracker_settle(db.dap_deadline_tracker, dap_op_properties->op_id_num);
-		dap_persist__tracked_op_delete(dap_op_properties->op_id_num);
+		dap_persist__tracked_op_delete(dap_op_properties->op_id_num, true);
 	}
 }
 
