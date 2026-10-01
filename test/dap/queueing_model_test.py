@@ -667,7 +667,16 @@ def intake_error_order_case():
                          + pub.packet("$MP_REG", [("DAP-MP", "no-separator")]))
         first = pub.sock.recv(1)
         check(first == b"\x40", "the PUBACK for the earlier data comes before the DISCONNECT (got %s)" % first.hex())
-        rest = pub.sock.recv(64)
+        # The PUBACK and DISCONNECT may arrive in separate reads; the broker then closes.
+        rest = b""
+        try:
+            while b"\xe0" not in rest:
+                chunk = pub.sock.recv(64)
+                if not chunk:
+                    break
+                rest += chunk
+        except OSError:
+            pass
         check(b"\xe0" in rest, "the malformed registration then ends the connection")
         check(payloads(sub.read_publishes(), "t/n") == [b"m1"], "the earlier data is delivered")
         pub.close()
