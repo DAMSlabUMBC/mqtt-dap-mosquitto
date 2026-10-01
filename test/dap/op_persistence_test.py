@@ -132,6 +132,39 @@ def data(client, topic, payload):
     client.publish(topic, [], payload=payload)
 
 
+def held_request_case():
+    """A request held for an offline subscriber survives a restart (paper 6.3)."""
+    workdir = tempfile.mkdtemp(prefix="dap-persist-held-")
+    broker = Broker(workdir)
+    broker.start("held-1")
+    subW = Client("subW").connect()
+    subW.subscribe("sensors/temp", MP)
+    subW.subscribe(f"{OP_REQ}/subW", OP_PURPOSE)
+    pub2 = Client("pub2").connect()
+    pub2.subscribe(f"{OP_NOTIF}/pub2", OP_PURPOSE)
+    time.sleep(0.3)
+    pub2.publish("$MP_REG", [("DAP-MP", f"{MP}:sensors/temp")], qos=0)
+    time.sleep(0.2)
+    data(pub2, "sensors/temp", b"temp")
+    check(wait_for(lambda: subW.got("sensors/temp")), "subW receives data before going offline")
+    subW.disconnect()
+    time.sleep(0.2)
+    pub2.publish(OSYS, [("DAP-OpType", "HISTORY"), ("DAP-OpTFs", "sensors/temp")])
+    check(wait_for(lambda: pub2.got(OP_NOTIF, **{"DAP-Status": "Pending"})), "the HISTORY is accepted")
+    time.sleep(2.5)  # wait for the plugin flush
+    pub2.c.loop_stop()
+    broker.kill()
+
+    broker.start("held-2")
+    check("Restored 1 DAP requests (0 failed)" in broker.read_log(), "broker restores the held request")
+    subW = Client("subW").connect()
+    check(wait_for(lambda: subW.got(OP_REQ, **{"DAP-OpType": "HISTORY"})),
+          "the held request is delivered when subW's session resumes after the restart")
+    subW.disconnect()
+    rc = broker.stop()
+    check(rc == 0, f"broker exits cleanly (rc={rc})")
+
+
 def main():
     workdir = tempfile.mkdtemp(prefix="dap-persist-")
     broker = Broker(workdir)
@@ -264,6 +297,8 @@ def main():
     left = db.execute("SELECT COUNT(*) FROM dap_tracked_op_subs WHERE op_id=?", (int(op_id),)).fetchone()
     check(left == (0,), "its per-subscriber rows are cleared")
     db.close()
+
+    held_request_case()
 
     if failures:
         print(f"\nOP PERSISTENCE TEST FAILED ({len(failures)} checks); broker logs in {workdir}")

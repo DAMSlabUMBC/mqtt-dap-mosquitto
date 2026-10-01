@@ -278,9 +278,12 @@ static void dap__forward_request(const char *sub_id, struct mosquitto_base_msg *
         db__messages_easy_queue_with_purpose(NULL, topic, MOSQ_DAP_OP_PURPOSE, DAP_OP_QOS,
                 msg_data->payloadlen, msg_data->payload, false, expiry_interval, &props);
     }else if(db.dap_request_store){
+        mosquitto_property *held = props;
         if(dap_request_store_add(db.dap_request_store, sub_id, dap_op_properties->op_id_num, until,
                 msg_data->payload, msg_data->payloadlen, props) == 0){
             props = NULL;
+            dap_persist__request_add(sub_id, dap_op_properties->op_id_num, until,
+                    msg_data->payload, msg_data->payloadlen, held);
         }
     }
     mosquitto_property_free_all(&props);
@@ -299,6 +302,7 @@ void broker_deliver_held_requests(struct mosquitto *context)
     if(!topic) return;
     if(dap__request_topic_ready(context->id, topic)){
         held = dap_request_store_take(db.dap_request_store, context->id, db.now_real_s);
+        dap_persist__request_delete(context->id, 0);
         for(struct dap_stored_request *r = held; r; r = r->next){
             db__messages_easy_queue_with_purpose(NULL, topic, MOSQ_DAP_OP_PURPOSE, DAP_OP_QOS,
                     r->payloadlen, r->payload, false, (uint32_t)(r->deadline - db.now_real_s), &r->properties);

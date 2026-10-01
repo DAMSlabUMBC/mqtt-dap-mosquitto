@@ -11,6 +11,7 @@
 #include "dap/dap_deadline_tracker.h"
 #include "dap/dap_op_requester.h"
 #include "dap/dr_registry.h"
+#include "dap/dap_request_store.h"
 
 
 void dap_persist__op_add(uint64_t op_id, const char *publisher_id, int op_type, time_t timestamp,
@@ -83,6 +84,67 @@ void dap_persist__flow_add(const char *publisher_id, const char *topic, const st
 	DL_FOREACH_SAFE(opts->plugin_callbacks.persist_dap_flow_add, cb_base, cb_next){
 		cb_base->cb(MOSQ_EVT_PERSIST_DAP_FLOW_ADD, &event_data, cb_base->userdata);
 	}
+}
+
+
+static void dap_persist__request_event(int event, struct mosquitto__callback *callbacks,
+		const char *subscriber_id, uint64_t op_id, time_t deadline,
+		const void *payload, uint32_t payloadlen, const mosquitto_property *properties)
+{
+	struct mosquitto_evt_persist_dap_request event_data;
+	struct mosquitto__callback *cb_base, *cb_next;
+
+	if(db.shutdown){
+		return;
+	}
+
+	memset(&event_data, 0, sizeof(event_data));
+	event_data.data.subscriber_id = subscriber_id;
+	event_data.data.op_id = op_id;
+	event_data.data.deadline = deadline;
+	event_data.data.payload = payload;
+	event_data.data.payloadlen = payloadlen;
+	event_data.data.properties = properties;
+
+	DL_FOREACH_SAFE(callbacks, cb_base, cb_next){
+		cb_base->cb(event, &event_data, cb_base->userdata);
+	}
+}
+
+
+void dap_persist__request_add(const char *subscriber_id, uint64_t op_id, time_t deadline,
+		const void *payload, uint32_t payloadlen, const mosquitto_property *properties)
+{
+	dap_persist__request_event(MOSQ_EVT_PERSIST_DAP_REQUEST_ADD,
+			db.config->security_options.plugin_callbacks.persist_dap_request_add,
+			subscriber_id, op_id, deadline, payload, payloadlen, properties);
+}
+
+
+void dap_persist__request_delete(const char *subscriber_id, time_t deadline)
+{
+	dap_persist__request_event(MOSQ_EVT_PERSIST_DAP_REQUEST_DELETE,
+			db.config->security_options.plugin_callbacks.persist_dap_request_delete,
+			subscriber_id, 0, deadline, NULL, 0, NULL);
+}
+
+
+BROKER_EXPORT int mosquitto_persist_dap_request_add(const struct mosquitto_dap_request *request)
+{
+	mosquitto_property *properties = NULL;
+
+	if(request == NULL || request->subscriber_id == NULL || db.dap_request_store == NULL){
+		return MOSQ_ERR_INVAL;
+	}
+	if(request->properties && mosquitto_property_copy_all(&properties, request->properties)){
+		return MOSQ_ERR_NOMEM;
+	}
+	if(dap_request_store_add(db.dap_request_store, request->subscriber_id, request->op_id, request->deadline,
+			request->payload, request->payloadlen, properties)){
+		mosquitto_property_free_all(&properties);
+		return MOSQ_ERR_NOMEM;
+	}
+	return MOSQ_ERR_SUCCESS;
 }
 
 

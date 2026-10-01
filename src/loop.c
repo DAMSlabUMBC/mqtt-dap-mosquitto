@@ -217,6 +217,7 @@ static void dap_deadline__check(void)
 		dap_pending_ops_remove_expired(db.dap_pending_ops, db.now_real_s, dap_deadline__reclaimed, NULL);
 		if(db.dap_request_store && db.dap_request_store->inboxes){
 			dap_request_store_expire(db.dap_request_store, db.now_real_s);
+			dap_persist__request_delete(NULL, db.now_real_s);
 		}
 		last_expiry = db.now_real_s;
 	}

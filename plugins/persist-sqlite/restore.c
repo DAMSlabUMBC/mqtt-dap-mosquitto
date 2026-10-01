@@ -58,7 +58,7 @@ static uint8_t hex2nibble(char c)
 }
 
 
-static mosquitto_property *json_to_properties(const char *json)
+mosquitto_property *json_to_properties(const char *json)
 {
 	mosquitto_property *properties = NULL;
 	cJSON *array, *obj, *j_value;

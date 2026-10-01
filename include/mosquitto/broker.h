@@ -133,6 +133,17 @@ struct mosquitto_dap_flow {
 	void *future[4];
 };
 
+/* A DAP operation request held for a subscriber until it can receive it. */
+struct mosquitto_dap_request {
+	const char *subscriber_id;
+	uint64_t op_id;
+	time_t deadline;
+	const void *payload;
+	uint32_t payloadlen;
+	const mosquitto_property *properties;
+	void *future[4];
+};
+
 /* A DAP op awaiting subscriber responses until its deadline. */
 struct mosquitto_dap_tracked_op {
 	uint64_t op_id;
@@ -217,6 +228,8 @@ enum mosquitto_plugin_event {
 	MOSQ_EVT_PERSIST_DAP_TRACKED_OP_DELETE = 103,
 	MOSQ_EVT_PERSIST_DAP_OP_DELETE = 104,
 	MOSQ_EVT_PERSIST_DAP_FLOW_ADD = 105,
+	MOSQ_EVT_PERSIST_DAP_REQUEST_ADD = 106,
+	MOSQ_EVT_PERSIST_DAP_REQUEST_DELETE = 107,
 };
 
 /* Data for the MOSQ_EVT_RELOAD event */
@@ -437,6 +450,16 @@ struct mosquitto_evt_persist_dap_op {
 struct mosquitto_evt_persist_dap_flow {
 	void *future;
 	struct mosquitto_dap_flow data;
+	void *future2[8];
+};
+
+
+/* Data for MOSQ_EVT_PERSIST_DAP_REQUEST_ADD and _DELETE. _DELETE removes the requests
+ * held for subscriber_id or, when that is NULL, those whose deadline is at or before
+ * deadline. */
+struct mosquitto_evt_persist_dap_request {
+	void *future;
+	struct mosquitto_dap_request data;
 	void *future2[8];
 };
 
@@ -1332,6 +1355,14 @@ mosq_EXPORT int mosquitto_persist_dap_tracked_op_add(const struct mosquitto_dap_
  * Restore a DAP flow. For persistence plugins during MOSQ_EVT_PERSIST_RESTORE.
  */
 mosq_EXPORT int mosquitto_persist_dap_flow_add(const struct mosquitto_dap_flow *flow);
+
+
+/* Function: mosquitto_persist_dap_request_add
+ *
+ * Restore an operation request held for a subscriber. The payload and properties
+ * are copied. For persistence plugins during MOSQ_EVT_PERSIST_RESTORE.
+ */
+mosq_EXPORT int mosquitto_persist_dap_request_add(const struct mosquitto_dap_request *request);
 
 /* Function: mosquitto_persistence_location
  *

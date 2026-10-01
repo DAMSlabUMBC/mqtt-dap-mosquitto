@@ -7,6 +7,7 @@
 #include "mosquitto.h"
 #include "mosquitto/broker.h"
 #include "persist_sqlite.h"
+#include "util.h"
 
 
 int persist_sqlite__dap_init(struct mosquitto_sqlite *ms)
@@ -62,6 +63,21 @@ int persist_sqlite__dap_init(struct mosquitto_sqlite *ms)
 	}
 
 	rc = sqlite3_exec(ms->db,
+			"CREATE TABLE IF NOT EXISTS dap_requests "
+			"("
+			"subscriber_id TEXT NOT NULL,"
+			"op_id INT64 NOT NULL,"
+			"deadline INT64,"
+			"payload BLOB,"
+			"properties TEXT,"
+			"PRIMARY KEY (subscriber_id, op_id)"
+			");",
+			NULL, NULL, NULL);
+	if(rc){
+		goto fail;
+	}
+
+	rc = sqlite3_exec(ms->db,
 			"CREATE TABLE IF NOT EXISTS dap_tracked_op_subs "
 			"("
 			"op_id INT64 NOT NULL,"
@@ -90,6 +106,32 @@ int persist_sqlite__dap_init(struct mosquitto_sqlite *ms)
 			"VALUES(?,?,?,?,?,?)",
 			-1, SQLITE_PREPARE_PERSISTENT,
 			&ms->dap_flow_add_stmt, NULL);
+	if(rc){
+		goto fail;
+	}
+
+	rc = sqlite3_prepare_v3(ms->db,
+			"INSERT OR REPLACE INTO dap_requests "
+			"(subscriber_id, op_id, deadline, payload, properties) "
+			"VALUES(?,?,?,?,?)",
+			-1, SQLITE_PREPARE_PERSISTENT,
+			&ms->dap_request_add_stmt, NULL);
+	if(rc){
+		goto fail;
+	}
+
+	rc = sqlite3_prepare_v3(ms->db,
+			"DELETE FROM dap_requests WHERE subscriber_id=?",
+			-1, SQLITE_PREPARE_PERSISTENT,
+			&ms->dap_request_delete_sub_stmt, NULL);
+	if(rc){
+		goto fail;
+	}
+
+	rc = sqlite3_prepare_v3(ms->db,
+			"DELETE FROM dap_requests WHERE deadline<=?",
+			-1, SQLITE_PREPARE_PERSISTENT,
+			&ms->dap_request_delete_expired_stmt, NULL);
 	if(rc){
 		goto fail;
 	}
@@ -159,6 +201,9 @@ void persist_sqlite__dap_cleanup(struct mosquitto_sqlite *ms)
 	sqlite3_finalize(ms->dap_op_add_stmt);
 	sqlite3_finalize(ms->dap_op_delete_stmt);
 	sqlite3_finalize(ms->dap_flow_add_stmt);
+	sqlite3_finalize(ms->dap_request_add_stmt);
+	sqlite3_finalize(ms->dap_request_delete_sub_stmt);
+	sqlite3_finalize(ms->dap_request_delete_expired_stmt);
 	sqlite3_finalize(ms->dap_tracked_op_add_stmt);
 	sqlite3_finalize(ms->dap_tracked_op_sub_add_stmt);
 	sqlite3_finalize(ms->dap_tracked_op_response_stmt);
@@ -233,6 +278,59 @@ int persist_sqlite__dap_flow_add_cb(int event, void *event_data, void *userdata)
 	}
 	sqlite3_reset(stmt);
 	return MOSQ_ERR_UNKNOWN;
+}
+
+
+int persist_sqlite__dap_request_add_cb(int event, void *event_data, void *userdata)
+{
+	struct mosquitto_evt_persist_dap_request *ed = event_data;
+	struct mosquitto_sqlite *ms = userdata;
+	sqlite3_stmt *stmt = ms->dap_request_add_stmt;
+	char *properties = ed->data.properties ? properties_to_json_str(ed->data.properties) : NULL;
+	int rc = MOSQ_ERR_UNKNOWN;
+
+	UNUSED(event);
+
+	if(bind_text(stmt, 1, ed->data.subscriber_id) == SQLITE_OK
+			&& sqlite3_bind_int64(stmt, 2, (int64_t)ed->data.op_id) == SQLITE_OK
+			&& sqlite3_bind_int64(stmt, 3, (int64_t)ed->data.deadline) == SQLITE_OK
+			&& (ed->data.payloadlen
+				? sqlite3_bind_blob(stmt, 4, ed->data.payload, (int)ed->data.payloadlen, SQLITE_STATIC)
+				: sqlite3_bind_null(stmt, 4)) == SQLITE_OK
+			&& bind_text(stmt, 5, properties) == SQLITE_OK
+			){
+
+		rc = step_and_reset(ms, stmt);
+	}else{
+		sqlite3_reset(stmt);
+	}
+	free(properties);
+	return rc;
+}
+
+
+int persist_sqlite__dap_request_delete_cb(int event, void *event_data, void *userdata)
+{
+	struct mosquitto_evt_persist_dap_request *ed = event_data;
+	struct mosquitto_sqlite *ms = userdata;
+	sqlite3_stmt *stmt;
+
+	UNUSED(event);
+
+	if(ed->data.subscriber_id){
+		stmt = ms->dap_request_delete_sub_stmt;
+		if(bind_text(stmt, 1, ed->data.subscriber_id) != SQLITE_OK){
+			sqlite3_reset(stmt);
+			return MOSQ_ERR_UNKNOWN;
+		}
+	}else{
+		stmt = ms->dap_request_delete_expired_stmt;
+		if(sqlite3_bind_int64(stmt, 1, (int64_t)ed->data.deadline) != SQLITE_OK){
+			sqlite3_reset(stmt);
+			return MOSQ_ERR_UNKNOWN;
+		}
+	}
+	return step_and_reset(ms, stmt);
 }
 
 
@@ -516,9 +614,49 @@ static int dap_flow_restore(struct mosquitto_sqlite *ms)
 }
 
 
+static int dap_request_restore(struct mosquitto_sqlite *ms)
+{
+	sqlite3_stmt *stmt;
+	struct mosquitto_dap_request request;
+	int rc;
+	long count = 0, failed = 0;
+
+	rc = sqlite3_prepare_v2(ms->db,
+			"SELECT subscriber_id, op_id, deadline, payload, properties FROM dap_requests ORDER BY rowid",
+			-1, &stmt, NULL);
+	if(rc != SQLITE_OK){
+		mosquitto_log_printf(MOSQ_LOG_ERR, "sqlite: Error restoring DAP requests: %s", sqlite3_errstr(rc));
+		return MOSQ_ERR_UNKNOWN;
+	}
+
+	while(sqlite3_step(stmt) == SQLITE_ROW){
+		mosquitto_property *properties = json_to_properties((const char *)sqlite3_column_text(stmt, 4));
+
+		memset(&request, 0, sizeof(request));
+		request.subscriber_id = (const char *)sqlite3_column_text(stmt, 0);
+		request.op_id = (uint64_t)sqlite3_column_int64(stmt, 1);
+		request.deadline = (time_t)sqlite3_column_int64(stmt, 2);
+		request.payload = sqlite3_column_blob(stmt, 3);
+		request.payloadlen = (uint32_t)sqlite3_column_bytes(stmt, 3);
+		request.properties = properties;
+
+		if(mosquitto_persist_dap_request_add(&request) == MOSQ_ERR_SUCCESS){
+			count++;
+		}else{
+			failed++;
+		}
+		mosquitto_property_free_all(&properties);
+	}
+	sqlite3_finalize(stmt);
+
+	mosquitto_log_printf(MOSQ_LOG_INFO, "sqlite: Restored %ld DAP requests (%ld failed)", count, failed);
+	return MOSQ_ERR_SUCCESS;
+}
+
+
 int persist_sqlite__dap_restore(struct mosquitto_sqlite *ms)
 {
-	if(dap_op_restore(ms) || dap_flow_restore(ms)){
+	if(dap_op_restore(ms) || dap_flow_restore(ms) || dap_request_restore(ms)){
 		return MOSQ_ERR_UNKNOWN;
 	}
 	return dap_tracked_op_restore(ms);

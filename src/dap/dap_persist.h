@@ -16,6 +16,14 @@ void dap_persist__op_add(uint64_t op_id, const char *publisher_id, int op_type, 
 /* DELETE/RESTRICT op reclaimed from the pending-op map. */
 void dap_persist__op_delete(uint64_t op_id);
 
+/* Operation request held for a subscriber. */
+void dap_persist__request_add(const char *subscriber_id, uint64_t op_id, time_t deadline,
+		const void *payload, uint32_t payloadlen, const struct mqtt5__property *properties);
+
+/* Requests held for subscriber_id delivered or, with a NULL subscriber_id, those
+ * whose deadline is at or before deadline expired. */
+void dap_persist__request_delete(const char *subscriber_id, time_t deadline);
+
 /* Flow added, or its receipt times moved. */
 void dap_persist__flow_add(const char *publisher_id, const char *topic, const struct dr_sublist *flow);
 

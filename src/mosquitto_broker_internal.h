@@ -200,6 +200,8 @@ struct plugin__callbacks {
 	struct mosquitto__callback *persist_dap_tracked_op_delete;
 	struct mosquitto__callback *persist_dap_op_delete;
 	struct mosquitto__callback *persist_dap_flow_add;
+	struct mosquitto__callback *persist_dap_request_add;
+	struct mosquitto__callback *persist_dap_request_delete;
 };
 
 /* This is owned by mosquitto__config or mosquitto__listener, and only referred
