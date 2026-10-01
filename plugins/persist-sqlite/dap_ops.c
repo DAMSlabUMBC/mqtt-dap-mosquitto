@@ -22,12 +22,15 @@ int persist_sqlite__dap_init(struct mosquitto_sqlite *ms)
 			"timestamp INT64,"
 			"topic_filters TEXT,"
 			"purpose_filters TEXT,"
-			"client_filters TEXT"
+			"client_filters TEXT,"
+			"deadline INT64"
 			");",
 			NULL, NULL, NULL);
 	if(rc){
 		goto fail;
 	}
+	/* Tables created before deadlines were persisted lack the column. */
+	sqlite3_exec(ms->db, "ALTER TABLE dap_ops ADD COLUMN deadline INT64", NULL, NULL, NULL);
 
 	rc = sqlite3_exec(ms->db,
 			"CREATE TABLE IF NOT EXISTS dap_tracked_ops "
@@ -57,10 +60,18 @@ int persist_sqlite__dap_init(struct mosquitto_sqlite *ms)
 
 	rc = sqlite3_prepare_v3(ms->db,
 			"INSERT OR REPLACE INTO dap_ops "
-			"(op_id, publisher_id, op_type, timestamp, topic_filters, purpose_filters, client_filters) "
-			"VALUES(?,?,?,?,?,?,?)",
+			"(op_id, publisher_id, op_type, timestamp, topic_filters, purpose_filters, client_filters, deadline) "
+			"VALUES(?,?,?,?,?,?,?,?)",
 			-1, SQLITE_PREPARE_PERSISTENT,
 			&ms->dap_op_add_stmt, NULL);
+	if(rc){
+		goto fail;
+	}
+
+	rc = sqlite3_prepare_v3(ms->db,
+			"DELETE FROM dap_ops WHERE op_id=?",
+			-1, SQLITE_PREPARE_PERSISTENT,
+			&ms->dap_op_delete_stmt, NULL);
 	if(rc){
 		goto fail;
 	}
@@ -120,6 +131,7 @@ fail:
 void persist_sqlite__dap_cleanup(struct mosquitto_sqlite *ms)
 {
 	sqlite3_finalize(ms->dap_op_add_stmt);
+	sqlite3_finalize(ms->dap_op_delete_stmt);
 	sqlite3_finalize(ms->dap_tracked_op_add_stmt);
 	sqlite3_finalize(ms->dap_tracked_op_sub_add_stmt);
 	sqlite3_finalize(ms->dap_tracked_op_response_stmt);
@@ -164,12 +176,28 @@ int persist_sqlite__dap_op_add_cb(int event, void *event_data, void *userdata)
 			&& bind_text(stmt, 5, ed->data.topic_filters) == SQLITE_OK
 			&& bind_text(stmt, 6, ed->data.purpose_filters) == SQLITE_OK
 			&& bind_text(stmt, 7, ed->data.client_filters) == SQLITE_OK
+			&& sqlite3_bind_int64(stmt, 8, (int64_t)ed->data.deadline) == SQLITE_OK
 			){
 
 		return step_and_reset(ms, stmt);
 	}
 	sqlite3_reset(stmt);
 	return MOSQ_ERR_UNKNOWN;
+}
+
+
+int persist_sqlite__dap_op_delete_cb(int event, void *event_data, void *userdata)
+{
+	struct mosquitto_evt_persist_dap_op *ed = event_data;
+	struct mosquitto_sqlite *ms = userdata;
+
+	UNUSED(event);
+
+	if(sqlite3_bind_int64(ms->dap_op_delete_stmt, 1, (int64_t)ed->data.op_id) != SQLITE_OK){
+		sqlite3_reset(ms->dap_op_delete_stmt);
+		return MOSQ_ERR_UNKNOWN;
+	}
+	return step_and_reset(ms, ms->dap_op_delete_stmt);
 }
 
 
@@ -266,7 +294,7 @@ static int dap_op_restore(struct mosquitto_sqlite *ms)
 	long count = 0, failed = 0;
 
 	rc = sqlite3_prepare_v2(ms->db,
-			"SELECT op_id, publisher_id, op_type, timestamp, topic_filters, purpose_filters, client_filters "
+			"SELECT op_id, publisher_id, op_type, timestamp, topic_filters, purpose_filters, client_filters, deadline "
 			"FROM dap_ops ORDER BY op_id",
 			-1, &stmt, NULL);
 	if(rc != SQLITE_OK){
@@ -284,6 +312,7 @@ static int dap_op_restore(struct mosquitto_sqlite *ms)
 		op.topic_filters = (const char *)sqlite3_column_text(stmt, 4);
 		op.purpose_filters = (const char *)sqlite3_column_text(stmt, 5);
 		op.client_filters = (const char *)sqlite3_column_text(stmt, 6);
+		op.deadline = (time_t)sqlite3_column_int64(stmt, 7);
 
 		if(mosquitto_persist_dap_op_add(&op) == MOSQ_ERR_SUCCESS){
 			count++;

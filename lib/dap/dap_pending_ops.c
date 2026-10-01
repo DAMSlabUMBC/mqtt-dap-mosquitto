@@ -105,6 +105,7 @@ static int dap__add_operation(struct dap_pending_ops *map,
                               const char *pub_id,
                               enum dap_op_type type,
                               uint64_t order,
+                              time_t deadline,
                               const char *topic_filters,
                               const char *purpose_filters,
                               const char *subscriber_filters)
@@ -113,6 +114,7 @@ static int dap__add_operation(struct dap_pending_ops *map,
     if(!op) return 1;
     op->op_id     = op_id;
     op->order     = order;
+    op->deadline  = deadline;
     op->type      = type;
     if(dap__parse_filter_list(topic_filters, &op->topic_filters, &op->num_topic_filters)
             || dap__parse_filter_list(subscriber_filters, &op->subscriber_filters, &op->num_subscriber_filters)){
@@ -167,6 +169,7 @@ int dap_pending_ops_insert_operation(struct dap_pending_ops *map,
                                      const char *pub_id,
                                      enum dap_op_type type,
                                      uint64_t order,
+                                     time_t deadline,
                                      const char *topic_filters,
                                      const char *purpose_filters,
                                      const char *subscriber_filters,
@@ -175,7 +178,7 @@ int dap_pending_ops_insert_operation(struct dap_pending_ops *map,
     if(!map || !pub_id) return 1;
 
     uint64_t op_id = map->next_op_id;
-    if(dap__add_operation(map, op_id, pub_id, type, order,
+    if(dap__add_operation(map, op_id, pub_id, type, order, deadline,
                           topic_filters, purpose_filters, subscriber_filters)){
         return 1;
     }
@@ -190,6 +193,7 @@ int dap_pending_ops_restore_operation(struct dap_pending_ops *map,
                                       const char *pub_id,
                                       enum dap_op_type type,
                                       uint64_t order,
+                                      time_t deadline,
                                       const char *topic_filters,
                                       const char *purpose_filters,
                                       const char *subscriber_filters)
@@ -197,7 +201,7 @@ int dap_pending_ops_restore_operation(struct dap_pending_ops *map,
     if(!map || !pub_id || op_id == 0) return 1;
     if(dap__op_id_present(map, op_id)) return 1;
 
-    if(dap__add_operation(map, op_id, pub_id, type, order,
+    if(dap__add_operation(map, op_id, pub_id, type, order, deadline,
                           topic_filters, purpose_filters, subscriber_filters)){
         return 1;
     }
@@ -227,42 +231,62 @@ struct dap_pending_op *dap_pending_ops_lookup_operations_for_publisher(struct da
     return entry ? entry->ops : NULL;
 }
 
+/* Drop a publisher entry with no operations left, or recompute its newest order. */
+static void dap__entry_settle(struct dap_pending_ops *map, struct dap_pub_entry *entry)
+{
+    if(!entry->ops){
+        HASH_DEL(map->publishers, entry);
+        mosquitto_FREE(entry->pub_id);
+        mosquitto_FREE(entry);
+        return;
+    }
+    entry->max_order = 0;
+    for(struct dap_pending_op *op = entry->ops; op; op = op->next){
+        if(op->order > entry->max_order) entry->max_order = op->order;
+    }
+}
+
 int dap_pending_ops_remove_operation_by_id(struct dap_pending_ops *map, uint64_t op_id)
 {
     if(!map) return 1;
 
     struct dap_pub_entry *entry, *tmp;
     HASH_ITER(hh, map->publishers, entry, tmp){
-        struct dap_pending_op *prev = NULL;
-        struct dap_pending_op *op = entry->ops;
-        while(op){
-            if(op->op_id == op_id){
-                /* Unlink the operation from this publisher's list. */
-                if(prev){
-                    prev->next = op->next;
-                }else{
-                    entry->ops = op->next;
-                }
+        for(struct dap_pending_op **link = &entry->ops; *link; link = &(*link)->next){
+            if((*link)->op_id == op_id){
+                struct dap_pending_op *op = *link;
+                *link = op->next;
                 dap__free_op(op);
-
-                /* Drop the publisher entry once it has no operations left. */
-                if(!entry->ops){
-                    HASH_DEL(map->publishers, entry);
-                    mosquitto_FREE(entry->pub_id);
-                    mosquitto_FREE(entry);
-                }else{
-                    entry->max_order = 0;
-                    for(op = entry->ops; op; op = op->next){
-                        if(op->order > entry->max_order) entry->max_order = op->order;
-                    }
-                }
+                dap__entry_settle(map, entry);
                 return 0;
             }
-            prev = op;
-            op = op->next;
         }
     }
     return 1; /* not found */
+}
+
+void dap_pending_ops_remove_expired(struct dap_pending_ops *map, time_t now,
+                                    void (*removed)(uint64_t op_id, void *arg), void *arg)
+{
+    if(!map) return;
+
+    struct dap_pub_entry *entry, *tmp;
+    HASH_ITER(hh, map->publishers, entry, tmp){
+        bool changed = false;
+        struct dap_pending_op **link = &entry->ops;
+        while(*link){
+            struct dap_pending_op *op = *link;
+            if(op->deadline != 0 && op->deadline <= now){
+                *link = op->next;
+                if(removed) removed(op->op_id, arg);
+                dap__free_op(op);
+                changed = true;
+            }else{
+                link = &op->next;
+            }
+        }
+        if(changed) dap__entry_settle(map, entry);
+    }
 }
 
 void dap_pending_ops_destroy(struct dap_pending_ops *map)

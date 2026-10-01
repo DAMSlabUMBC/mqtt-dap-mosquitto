@@ -118,7 +118,8 @@ struct mosquitto_dap_op {
 	const char *topic_filters;   /* NULL = any */
 	const char *purpose_filters; /* NULL = any */
 	const char *client_filters;  /* NULL = any */
-	void *future[4];
+	time_t deadline;             /* reclaimed after this; 0 = unknown */
+	void *future[3];
 };
 
 /* A DAP op awaiting subscriber responses until its deadline. */
@@ -203,6 +204,7 @@ enum mosquitto_plugin_event {
 	MOSQ_EVT_PERSIST_DAP_TRACKED_OP_ADD = 101,
 	MOSQ_EVT_PERSIST_DAP_TRACKED_OP_RESPONSE = 102,
 	MOSQ_EVT_PERSIST_DAP_TRACKED_OP_DELETE = 103,
+	MOSQ_EVT_PERSIST_DAP_OP_DELETE = 104,
 };
 
 /* Data for the MOSQ_EVT_RELOAD event */
@@ -411,7 +413,7 @@ struct mosquitto_evt_persist_will_msg {
 };
 
 
-/* Data for the MOSQ_EVT_PERSIST_DAP_OP_ADD event */
+/* Data for MOSQ_EVT_PERSIST_DAP_OP_ADD and _DELETE. _DELETE sets only op_id. */
 struct mosquitto_evt_persist_dap_op {
 	void *future;
 	struct mosquitto_dap_op data;

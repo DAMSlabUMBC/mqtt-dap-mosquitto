@@ -57,6 +57,7 @@ Contributors:
 #include "dap/dap_request_store.h"
 #include "dap/dap_intake.h"
 #include "dap/dap_persist.h"
+#include "dap/dap_pending_ops.h"
 
 extern int g_run;
 
@@ -177,6 +178,13 @@ void loop__update_next_event(time_t new_ms)
 }
 
 
+static void dap_deadline__reclaimed(uint64_t op_id, void *arg)
+{
+	UNUSED(arg);
+	dap_persist__op_delete(op_id);
+}
+
+
 /* Sweep the deadline tracker for operations whose deadline has passed and notify the
  * requesting publisher of any subscriber that never responded. Cheap when nothing is
  * tracked; db.now_real_s is refreshed each iteration by mux__handle. */
@@ -200,10 +208,14 @@ static void dap_deadline__check(void)
 	}
 	dap_deadline_tracker_free_expired(expired);
 
-	/* Requests held past their deadline are no longer delivered. */
+	/* Paper 6.3: operation state is reclaimed once its deadline elapses. The
+	 * requester mapping stays, so late responses still reach the requester. */
 	static time_t last_expiry = 0;
-	if(db.dap_request_store && db.dap_request_store->inboxes && db.now_real_s != last_expiry){
-		dap_request_store_expire(db.dap_request_store, db.now_real_s);
+	if(db.now_real_s != last_expiry){
+		dap_pending_ops_remove_expired(db.dap_pending_ops, db.now_real_s, dap_deadline__reclaimed, NULL);
+		if(db.dap_request_store && db.dap_request_store->inboxes){
+			dap_request_store_expire(db.dap_request_store, db.now_real_s);
+		}
 		last_expiry = db.now_real_s;
 	}
 }

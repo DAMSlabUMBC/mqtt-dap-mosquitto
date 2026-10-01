@@ -32,6 +32,7 @@ int dap_op_request_insert(struct dap_pending_ops *map,
                           const char *pub_id,
                           struct dap__op_property *dap_op_properties,
                           uint64_t order,
+                          time_t deadline,
                           uint64_t *op_id_out);
 
 #ifdef __cplusplus

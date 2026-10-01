@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""DAP pending operations survive a broker crash + restart (persist-sqlite).
+"""DAP pending operations survive a broker crash + restart (persist-sqlite), and are
+reclaimed once their deadline passes.
 
 MPs/SPs are not persisted, so clients re-declare them after the restart.
 
@@ -222,6 +223,20 @@ def main():
     check(new_id is not None and int(new_id) > int(op_id),
           f"the new operation gets a fresh op id ({new_id} > {op_id})")
 
+    # An operation is reclaimed once its deadline passes; late responses still reach the requester.
+    pub1.publish(OSYS, [("DAP-OpType", "DELETE"), ("DAP-OpTFs", "sensors/humidity"),
+                        ("DAP-Deadline", str(int(time.time()) + 2))])
+    check(wait_for(lambda: len(pub1.got(OP_NOTIF, **{"DAP-Status": "Pending"})) >= 2),
+          "a DELETE with a short deadline is accepted")
+    short_id = pub1.got(OP_NOTIF, **{"DAP-Status": "Pending"})[-1][2].get("DAP-OpId")
+    check(wait_for(lambda: pub1.got(OP_NOTIF, **{"DAP-OpId": short_id, "DAP-Reason": "Operation deadline expired"}),
+                   timeout=10), "the DELETE expires at its deadline")
+    time.sleep(2.5)  # wait for the plugin flush
+    subX.publish(OSYS, [("DAP-Status", "Success"), ("DAP-OpId", short_id)])
+    check(wait_for(lambda: pub1.got(OP_NOTIF, **{"DAP-Status": "Success", "DAP-OpId": short_id,
+                                                  "DAP-ClientID": "subX"})),
+          "a response after the deadline is still relayed to the requester")
+
     for c in (subX, subY, subZ, pub1):
         c.disconnect()
     time.sleep(0.2)
@@ -229,6 +244,9 @@ def main():
     check(rc == 0, f"broker exits cleanly (rc={rc})")
 
     db = sqlite3.connect(os.path.join(workdir, "mosquitto.sqlite3"))
+    ops = sorted(r[0] for r in db.execute("SELECT op_id FROM dap_ops").fetchall())
+    check(int(short_id) not in ops and int(new_id) in ops,
+          f"the expired DELETE is reclaimed from disk, the live RESTRICT is kept: {ops}")
     settled = db.execute("SELECT settled FROM dap_tracked_ops WHERE op_id=?", (int(op_id),)).fetchone()
     check(settled == (1,), f"the settled operation is marked settled on disk: {settled}")
     left = db.execute("SELECT COUNT(*) FROM dap_tracked_op_subs WHERE op_id=?", (int(op_id),)).fetchone()

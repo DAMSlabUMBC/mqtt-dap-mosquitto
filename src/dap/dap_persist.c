@@ -13,7 +13,7 @@
 
 
 void dap_persist__op_add(uint64_t op_id, const char *publisher_id, int op_type, time_t timestamp,
-		const char *topic_filters, const char *purpose_filters, const char *client_filters)
+		time_t deadline, const char *topic_filters, const char *purpose_filters, const char *client_filters)
 {
 	struct mosquitto_evt_persist_dap_op event_data;
 	struct mosquitto__callback *cb_base, *cb_next;
@@ -29,12 +29,33 @@ void dap_persist__op_add(uint64_t op_id, const char *publisher_id, int op_type, 
 	event_data.data.publisher_id = publisher_id;
 	event_data.data.op_type = op_type;
 	event_data.data.timestamp = timestamp;
+	event_data.data.deadline = deadline;
 	event_data.data.topic_filters = topic_filters;
 	event_data.data.purpose_filters = purpose_filters;
 	event_data.data.client_filters = client_filters;
 
 	DL_FOREACH_SAFE(opts->plugin_callbacks.persist_dap_op_add, cb_base, cb_next){
 		cb_base->cb(MOSQ_EVT_PERSIST_DAP_OP_ADD, &event_data, cb_base->userdata);
+	}
+}
+
+
+void dap_persist__op_delete(uint64_t op_id)
+{
+	struct mosquitto_evt_persist_dap_op event_data;
+	struct mosquitto__callback *cb_base, *cb_next;
+	struct mosquitto__security_options *opts;
+
+	if(db.shutdown){
+		return;
+	}
+
+	opts = &db.config->security_options;
+	memset(&event_data, 0, sizeof(event_data));
+	event_data.data.op_id = op_id;
+
+	DL_FOREACH_SAFE(opts->plugin_callbacks.persist_dap_op_delete, cb_base, cb_next){
+		cb_base->cb(MOSQ_EVT_PERSIST_DAP_OP_DELETE, &event_data, cb_base->userdata);
 	}
 }
 
@@ -144,8 +165,10 @@ BROKER_EXPORT int mosquitto_persist_dap_op_add(const struct mosquitto_dap_op *op
 	 * second, so it still covers every message received before it, and order every
 	 * message received from now on after it. */
 	uint64_t order = (uint64_t)op->timestamp * 1000000000ULL + 999999999ULL;
+	/* Rows written before deadlines were persisted get the default one. */
+	time_t deadline = op->deadline ? op->deadline : op->timestamp + MOSQ_DAP_DEFAULT_DEADLINE_SECS;
 	if(dap_pending_ops_restore_operation(db.dap_pending_ops, op->op_id, op->publisher_id,
-			(enum dap_op_type)op->op_type, order,
+			(enum dap_op_type)op->op_type, order, deadline,
 			op->topic_filters, op->purpose_filters, op->client_filters)){
 
 		return MOSQ_ERR_INVAL;

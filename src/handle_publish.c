@@ -296,15 +296,16 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 			else if(!strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_DELETE) || !strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_RESTRICT))
 			{
 				uint64_t pending_op_id = 0;
+				time_t deadline = operation_deadline(dap_op_properties, stored->dap_recv_time);
 				bool is_pending_op = (dap_op_request_insert(db.dap_pending_ops, context->id, dap_op_properties,
-							stored->dap_order, &pending_op_id) == 0);
+							stored->dap_order, deadline, &pending_op_id) == 0);
 
 				if(is_pending_op)
 				{
 					dap_op_properties->op_id_num = pending_op_id;
 					dap_persist__op_add(pending_op_id, context->id,
 							strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_DELETE) ? DAP_OP_RESTRICT : DAP_OP_DELETE,
-							stored->dap_recv_time, dap_op_properties->op_topic_filters,
+							stored->dap_recv_time, deadline, dap_op_properties->op_topic_filters,
 							dap_op_properties->op_purpose_filters, dap_op_properties->op_client_filters);
 
 					/* Deadline workflow. Relevant subscribers are those that received
@@ -322,7 +323,6 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 						* deadline tracker, and echo a Pending ack (op id + deadline) to the
 						* requester. The final Success/Failure is settled by the deadline
 						* sweep (loop.c) and the status path, not synchronously here. */
-					time_t deadline = operation_deadline(dap_op_properties, stored->dap_recv_time);
 					broker_dispatch_pending_operation(context->id,
 							relevant, &stored->data, dap_op_properties, deadline);
 					dr__free_sublist(relevant);
