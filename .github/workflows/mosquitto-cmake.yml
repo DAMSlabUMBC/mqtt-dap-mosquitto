@@ -47,6 +47,10 @@ jobs:
 
     - uses: actions/checkout@v6
 
+    - name: DAP test dependencies
+      # test/dap needs paho-mqtt 2.x.
+      run: python3 -m pip install --user --break-system-packages 'paho-mqtt>=2,<3'
+
     - run: cmake -E make_directory build
 
     - run: |
@@ -57,5 +61,11 @@ jobs:
 
     - run: cmake --build build --parallel $(nproc)
 
+    # The broker, client and apps suites expect plain MQTT, which DAP rejects.
     - working-directory: build/
-      run: ctest --output-on-failure --repeat until-pass:5
+      run: ctest --output-on-failure --repeat until-pass:5 --exclude-regex '^(broker|client|apps)-'
+
+    - name: DAP tests
+      run: |
+        test/dap/run_unit_tests.sh
+        BUILD_ROOT="$PWD/build" test/dap/run_integration_tests.sh

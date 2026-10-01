@@ -1,21 +1,8 @@
 name: Windows build
 
+# Manual only: the DAP code is POSIX-only.
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - master
-      - fixes
-      - develop
-      - release/*
-    tags:
-      - 'v[0-9]+.*'
-  pull_request:
-    branches:
-      - master
-      - fixes
-      - develop
-      - release/*
 
 env:
   # Customize the CMake build type here (Release, Debug, RelWithDebInfo, etc.)

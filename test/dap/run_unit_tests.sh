@@ -11,6 +11,11 @@ OUT="${DAP_TEST_OUT:-$(mktemp -d)}"
 CC="${CC:-cc}"
 
 INC=(-I"$R" -I"$R/lib" -I"$D" -I"$R/include" -I"$R/libcommon" -I"$R/src" -I"$R/common" -I"$R/deps")
+# cJSON headers outside the default search path (e.g. Homebrew on macOS).
+if command -v pkg-config > /dev/null && pkg-config --exists libcjson; then
+	# shellcheck disable=SC2207
+	INC+=($(pkg-config --cflags libcjson))
+fi
 MEM="$R/libcommon/memory_common.c"
 SAN=(-fsanitize=address,undefined -fno-omit-frame-pointer -g -O0)
 

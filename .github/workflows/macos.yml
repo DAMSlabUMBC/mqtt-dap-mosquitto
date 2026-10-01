@@ -76,5 +76,9 @@ jobs:
           python3 -m venv venv
           source venv/bin/activate
           python3 -m pip install --upgrade pip
-          python3 -m pip install psutil
-          ctest --output-on-failure --repeat until-pass:5
+          python3 -m pip install psutil 'paho-mqtt>=2,<3'
+          # The broker, client and apps suites expect plain MQTT, which DAP rejects.
+          ctest --output-on-failure --repeat until-pass:5 --exclude-regex '^(broker|client|apps)-'
+          cd ..
+          test/dap/run_unit_tests.sh
+          BUILD_ROOT="$PWD/build64" test/dap/run_integration_tests.sh

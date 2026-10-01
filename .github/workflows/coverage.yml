@@ -18,6 +18,8 @@ on:
 jobs:
   coverage:
     runs-on: ubuntu-22.04
+    env:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
     steps:
     - run: |
@@ -57,12 +59,15 @@ jobs:
           test-compile
 
     - run: |
-        make -C test test
+        python3 -m pip install --user 'paho-mqtt>=2,<3'
+        make -C test dap-test
 
     - run: |
         lcov --capture --directory . --output-file coverage.info --no-external
 
     - uses: codecov/codecov-action@v4
+      # Only where a Codecov token is configured.
+      if: env.CODECOV_TOKEN != ''
       with:
         token: ${{ secrets.CODECOV_TOKEN }}
         fail_ci_if_error: true

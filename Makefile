@@ -66,7 +66,7 @@ DISTFILES= \
 	THANKS.txt \
 	vcpkg.json
 
-.PHONY : all mosquitto api docs binary check clean reallyclean test test-compile install uninstall dist sign copy localdocker
+.PHONY : all mosquitto api docs binary check clean reallyclean test test-compile dap-test install uninstall dist sign copy localdocker
 
 all : $(MAKE_ALL)
 
@@ -118,6 +118,9 @@ ptest : mosquitto
 
 utest : mosquitto
 	$(MAKE) -C test utest
+
+dap-test : mosquitto
+	$(MAKE) -C test dap-test
 
 install : all
 	set -e; for d in ${DIRS}; do $(MAKE) -C $${d} install; done

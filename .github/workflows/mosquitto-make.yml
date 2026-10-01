@@ -49,9 +49,13 @@ jobs:
       with:
         submodules: 'true'
     -
+      name: DAP test dependencies
+      # test/dap needs paho-mqtt 2.x.
+      run: python3 -m pip install --user --break-system-packages 'paho-mqtt>=2,<3'
+    -
       name: make
       run: make
     -
       name: make test
       run: |
-        make ptest
+        make dap-test

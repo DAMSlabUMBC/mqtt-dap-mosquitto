@@ -1,7 +1,7 @@
 R=..
 include ${R}/config.mk
 
-.PHONY: all check test test-compile ptest clean ssl
+.PHONY: all check test test-compile ptest dap-test clean ssl
 
 all :
 
@@ -37,6 +37,11 @@ ptest : utest ssl
 
 utest :
 	$(MAKE) -C unit test
+
+# The broker, client and apps suites expect plain MQTT, which DAP rejects.
+dap-test : utest ssl
+	$(MAKE) -C lib ptest
+	$(MAKE) -C dap test
 
 reallyclean : clean
 clean :

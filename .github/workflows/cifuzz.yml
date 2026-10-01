@@ -1,14 +1,7 @@
 name: CIFuzz
+# Manual only: OSS-Fuzz builds upstream mosquitto, not this fork.
 on:
   workflow_dispatch:
-  pull_request:
-    branches:
-      - master
-      - develop
-    paths:
-      - '**.c'
-      - '**.cpp'
-      - '**.h'
 permissions: {}
 jobs:
   Fuzzing:
