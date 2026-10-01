@@ -119,10 +119,10 @@ class Client:
             props.UserProperty = [("DAP-SP", sp)]
         self.c.subscribe(topic, qos=qos, properties=props)
 
-    def publish(self, topic, pairs, payload=b"", qos=1):
+    def publish(self, topic, pairs, payload=b"", qos=1, retain=False):
         props = Properties(PacketTypes.PUBLISH)
         props.UserProperty = [("DAP-Allow", "1")] + pairs
-        self.c.publish(topic, payload=payload, qos=qos, properties=props).wait_for_publish(5)
+        self.c.publish(topic, payload=payload, qos=qos, retain=retain, properties=props).wait_for_publish(5)
 
     def got(self, topic_prefix, **match):
         return [m for m in self.msgs
@@ -188,7 +188,9 @@ def main():
 
     pub1.publish("$MP_REG", [("DAP-MP", f"{MP}:sensors/temp")], qos=0)
     pub1.publish("$MP_REG", [("DAP-MP", f"{MP}:sensors/humidity")], qos=0)
+    pub1.publish("$MP_REG", [("DAP-MP", f"{MP}:sensors/retained")], qos=0)
     time.sleep(0.2)
+    pub1.publish("sensors/retained", [], payload=b"kept", retain=True)
     data(pub1, "sensors/temp", b"temp-before-delete")
     data(pub1, "sensors/humidity", b"humidity-before-delete")
     check(wait_for(lambda: len(subX.got("sensors/")) == 2 and len(subY.got("sensors/")) == 2),
@@ -240,6 +242,13 @@ def main():
     audit = pub1.got(OP_NOTIF, **{"DAP-OpType": "AUDIT", "DAP-Status": "Success"})
     check(bool(audit) and sorted(audit[0][1].split(b",")) == [b"subX", b"subY"],
           f"it lists the subscribers that received data before the restart: {audit[0][1] if audit else None}")
+
+    # A retained message keeps its MP across the restart.
+    subR = Client("subR").connect()
+    subR.subscribe("sensors/retained", MP)
+    check(wait_for(lambda: subR.got("sensors/retained")),
+          "a retained message from before the restart reaches a subscription its MP permits")
+    subR.disconnect()
 
     # SPs survive with the session; MPs are re-registered by their publishers.
     pub1.publish("$MP_REG", [("DAP-MP", f"{MP}:sensors/humidity")], qos=0)

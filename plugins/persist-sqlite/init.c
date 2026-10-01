@@ -101,7 +101,8 @@ static int create_tables(struct mosquitto_sqlite *ms)
 			"source_port INTEGER,"
 			"qos INTEGER,"
 			"retain INTEGER,"
-			"properties STRING"
+			"properties STRING,"
+			"purpose_filter TEXT"
 			");",
 			NULL, NULL, NULL);
 	if(rc){
@@ -211,6 +212,7 @@ static int create_tables(struct mosquitto_sqlite *ms)
 	sqlite3_exec(ms->db, "ALTER TABLE client_msgs ADD COLUMN cmsg_id INT64", NULL, NULL, NULL);
 	sqlite3_exec(ms->db, "ALTER TABLE client_msgs ADD COLUMN subscription_identifier INT", NULL, NULL, NULL);
 	sqlite3_exec(ms->db, "ALTER TABLE subscriptions ADD COLUMN purposes TEXT", NULL, NULL, NULL);
+	sqlite3_exec(ms->db, "ALTER TABLE base_msgs ADD COLUMN purpose_filter TEXT", NULL, NULL, NULL);
 
 	rc = sqlite3_exec(ms->db,
 			"CREATE TABLE IF NOT EXISTS version_info "
@@ -386,8 +388,8 @@ static int prepare_statements(struct mosquitto_sqlite *ms)
 	rc = sqlite3_prepare_v3(ms->db,
 			"INSERT INTO base_msgs "
 			"(store_id, expiry_time, topic, payload, source_id, source_username, "
-			"payloadlen, source_mid, source_port, qos, retain, properties) "
-			"VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+			"payloadlen, source_mid, source_port, qos, retain, properties, purpose_filter) "
+			"VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
 			-1, SQLITE_PREPARE_PERSISTENT,
 			&ms->base_msg_add_stmt, NULL);
 	if(rc){

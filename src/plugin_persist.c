@@ -310,6 +310,9 @@ void plugin_persist__handle_base_msg_add(struct mosquitto__base_msg *base_msg)
 	event_data.data.store_id = base_msg->data.store_id;
 	event_data.data.expiry_time = base_msg->data.expiry_time;
 	event_data.data.topic = base_msg->data.topic;
+	event_data.data.has_purpose_filter = base_msg->data.has_purpose_filter;
+	event_data.data.purpose_filter = base_msg->data.purpose_filter;
+	event_data.data.purpose_filter_version = base_msg->data.purpose_filter_version;
 	event_data.data.payload = base_msg->data.payload;
 	event_data.data.source_id = base_msg->data.source_id;
 	event_data.data.source_username = base_msg->data.source_username;

@@ -835,6 +835,9 @@ BROKER_EXPORT int mosquitto_persist_base_msg_add(struct mosquitto_base_msg *msg_
 	msg_add->payload = NULL;
 	base_msg->data.topic = msg_add->topic;
 	msg_add->topic = NULL;
+	base_msg->data.has_purpose_filter = msg_add->has_purpose_filter;
+	base_msg->data.purpose_filter = msg_add->purpose_filter;
+	msg_add->purpose_filter = NULL;
 	base_msg->data.properties = msg_add->properties;
 	msg_add->properties = NULL;
 	base_msg->dap_recv_time = dap_persist__recv_time(base_msg->data.properties);
@@ -858,6 +861,7 @@ BROKER_EXPORT int mosquitto_persist_base_msg_add(struct mosquitto_base_msg *msg_
 error:
 	mosquitto_property_free_all(&msg_add->properties);
 	mosquitto_free(msg_add->topic);
+	mosquitto_free(msg_add->purpose_filter);
 	mosquitto_free(msg_add->payload);
 	mosquitto_free(base_msg);
 

@@ -309,7 +309,7 @@ static int base_msg_restore(struct mosquitto_sqlite *ms)
 	const void *payload;
 
 	rc = sqlite3_prepare_v2(ms->db,
-			"SELECT store_id, expiry_time, topic, payload, source_id, source_username, payloadlen, source_mid, source_port, qos, retain, properties "
+			"SELECT store_id, expiry_time, topic, payload, source_id, source_username, payloadlen, source_mid, source_port, qos, retain, properties, purpose_filter "
 			"FROM base_msgs",
 			-1, &stmt, NULL);
 
@@ -350,6 +350,10 @@ static int base_msg_restore(struct mosquitto_sqlite *ms)
 		base_msg.qos = (uint8_t)sqlite3_column_int(stmt, 9);
 		base_msg.retain = sqlite3_column_int(stmt, 10);
 		base_msg.properties = json_to_properties((const char *)sqlite3_column_text(stmt, 11));
+		if(sqlite3_column_text(stmt, 12)){
+			base_msg.purpose_filter = mosquitto_strdup((const char *)sqlite3_column_text(stmt, 12));
+			base_msg.has_purpose_filter = base_msg.purpose_filter != NULL;
+		}
 
 		rc = mosquitto_persist_base_msg_add(&base_msg);
 		if(rc == MOSQ_ERR_SUCCESS){
