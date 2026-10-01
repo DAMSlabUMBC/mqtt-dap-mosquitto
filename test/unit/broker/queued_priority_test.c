@@ -1,5 +1,5 @@
 /* Standalone isolation test for the output-side priority queue
- * (src/output_priority.h: db__queued_insert_prioritized), MQTT-DAP paper 5.2(ii).
+ * (src/dap/output_priority.h: db__queued_insert_prioritized), MQTT-DAP paper 5.2(ii).
  *
  * Verifies that op/PBMR control-plane messages are ordered ahead of data on a
  * client's outgoing queue (msgs_out.queued) while FIFO order is preserved within
@@ -9,7 +9,7 @@
  * Build and run on its own:
  *   cc -DWITH_BROKER -I../../.. -I../../../src -I../../../lib -I../../../include \
  *      -I../../../common -I../../../libcommon -I../../../deps -std=gnu99 \
- *      queued_priority_test.c ../../../lib/dap_topics.c -o queued_priority_test \
+ *      queued_priority_test.c ../../../lib/dap/dap_topics.c -o queued_priority_test \
  *      && ./queued_priority_test
  */
 
@@ -18,7 +18,7 @@
 #include <string.h>
 
 #include "mosquitto_broker_internal.h"
-#include "output_priority.h"
+#include "dap/output_priority.h"
 
 /* A data topic (never matches dap_is_op_system_topic) and several op/PBMR topics
  * spanning the control-plane namespaces the classifier recognises. */

@@ -24,6 +24,25 @@ ifeq ($(WITH_TLS),yes)
 	LOCAL_LDADD+=-lssl -lcrypto
 endif
 
+# lib/dap objects, needed by every test that links database.o or subs.o.
+DAP_LIB_OBJS = \
+		${R}/src/dap_deadline_tracker.o \
+		${R}/src/dap_holding_list.o \
+		${R}/src/dap_metrics.o \
+		${R}/src/dap_op_request.o \
+		${R}/src/dap_op_requester.o \
+		${R}/src/dap_pending_ops.o \
+		${R}/src/dap_send_verify.o \
+		${R}/src/dap_stamp.o \
+		${R}/src/dap_subscription_queues.o \
+		${R}/src/dap_timestamp.o \
+		${R}/src/dap_topics.o \
+		${R}/src/dr_registry.o \
+		${R}/src/mp_registry.o \
+		${R}/src/purpose_filters.o \
+		${R}/src/ri_registry.o \
+		${R}/src/rights_registry.o
+
 BRIDGE_TOPIC_TEST_OBJS = \
 		bridge_topic_test.o \
 		stubs.o \
@@ -52,7 +71,8 @@ PERSIST_READ_OBJS = \
 		${R}/src/property_mosq.o \
 		${R}/src/retain.o \
 		${R}/src/topic_tok.o \
-		${R}/src/util_mosq.o
+		${R}/src/util_mosq.o \
+		${DAP_LIB_OBJS}
 
 PERSIST_WRITE_TEST_OBJS = \
 		persist_write_test.o \
@@ -71,7 +91,8 @@ PERSIST_WRITE_OBJS = \
 		${R}/src/retain.o \
 		${R}/src/subs.o \
 		${R}/src/topic_tok.o \
-		${R}/src/util_mosq.o
+		${R}/src/util_mosq.o \
+		${DAP_LIB_OBJS}
 
 SUBS_TEST_OBJS = \
 		subs_test.o \
@@ -82,7 +103,8 @@ SUBS_OBJS = \
 		${R}/src/packet_datatypes.o \
 		${R}/src/property_mosq.o \
 		${R}/src/subs.o \
-		${R}/src/topic_tok.o
+		${R}/src/topic_tok.o \
+		${DAP_LIB_OBJS}
 
 all : test-compile
 
@@ -162,14 +184,13 @@ ${R}/src/topic_tok.o : ${R}/src/topic_tok.c
 ${R}/src/util_mosq.o : ${R}/lib/util_mosq.c
 	$(MAKE) -C ${R}/src/ util_mosq.o
 
-${R}/src/dap_topics.o : ${R}/lib/dap_topics.c
-	$(MAKE) -C ${R}/src/ dap_topics.o
+${DAP_LIB_OBJS} : ${R}/src/%.o : ${R}/lib/dap/%.c
+	$(MAKE) -C ${R}/src/ $*.o
 
 # Standalone (no CUnit) test for the output-side priority queue, MQTT-DAP paper
-# 5.2(ii). The header-defined helper (src/output_priority.h) compiles into the test
-# directly, so this links only dap_topics.o - it does not pull in database.o and is
-# therefore independent of the database.o-linking tests above. Kept out of ALL_TESTS
-# so it builds and runs on its own.
+# 5.2(ii). The header-defined helper (src/dap/output_priority.h) compiles into the
+# test directly, so this links only dap_topics.o - it does not pull in database.o and
+# is therefore independent of the database.o-linking tests above.
 QUEUED_PRIORITY_TEST_OBJS = queued_priority_test.o
 QUEUED_PRIORITY_OBJS = ${R}/src/dap_topics.o
 

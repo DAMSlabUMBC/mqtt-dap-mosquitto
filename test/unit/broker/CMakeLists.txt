@@ -1,3 +1,23 @@
+# lib/dap sources, needed by every test that compiles database.c or subs.c.
+set(DAP_LIB_SOURCES
+    ../../../lib/dap/dap_deadline_tracker.c
+    ../../../lib/dap/dap_holding_list.c
+    ../../../lib/dap/dap_metrics.c
+    ../../../lib/dap/dap_op_request.c
+    ../../../lib/dap/dap_op_requester.c
+    ../../../lib/dap/dap_pending_ops.c
+    ../../../lib/dap/dap_send_verify.c
+    ../../../lib/dap/dap_stamp.c
+    ../../../lib/dap/dap_subscription_queues.c
+    ../../../lib/dap/dap_timestamp.c
+    ../../../lib/dap/dap_topics.c
+    ../../../lib/dap/dr_registry.c
+    ../../../lib/dap/mp_registry.c
+    ../../../lib/dap/purpose_filters.c
+    ../../../lib/dap/ri_registry.c
+    ../../../lib/dap/rights_registry.c
+)
+
 # bridge-topic-test
 add_library(bridge-topic-obj
 	OBJECT
@@ -33,8 +53,10 @@ add_library(persistence-read-obj
         ../../../src/persist_read.c
         ../../../src/retain.c
         ../../../src/topic_tok.c
+        ${DAP_LIB_SOURCES}
 )
 target_compile_definitions(persistence-read-obj PRIVATE WITH_PERSISTENCE WITH_BROKER)
+target_include_directories(persistence-read-obj PRIVATE ${mosquitto_SOURCE_DIR}/libcommon)
 target_link_libraries(persistence-read-obj PUBLIC common-unit-test-header OpenSSL::SSL)
 
 add_executable(persist-read-test
@@ -59,13 +81,9 @@ add_library(persistence-write-obj
         ../../../src/persist_write_v5.c
         ../../../src/persist_write.c
         ../../../src/retain.c
-        ../../../src/dap/rights_broker.c
         ../../../src/subs.c
-        ../../../lib/dap/ri_registry.c
-        ../../../lib/dap/dr_registry.c
-        ../../../lib/dap/rights_registry.c 
-        ../../../lib/dap/purpose_filters.c   
         ../../../src/topic_tok.c
+        ${DAP_LIB_SOURCES}
 )
 target_compile_definitions(persistence-write-obj PRIVATE WITH_PERSISTENCE WITH_BROKER)
 target_include_directories(persistence-write-obj PRIVATE ${mosquitto_SOURCE_DIR}/libcommon)
@@ -90,14 +108,9 @@ add_library(subs-obj
         ../../../lib/property_mosq.c
         ../../../lib/packet_datatypes.c
         ../../../src/database.c
-        ../../../src/dap/rights_broker.c
-        ../../../src/dap/retain.c
         ../../../src/subs.c
-        ../../../lib/dap/ri_registry.c
-        ../../../lib/dap/dr_registry.c
-        ../../../lib/dap/rights_registry.c
-        ../../../lib/dap/purpose_filters.c   
         ../../../src/topic_tok.c
+        ${DAP_LIB_SOURCES}
 )
 target_compile_definitions(subs-obj PRIVATE WITH_BROKER)
 target_include_directories(subs-obj PRIVATE ${mosquitto_SOURCE_DIR}/libcommon)
@@ -106,7 +119,6 @@ target_link_libraries(subs-obj PUBLIC common-unit-test-header)
 add_executable(subs-test
     subs_stubs.c
     subs_test.c
-
 )
 
 target_compile_definitions(subs-test PRIVATE WITH_PERSISTENCE WITH_BROKER WITH_SYS_TREE)

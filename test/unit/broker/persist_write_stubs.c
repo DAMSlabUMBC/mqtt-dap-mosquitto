@@ -341,3 +341,15 @@ void metrics__int_dec(enum mosq_metric_type m, int64_t value)
 	UNUSED(m); UNUSED(value);
 }
 #endif
+
+
+/* The real one in src/dap/rights_broker.c needs most of the broker. */
+void broker_send_response_success(const char *publisher_id, const char *operation, const char *corr_data, uint16_t correlation_data_len, const char *payload, char *response_topic)
+{
+	UNUSED(publisher_id);
+	UNUSED(operation);
+	UNUSED(corr_data);
+	UNUSED(correlation_data_len);
+	UNUSED(payload);
+	UNUSED(response_topic);
+}
