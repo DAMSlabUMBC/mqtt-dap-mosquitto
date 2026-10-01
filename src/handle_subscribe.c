@@ -34,12 +34,102 @@ Contributors:
 #include "dap/purpose_filters.h"
 #include "dap/dap_topics.h"
 
-/* Free the strings of a purpose-filter set. */
-static void free_purpose_strings(char **filters, uint32_t count)
+/* A DAP-SP declaration: its purposes, bound to one topic filter by the paper's
+ * <SP>:<topic_filter> form, or to every subscription in the packet when bare. */
+struct sp_decl {
+	char *topic_filter;
+	char **purposes;
+	uint32_t count;
+};
+
+static void free_sp_decls(struct sp_decl *decls, uint32_t count)
 {
 	for(uint32_t i = 0; i < count; i++){
-		mosquitto_FREE(filters[i]);
+		mosquitto_FREE(decls[i].topic_filter);
+		purpose_set_free(decls[i].purposes, decls[i].count);
 	}
+	mosquitto_FREE(decls);
+}
+
+/* Parse one DAP-SP value onto decls. */
+static int add_sp_decl(struct sp_decl **decls, uint32_t *count, const char *value)
+{
+	const char *sep = value ? strchr(value, ':') : NULL;
+	struct sp_decl decl = {NULL, NULL, 0};
+	struct sp_decl *grown;
+	char *sp = NULL;
+	int rc;
+
+	if(sep){
+		sp = mosquitto_strndup(value, (size_t)(sep - value));
+		decl.topic_filter = mosquitto_strdup(sep + 1);
+		if(!sp || !decl.topic_filter){
+			mosquitto_FREE(sp);
+			mosquitto_FREE(decl.topic_filter);
+			return MOSQ_ERR_NOMEM;
+		}
+	}
+	rc = purpose_set_expand(sep ? sp : value, &decl.purposes, &decl.count);
+	mosquitto_FREE(sp);
+	if(rc == MOSQ_ERR_SUCCESS){
+		grown = mosquitto_realloc(*decls, (*count + 1) * sizeof(struct sp_decl));
+		if(grown){
+			*decls = grown;
+			(*decls)[(*count)++] = decl;
+			return MOSQ_ERR_SUCCESS;
+		}
+		rc = MOSQ_ERR_NOMEM;
+	}
+	mosquitto_FREE(decl.topic_filter);
+	purpose_set_free(decl.purposes, decl.count);
+	return rc;
+}
+
+/* The SP the packet declares for topic_filter: the union of its bare declarations
+ * and those bound to topic_filter, sorted. *declared is false when none apply. */
+static int sp_for_topic(const struct sp_decl *decls, uint32_t decl_count, const char *topic_filter,
+		char ***purposes, uint32_t *count, bool *declared)
+{
+	*purposes = NULL;
+	*count = 0;
+	*declared = false;
+	for(uint32_t i = 0; i < decl_count; i++){
+		char **grown;
+
+		if(decls[i].topic_filter && strcmp(decls[i].topic_filter, topic_filter)){
+			continue;
+		}
+		*declared = true;
+		if(decls[i].count == 0){
+			continue;
+		}
+		grown = mosquitto_realloc(*purposes, (*count + decls[i].count) * sizeof(char *));
+		if(!grown){
+			purpose_set_free(*purposes, *count);
+			*purposes = NULL;
+			*count = 0;
+			return MOSQ_ERR_NOMEM;
+		}
+		*purposes = grown;
+		for(uint32_t j = 0; j < decls[i].count; j++){
+			(*purposes)[*count] = mosquitto_strdup(decls[i].purposes[j]);
+			if(!(*purposes)[*count]){
+				purpose_set_free(*purposes, *count);
+				*purposes = NULL;
+				*count = 0;
+				return MOSQ_ERR_NOMEM;
+			}
+			(*count)++;
+		}
+		purpose_set_normalize(*purposes, count);
+		if(*count > MOSQ_DAP_MAX_FILTERS_PER_SUB){
+			purpose_set_free(*purposes, *count);
+			*purposes = NULL;
+			*count = 0;
+			return MOSQ_ERR_MALFORMED_PACKET;
+		}
+	}
+	return MOSQ_ERR_SUCCESS;
 }
 
 
@@ -60,11 +150,8 @@ int handle__subscribe(struct mosquitto *context)
 	struct mosquitto_subscription sub;
 	uint32_t subscription_identifier = 0;
 	/* Purpose filtering (MQTT v5 only) */
-	uint32_t purpose_filter_count = 0;
-	char* purpose_filters[MOSQ_DAP_MAX_FILTERS_PER_SUB];
-	/* MQTT-DAP (paper 4.3): did this v5 packet declare an SP? User properties are
-	 * packet-scoped in MQTT v5, so this is a packet-level fact applied per subscription. */
-	bool has_sp = false;
+	struct sp_decl *sp_decls = NULL;
+	uint32_t sp_decl_count = 0;
 
 	if(!context){
 		return MOSQ_ERR_INVAL;
@@ -116,8 +203,9 @@ int handle__subscribe(struct mosquitto *context)
 			}
 		}
 
-		/* Check for purpose filtering which requires registration at subscribe-time by the subscriber */
-		// Since there can be multiple user properties, loop through entire list
+		/* Collect the DAP-SP declarations. User properties are packet-scoped, so a
+		 * subscription takes the bare ones and those bound to its topic filter. An
+		 * empty SP is a valid consent withdrawal: the subscription then matches nothing. */
 		const mosquitto_property* curr_prop_ptr = properties;
 		while(curr_prop_ptr)
 		{
@@ -129,90 +217,22 @@ int handle__subscribe(struct mosquitto *context)
 			curr_prop_ptr = mosquitto_property_read_string_pair(curr_prop_ptr, MQTT_PROP_USER_PROPERTY, &name, &value, false);
 			if(curr_prop_ptr)
 			{
-				/* Check if this is a purpose filtering property and assign if so */
 				if(name && !strcmp(name, MOSQ_DAP_SP_KEY))
 				{
-					/* The DAP-SP property is present, so the subscriber HAS declared
-					 * an SP - even an empty one. An empty SP is a valid consent
-					 * withdrawal (the subscription then matches nothing, see subs.c
-					 * purpose_filter_count <= 0), NOT a missing declaration. Mark
-					 * has_sp here so the no-SP rejection below does not fire and
-					 * disconnect a subscriber on a withdrawn-purpose rotation window. */
-					has_sp = true;
-
-					/* Parse all purposes this filter describes. An empty/absent value
-					 * parses to zero filters (handled in parse_purpose_filter). */
-					uint32_t num_results = 0;
-					char** purposes = parse_purpose_filter(value, &num_results);
-
-					for(uint32_t i = 0; i < num_results; i++)
-					{
-						/* Verify this isn't a dupe */
-						bool found_dupe = false;
-						for(uint32_t j = 0; j < purpose_filter_count; j++)
-						{
-							if(strcmp(purpose_filters[j], purposes[i]) == 0)
-							{
-								found_dupe = true;
-								break;
-							}
-						}
-
-						/* Skip if it is */
-						if(found_dupe)
-						{
-							continue;
-						}
-
-						/* Verify we haven't exceeded the maximum */
-						if(purpose_filter_count == MOSQ_DAP_MAX_FILTERS_PER_SUB)
-						{
+					rc = add_sp_decl(&sp_decls, &sp_decl_count, value);
+					if(rc){
+						if(rc != MOSQ_ERR_NOMEM){
 							log__printf(NULL, MOSQ_LOG_INFO,
-								"Too many purpose filters from %s, disconnecting.",
+								"Too many purposes in DAP-SP from %s, disconnecting.",
 								context->address);
-
-								/* Free purpose struct and purposes */
-								for(uint32_t j = 0; j < num_results; j++)
-								{
-									mosquitto_FREE(purposes[j]);
-								}
-								mosquitto_FREE(purposes);
-								mosquitto_FREE(name);
-								mosquitto_FREE(value);
-								free_purpose_strings(purpose_filters, purpose_filter_count);
-
-								mosquitto_property_free_all(&properties);
-								return MOSQ_ERR_MALFORMED_PACKET;
+							rc = MOSQ_ERR_MALFORMED_PACKET;
 						}
-
-						/* Store an independent, correctly-sized copy of the filter. */
-						char* filter = purpose_filter_store_dup(purposes[i]);
-						if(!filter)
-						{
-							/* Free purpose struct and purposes */
-							for(uint32_t j = 0; j < num_results; j++)
-							{
-								mosquitto_FREE(purposes[j]);
-							}
-							mosquitto_FREE(purposes);
-							mosquitto_FREE(name);
-							mosquitto_FREE(value);
-							free_purpose_strings(purpose_filters, purpose_filter_count);
-
-							mosquitto_property_free_all(&properties);
-							return MOSQ_ERR_NOMEM;
-						}
-						purpose_filters[purpose_filter_count] = filter;
-						purpose_filter_count++;
-						has_sp = true;
+						mosquitto_FREE(name);
+						mosquitto_FREE(value);
+						free_sp_decls(sp_decls, sp_decl_count);
+						mosquitto_property_free_all(&properties);
+						return rc;
 					}
-
-					/* Free purpose struct and purposes; the kept ones were copied */
-					for(uint32_t i = 0; i < num_results; i++)
-					{
-						mosquitto_FREE(purposes[i]);
-					}
-					mosquitto_FREE(purposes);
 				}
 
 				mosquitto_FREE(name);
@@ -231,7 +251,7 @@ int handle__subscribe(struct mosquitto *context)
 		sub.properties = properties;
 		if(packet__read_string(&context->in_packet, &sub.topic_filter, &slen)){
 			mosquitto_FREE(payload);
-			free_purpose_strings(purpose_filters, purpose_filter_count);
+			free_sp_decls(sp_decls, sp_decl_count);
 			return MOSQ_ERR_MALFORMED_PACKET;
 		}
 
@@ -242,7 +262,7 @@ int handle__subscribe(struct mosquitto *context)
 						context->address);
 				mosquitto_FREE(sub.topic_filter);
 				mosquitto_FREE(payload);
-				free_purpose_strings(purpose_filters, purpose_filter_count);
+				free_sp_decls(sp_decls, sp_decl_count);
 				return MOSQ_ERR_MALFORMED_PACKET;
 			}
 			if(mosquitto_sub_topic_check(sub.topic_filter)){
@@ -251,21 +271,21 @@ int handle__subscribe(struct mosquitto *context)
 						context->address);
 				mosquitto_FREE(sub.topic_filter);
 				mosquitto_FREE(payload);
-				free_purpose_strings(purpose_filters, purpose_filter_count);
+				free_sp_decls(sp_decls, sp_decl_count);
 				return MOSQ_ERR_MALFORMED_PACKET;
 			}
 
 			if(packet__read_byte(&context->in_packet, &sub.options)){
 				mosquitto_FREE(sub.topic_filter);
 				mosquitto_FREE(payload);
-				free_purpose_strings(purpose_filters, purpose_filter_count);
+				free_sp_decls(sp_decls, sp_decl_count);
 				return MOSQ_ERR_MALFORMED_PACKET;
 			}
 			if(sub.options & MQTT_SUB_OPT_NO_LOCAL && !strncmp(sub.topic_filter, "$share/", strlen("$share/"))){
 				mosquitto_FREE(sub.topic_filter);
 				mosquitto_FREE(payload);
 				log__printf(NULL, MOSQ_LOG_INFO, "Protocol error from %s: $share subscription with no-local set.", context->id);
-				free_purpose_strings(purpose_filters, purpose_filter_count);
+				free_sp_decls(sp_decls, sp_decl_count);
 				return MOSQ_ERR_PROTOCOL;
 			}
 
@@ -282,14 +302,14 @@ int handle__subscribe(struct mosquitto *context)
 				if(MQTT_SUB_OPT_GET_NO_LOCAL(sub.options) && !strncmp(sub.topic_filter, "$share/", 7)){
 					mosquitto_FREE(sub.topic_filter);
 					mosquitto_FREE(payload);
-					free_purpose_strings(purpose_filters, purpose_filter_count);
+					free_sp_decls(sp_decls, sp_decl_count);
 					return MOSQ_ERR_PROTOCOL;
 				}
 				retain_handling = MQTT_SUB_OPT_GET_RETAIN_HANDLING(sub.options);
 				if(retain_handling == 0x30 || (sub.options & 0xC0) != 0){
 					mosquitto_FREE(sub.topic_filter);
 					mosquitto_FREE(payload);
-					free_purpose_strings(purpose_filters, purpose_filter_count);
+					free_sp_decls(sp_decls, sp_decl_count);
 					return MOSQ_ERR_MALFORMED_PACKET;
 				}
 			}
@@ -299,7 +319,7 @@ int handle__subscribe(struct mosquitto *context)
 						context->address);
 				mosquitto_FREE(sub.topic_filter);
 				mosquitto_FREE(payload);
-				free_purpose_strings(purpose_filters, purpose_filter_count);
+				free_sp_decls(sp_decls, sp_decl_count);
 				return MOSQ_ERR_MALFORMED_PACKET;
 			}
 			if(qos > context->max_qos){
@@ -314,7 +334,7 @@ int handle__subscribe(struct mosquitto *context)
 				if(!sub_mount){
 					mosquitto_FREE(sub.topic_filter);
 					mosquitto_FREE(payload);
-					free_purpose_strings(purpose_filters, purpose_filter_count);
+					free_sp_decls(sp_decls, sp_decl_count);
 					return MOSQ_ERR_NOMEM;
 				}
 				snprintf(sub_mount, len, "%s%s", context->listener->mount_point, sub.topic_filter);
@@ -344,60 +364,41 @@ int handle__subscribe(struct mosquitto *context)
 					context->id, sub.topic_filter);
 				mosquitto_FREE(sub.topic_filter);
 				mosquitto_FREE(payload);
-				free_purpose_strings(purpose_filters, purpose_filter_count);
+				free_sp_decls(sp_decls, sp_decl_count);
 				return MOSQ_ERR_MALFORMED_PACKET;
 			}
 
 			/* Paper 4.3: every data subscription must declare an SP. Operation-system
-				* topics ($OSYS, $MP_REG, the keyed inboxes) are exempt.
-				* SP is an MQTT v5 user property, so the requirement applies to v5 only. */
+			 * topics ($OP_SYS, $MP_REG, the keyed inboxes) are exempt. SP is an MQTT v5
+			 * user property, so the requirement applies to v5 only. A bound SP names the
+			 * topic filter as the client sent it, before any mount point. */
+			bool has_sp;
+			const char *client_filter = sub.topic_filter;
+			if(context->listener && context->listener->mount_point){
+				client_filter += strlen(context->listener->mount_point);
+			}
+			rc2 = sp_for_topic(sp_decls, sp_decl_count, client_filter,
+					&sub.purpose_filters, &sub.purpose_filter_count, &has_sp);
+			if(rc2){
+				if(rc2 == MOSQ_ERR_MALFORMED_PACKET){
+					log__printf(NULL, MOSQ_LOG_INFO,
+						"Too many purpose filters from %s, disconnecting.",
+						context->address);
+				}
+				mosquitto_FREE(sub.topic_filter);
+				mosquitto_FREE(payload);
+				free_sp_decls(sp_decls, sp_decl_count);
+				return rc2;
+			}
 			if(context->protocol == mosq_p_mqtt5 && !has_sp && !dap_is_op_system_topic(sub.topic_filter)){
 				log__printf(NULL, MOSQ_LOG_INFO,
 					"Subscription from %s to %s lacks a DAP-SP declaration, rejecting.",
 					context->id, sub.topic_filter);
+				purpose_set_free(sub.purpose_filters, sub.purpose_filter_count);
 				mosquitto_FREE(sub.topic_filter);
 				mosquitto_FREE(payload);
-				free_purpose_strings(purpose_filters, purpose_filter_count);
+				free_sp_decls(sp_decls, sp_decl_count);
 				return MOSQ_ERR_MALFORMED_PACKET;
-			}
-
-			/* Setup purpose filters */
-			if(purpose_filter_count > 0)
-			{
-				sub.purpose_filter_count = purpose_filter_count;
-				sub.purpose_filters = mosquitto_calloc(purpose_filter_count, sizeof(char*));
-				if(!sub.purpose_filters){
-					mosquitto_FREE(sub.topic_filter);
-					mosquitto_FREE(payload);
-					free_purpose_strings(purpose_filters, purpose_filter_count);
-					return MOSQ_ERR_NOMEM;
-				}
-
-				for(size_t i = 0; i < purpose_filter_count; i++)
-				{
-					/* MQTT-DAP: each subscription leaf must OWN its purpose-filter
-					 * strings. The packet-scoped purpose_filters[] are freed once
-					 * after the topic-filter loop, so copy (don't borrow) here -
-					 * otherwise every topic filter in a multi-topic SUBSCRIBE shares
-					 * one allocation and session teardown double-frees it
-					 * (subs.c sub__free_purpose_filters). */
-					sub.purpose_filters[i] = mosquitto_strdup(purpose_filters[i]);
-					if(!sub.purpose_filters[i]){
-						for(size_t j = 0; j < i; j++){
-							mosquitto_FREE(sub.purpose_filters[j]);
-						}
-						mosquitto_FREE(sub.purpose_filters);
-						mosquitto_FREE(sub.topic_filter);
-						mosquitto_FREE(payload);
-						free_purpose_strings(purpose_filters, purpose_filter_count);
-						return MOSQ_ERR_NOMEM;
-					}
-				}
-			}
-			else
-			{
-				sub.purpose_filter_count = 0;
-				sub.purpose_filters = NULL;
 			}
 
 			allowed = true;
@@ -414,11 +415,10 @@ int handle__subscribe(struct mosquitto *context)
 					}
 					break;
 				default:
-					free_purpose_strings(sub.purpose_filters, sub.purpose_filter_count);
-					mosquitto_FREE(sub.purpose_filters);
+					purpose_set_free(sub.purpose_filters, sub.purpose_filter_count);
 					mosquitto_FREE(sub.topic_filter);
 					mosquitto_FREE(payload);
-					free_purpose_strings(purpose_filters, purpose_filter_count);
+					free_sp_decls(sp_decls, sp_decl_count);
 					return rc2;
 			}
 			if(qos > 127){
@@ -430,22 +430,20 @@ int handle__subscribe(struct mosquitto *context)
 			if(allowed){
 				rc2 = plugin__handle_subscribe(context, &sub);
 				if(rc2){
-					free_purpose_strings(sub.purpose_filters, sub.purpose_filter_count);
-					mosquitto_FREE(sub.purpose_filters);
+					purpose_set_free(sub.purpose_filters, sub.purpose_filter_count);
 					mosquitto_FREE(sub.topic_filter);
 					mosquitto_FREE(payload);
-					free_purpose_strings(purpose_filters, purpose_filter_count);
+					free_sp_decls(sp_decls, sp_decl_count);
 					return rc2;
 				}
 
 				/* sub__add takes sub.purpose_filters unless it fails. */
 				rc2 = sub__add(context, &sub);
 				if(rc2 > 0){
-					free_purpose_strings(sub.purpose_filters, sub.purpose_filter_count);
-					mosquitto_FREE(sub.purpose_filters);
+					purpose_set_free(sub.purpose_filters, sub.purpose_filter_count);
 					mosquitto_FREE(sub.topic_filter);
 					mosquitto_FREE(payload);
-					free_purpose_strings(purpose_filters, purpose_filter_count);
+					free_sp_decls(sp_decls, sp_decl_count);
 					return rc2;
 				}
 				if(context->protocol == mosq_p_mqtt311 || context->protocol == mosq_p_mqtt31){
@@ -453,7 +451,7 @@ int handle__subscribe(struct mosquitto *context)
 						if(retain__queue(context, &sub)){
 							mosquitto_FREE(sub.topic_filter);
 							mosquitto_FREE(payload);
-							free_purpose_strings(purpose_filters, purpose_filter_count);
+							free_sp_decls(sp_decls, sp_decl_count);
 							return rc;
 						}
 					}
@@ -464,7 +462,7 @@ int handle__subscribe(struct mosquitto *context)
 						if(retain__queue(context, &sub)){
 							mosquitto_FREE(sub.topic_filter);
 							mosquitto_FREE(payload);
-							free_purpose_strings(purpose_filters, purpose_filter_count);
+							free_sp_decls(sp_decls, sp_decl_count);
 							return rc;
 						}
 					}
@@ -473,8 +471,7 @@ int handle__subscribe(struct mosquitto *context)
 
 				plugin_persist__handle_subscription_add(context, &sub);
 			}else{
-				free_purpose_strings(sub.purpose_filters, sub.purpose_filter_count);
-				mosquitto_FREE(sub.purpose_filters);
+				purpose_set_free(sub.purpose_filters, sub.purpose_filter_count);
 			}
 			mosquitto_FREE(sub.topic_filter);
 
@@ -486,15 +483,13 @@ int handle__subscribe(struct mosquitto *context)
 			}else{
 				mosquitto_FREE(payload);
 
-				free_purpose_strings(purpose_filters, purpose_filter_count);
+				free_sp_decls(sp_decls, sp_decl_count);
 				return MOSQ_ERR_NOMEM;
 			}
 		}
 	}
 
-	/* MQTT-DAP: each subscription leaf above took its own strdup'd copy of the
-	 * purpose filters, so free the packet-scoped originals exactly once here. */
-	free_purpose_strings(purpose_filters, purpose_filter_count);
+	free_sp_decls(sp_decls, sp_decl_count);
 
 	if(context->protocol != mosq_p_mqtt31){
 		if(payloadlen == 0){

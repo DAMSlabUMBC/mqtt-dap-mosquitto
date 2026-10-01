@@ -37,6 +37,7 @@ Contributors:
 #include "dap/dap_timestamp.h"
 #include "dap/dap_topics.h"
 #include "dap/dap_metrics.h"
+#include "dap/purpose_filters.h"
 #include "property_common.h"
 #include "property_mosq.h"
 #include "read_handle.h"
@@ -493,26 +494,36 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 	return rc;
 }
 
-/* Register a '<MP>:<topic>' DAP-MP value; a NULL value or one without ':' is malformed. */
+/* Register a '<MP>:<topic>' DAP-MP value; a NULL value, one without ':', or an MP
+ * describing more than PURPOSE_SET_MAX purposes is malformed. */
 static int register_mp_property(const char *client_id, const char *value)
 {
 	const char *sep = value ? strchr(value, ':') : NULL;
-	char *filter, *topic;
+	char *filter, *topic, *mp;
+	int rc;
 
 	if(sep == NULL){
 		return MOSQ_ERR_MALFORMED_PACKET;
 	}
 
 	filter = mosquitto_strndup(value, (size_t)(sep - value));
+	if(!filter){
+		return MOSQ_ERR_NOMEM;
+	}
+	/* Store the MP as its sorted purpose set so matching is a merge. */
+	rc = purpose_filter_canonical(filter, &mp);
+	mosquitto_FREE(filter);
+	if(rc){
+		return rc == MOSQ_ERR_NOMEM ? MOSQ_ERR_NOMEM : MOSQ_ERR_MALFORMED_PACKET;
+	}
 	topic = mosquitto_strdup(sep + 1);
-	if(!filter || !topic){
-		mosquitto_FREE(filter);
-		mosquitto_FREE(topic);
+	if(!topic){
+		mosquitto_FREE(mp);
 		return MOSQ_ERR_NOMEM;
 	}
 
-	mp__register_topic(client_id, topic, filter);
-	mosquitto_FREE(filter);
+	mp__register_topic(client_id, topic, mp);
+	mosquitto_FREE(mp);
 	mosquitto_FREE(topic);
 	return MOSQ_ERR_SUCCESS;
 }

@@ -38,7 +38,7 @@ printf "listener %d 127.0.0.1\nallow_anonymous true\n" "$PORT" > "$OUT/shared.co
 "$BROKER" -c "$OUT/shared.conf" > "$OUT/shared-broker.log" 2>&1 &
 broker_pid=$!
 sleep 1
-run multi_filter_routing_test 127.0.0.1 "$PORT"
+run purpose_matching_test 127.0.0.1 "$PORT"
 run empty_topic_crash_repro 127.0.0.1 "$PORT"
 kill "$broker_pid"
 if wait "$broker_pid"; then

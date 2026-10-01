@@ -388,7 +388,7 @@ def sp_change_case(new_sps, still_allowed):
         sub = Subscriber("subC", receive_maximum=1)
         sub.subscribe("t/c", ["qa"])
         pub = Publisher()
-        pub.register("qa", "t/c")
+        pub.register("qa|qz", "t/c")
         pub.publish("t/c", [], payload=b"m1")
         pub.publish("t/c", [], payload=b"m2")
         first = sub.read_publishes(idle=0.5, ack=False)
@@ -396,7 +396,8 @@ def sp_change_case(new_sps, still_allowed):
 
         sub.subscribe("t/c", new_sps)  # SP version 2 while m2 waits
         sub.puback(first[0][2])
-        pub.register(new_sps[0], "t/c")
+        time.sleep(0.3)  # m2 is re-checked before the MP below changes
+        pub.register("|".join(new_sps), "t/c")
         pub.publish("t/c", [], payload=b"m3")
         got = payloads(sub.read_publishes(), "t/c")
         expected = [b"m2", b"m3"] if still_allowed else [b"m3"]
@@ -423,8 +424,10 @@ def main():
     stale_mp_case()
     drop_then_stale_case()
     qos0_quota_case()
+    # m1 and m2 carry MP qa|qz; an SP is admitted only when the MP permits all of it.
     sp_change_case(["qb"], still_allowed=False)
     sp_change_case(["qa", "qz"], still_allowed=True)
+    sp_change_case(["qa", "qb"], still_allowed=False)
 
     print()
     if failures:

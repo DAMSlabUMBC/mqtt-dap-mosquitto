@@ -151,18 +151,9 @@ bool sub__purpose_allows(const struct mosquitto__subleaf *leaf, const struct mos
 	if(!stored->data.has_purpose_filter){
 		return false;
 	}
-	if(!strcmp(stored->data.purpose_filter, "*")){
-		return true;
-	}
-	/* Reject if the subscription has no purpose filter */
-	if(leaf->purpose_filter_count <= 0){
-		return false;
-	}
-	/* Match the message's MP against the subscription's SP set under match-any
-	 * semantics: the MP (and each SP entry) may carry several alternative filters
-	 * joined by '|', and the message is deliverable when any MP filter equals any SP
-	 * filter. A "*" SP entry matches any publisher purpose. */
-	return purpose_filter_mp_matches_sp(stored->data.purpose_filter,
+	/* Paper 4.2: the MP must permit every purpose of the SP, or be "*". An empty SP
+	 * (consent withdrawn) matches nothing. */
+	return purpose_mp_permits(stored->data.purpose_filter,
 			leaf->purpose_filters, leaf->purpose_filter_count);
 }
 
@@ -256,8 +247,7 @@ static void sub__free_purpose_filters(char **filters, uint32_t count)
 	mosquitto_FREE(filters);
 }
 
-/* True when two purpose-filter sets are identical: same count and same strings in
- * the same order (the order the subscriber sent them). Two empty sets are equal. */
+/* True when two sorted purpose sets are identical. Two empty sets are equal. */
 static bool sub__purpose_filters_equal(char **a, uint32_t na, char **b, uint32_t nb)
 {
 	if(na != nb) return false;

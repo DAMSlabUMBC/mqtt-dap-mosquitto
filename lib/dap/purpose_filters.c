@@ -1,157 +1,262 @@
 #include "config.h"
 
 #include <stdbool.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "util_mosq.h"
 
 #include "purpose_filters.h"
 
-uint32_t parse_one_level(const char *level, char ***out_terms)
-{
-    *out_terms = NULL;
-    uint32_t term_count = 0;
+/* A partially expanded purpose; ended once a '.' term closes it at its parent level. */
+struct pf_expansion {
+    char *str;
+    bool ended;
+};
 
-    size_t len = strlen(level);
-    if (len >= 2 && level[0] == '{' && level[len - 1] == '}')
-    {
-        char *inside = strndup(level + 1, len - 2);
-        char *saveptr = NULL;
-        char *token = strtok_r(inside, ",", &saveptr);
-        while (token)
-        {
-            term_count++;
-            *out_terms = mosquitto_realloc(*out_terms, term_count * sizeof(char*));
-            (*out_terms)[term_count - 1] = strdup(token);
-            token = strtok_r(NULL, ",", &saveptr);
-        }
-        mosquitto_FREE(inside);
+static void pf__free_expansions(struct pf_expansion *list, uint32_t count)
+{
+    for(uint32_t i = 0; i < count; i++){
+        mosquitto_FREE(list[i].str);
     }
-    else
-    {
-        term_count = 1;
-        *out_terms = mosquitto_malloc(sizeof(char*));
-        (*out_terms)[0] = strdup(level);
-    }
-    return term_count;
+    mosquitto_FREE(list);
 }
 
-mosquitto_pf_expansion *combine_expansions(mosquitto_pf_expansion *old_list, uint32_t old_count,
-                                       char **terms, uint32_t term_count,
-                                       uint32_t *out_count)
+/* Append str (owned) to a growable string array. Returns 0 on success; str is freed on failure. */
+static int pf__push(char ***set, uint32_t *count, char *str)
 {
-    mosquitto_pf_expansion *temp = NULL;
-    uint32_t temp_count = 0;
+    char **grown;
 
-    for(uint32_t i = 0; i < old_count; i++)
-    {
-        if(old_list[i].ended)
-        {
-            temp_count++;
-            temp = mosquitto_realloc(temp, temp_count * sizeof(mosquitto_pf_expansion));
-            temp[temp_count - 1].str = strdup(old_list[i].str);
-            temp[temp_count - 1].ended = true;
-            continue;
-        }
+    if(!str) return 1;
+    grown = mosquitto_realloc(*set, (*count + 1) * sizeof(char *));
+    if(!grown){
+        mosquitto_FREE(str);
+        return 1;
+    }
+    *set = grown;
+    (*set)[(*count)++] = str;
+    return 0;
+}
 
-        for(uint32_t j = 0; j < term_count; j++)
-        {
-            const char *t = terms[j];
-            if(strcmp(t, ".") == 0)
-            {
-                temp_count++;
-                temp = mosquitto_realloc(temp, temp_count * sizeof(mosquitto_pf_expansion));
-                temp[temp_count - 1].str = strdup(old_list[i].str);
-                temp[temp_count - 1].ended = true;
+/* The terms of one level: the members of a {a,b} set, or the level itself. */
+static int pf__level_terms(const char *level, size_t len, char ***terms, uint32_t *count)
+{
+    *terms = NULL;
+    *count = 0;
+    if(len >= 2 && level[0] == '{' && level[len-1] == '}'){
+        const char *p = level + 1;
+        const char *end = level + len - 1;
+        while(p <= end){
+            const char *comma = memchr(p, ',', (size_t)(end - p));
+            const char *term_end = comma ? comma : end;
+            if(term_end > p && pf__push(terms, count, mosquitto_strndup(p, (size_t)(term_end - p)))){
+                return 1;
             }
-            else
-            {
-                size_t old_len = strlen(old_list[i].str);
-                if(old_len == 0)
-                {
-                    temp_count++;
-                    temp = mosquitto_realloc(temp, temp_count * sizeof(mosquitto_pf_expansion));
-                    temp[temp_count - 1].str = strdup(t);
-                    temp[temp_count - 1].ended = false;
+            p = term_end + 1;
+        }
+        return 0;
+    }
+    return pf__push(terms, count, mosquitto_strndup(level, len));
+}
+
+static void pf__free_terms(char **terms, uint32_t count)
+{
+    for(uint32_t i = 0; i < count; i++){
+        mosquitto_FREE(terms[i]);
+    }
+    mosquitto_FREE(terms);
+}
+
+/* Expand one filter (no top-level separators) into the purposes it describes,
+ * appending them to out. */
+static int pf__expand_filter(const char *filter, size_t len, char ***out, uint32_t *out_count)
+{
+    struct pf_expansion *exp = mosquitto_calloc(1, sizeof(*exp));
+    uint32_t exp_count = 1;
+    struct pf_expansion *next = NULL;
+    uint32_t next_count = 0;
+    char **terms = NULL;
+    uint32_t term_count = 0;
+    const char *p = filter;
+    const char *end = filter + len;
+    int rc = MOSQ_ERR_NOMEM;
+
+    if(!exp) return MOSQ_ERR_NOMEM;
+    exp[0].str = mosquitto_strdup("");
+    if(!exp[0].str) goto cleanup;
+
+    while(p < end){
+        const char *slash = memchr(p, '/', (size_t)(end - p));
+        const char *level_end = slash ? slash : end;
+
+        if(level_end == p){
+            p = level_end + 1;
+            continue; /* empty level */
+        }
+        if(pf__level_terms(p, (size_t)(level_end - p), &terms, &term_count)) goto cleanup;
+        for(uint32_t i = 0; i < exp_count; i++){
+            for(uint32_t j = 0; j < (exp[i].ended ? 1 : term_count); j++){
+                struct pf_expansion *grown;
+                char *str;
+
+                if(*out_count + next_count >= PURPOSE_SET_MAX){
+                    rc = MOSQ_ERR_INVAL;
+                    goto cleanup;
                 }
-                else
-                {
-                    size_t new_len = old_len + 1 + strlen(t) + 1;
-                    char *buf = mosquitto_malloc(new_len);
-                    snprintf(buf, new_len, "%s/%s", old_list[i].str, t);
-                    temp_count++;
-                    temp = mosquitto_realloc(temp, temp_count * sizeof(mosquitto_pf_expansion));
-                    temp[temp_count - 1].str = buf;
-                    temp[temp_count - 1].ended = false;
+                grown = mosquitto_realloc(next, (next_count + 1) * sizeof(*next));
+                if(!grown) goto cleanup;
+                next = grown;
+                if(exp[i].ended || !strcmp(terms[j], ".")){
+                    /* '.' permits the parent itself; an ended purpose is carried through. */
+                    str = mosquitto_strdup(exp[i].str);
+                    next[next_count].ended = true;
+                }else if(exp[i].str[0] == '\0'){
+                    str = mosquitto_strdup(terms[j]);
+                    next[next_count].ended = false;
+                }else{
+                    size_t n = strlen(exp[i].str) + 1 + strlen(terms[j]) + 1;
+                    str = mosquitto_malloc(n);
+                    if(str) snprintf(str, n, "%s/%s", exp[i].str, terms[j]);
+                    next[next_count].ended = false;
                 }
+                if(!str) goto cleanup;
+                next[next_count++].str = str;
             }
         }
+        pf__free_terms(terms, term_count);
+        terms = NULL;
+        term_count = 0;
+        pf__free_expansions(exp, exp_count);
+        exp = next;
+        exp_count = next_count;
+        next = NULL;
+        next_count = 0;
+        p = level_end + 1;
     }
 
-    *out_count = temp_count;
-    return temp;
+    for(uint32_t i = 0; i < exp_count; i++){
+        if(exp[i].str[0] != '\0'){
+            char *str = exp[i].str;
+            exp[i].str = NULL;
+            if(pf__push(out, out_count, str)) goto cleanup;
+        }
+    }
+    rc = MOSQ_ERR_SUCCESS;
+
+cleanup:
+    pf__free_terms(terms, term_count);
+    pf__free_expansions(next, next_count);
+    pf__free_expansions(exp, exp_count);
+    return rc;
+}
+
+static int pf__strcmp(const void *a, const void *b)
+{
+    return strcmp(*(char *const *)a, *(char *const *)b);
+}
+
+void purpose_set_normalize(char **set, uint32_t *count)
+{
+    uint32_t kept = 0;
+
+    if(!set || *count == 0) return;
+    qsort(set, *count, sizeof(char *), pf__strcmp);
+    for(uint32_t i = 0; i < *count; i++){
+        if(kept > 0 && !strcmp(set[kept-1], set[i])){
+            mosquitto_FREE(set[i]);
+        }else{
+            set[kept++] = set[i];
+        }
+    }
+    *count = kept;
+}
+
+int purpose_set_expand(const char *filters, char ***purposes, uint32_t *count)
+{
+    const char *p = filters;
+    int depth = 0;
+
+    *purposes = NULL;
+    *count = 0;
+    if(!filters) return 0;
+
+    /* Split on '|' or ',' outside braces; ',' inside braces separates set members. */
+    for(const char *c = filters; ; c++){
+        if(*c == '{'){
+            depth++;
+        }else if(*c == '}' && depth > 0){
+            depth--;
+        }else if(*c == '\0' || (depth == 0 && (*c == '|' || *c == ','))){
+            int rc = (c > p) ? pf__expand_filter(p, (size_t)(c - p), purposes, count) : MOSQ_ERR_SUCCESS;
+            if(rc){
+                purpose_set_free(*purposes, *count);
+                *purposes = NULL;
+                *count = 0;
+                return rc;
+            }
+            if(*c == '\0') break;
+            p = c + 1;
+        }
+    }
+    purpose_set_normalize(*purposes, count);
+    return 0;
+}
+
+void purpose_set_free(char **purposes, uint32_t count)
+{
+    if(!purposes) return;
+    for(uint32_t i = 0; i < count; i++){
+        mosquitto_FREE(purposes[i]);
+    }
+    mosquitto_FREE(purposes);
+}
+
+int purpose_filter_canonical(const char *filters, char **canonical)
+{
+    char **set;
+    uint32_t count;
+    size_t len = 1;
+    char *q;
+    int rc;
+
+    *canonical = NULL;
+    rc = purpose_set_expand(filters, &set, &count);
+    if(rc) return rc;
+    for(uint32_t i = 0; i < count; i++){
+        if(!strcmp(set[i], "*")){
+            purpose_set_free(set, count);
+            *canonical = mosquitto_strdup("*");
+            return *canonical ? MOSQ_ERR_SUCCESS : MOSQ_ERR_NOMEM;
+        }
+        len += strlen(set[i]) + 1;
+    }
+    *canonical = mosquitto_malloc(len);
+    if(!*canonical){
+        purpose_set_free(set, count);
+        return MOSQ_ERR_NOMEM;
+    }
+    q = *canonical;
+    for(uint32_t i = 0; i < count; i++){
+        size_t n = strlen(set[i]);
+        if(i > 0) *q++ = '|';
+        memcpy(q, set[i], n);
+        q += n;
+    }
+    *q = '\0';
+    purpose_set_free(set, count);
+    return MOSQ_ERR_SUCCESS;
 }
 
 char **parse_purpose_filter(const char *filter, uint32_t *num_results)
 {
-    /* An empty or absent filter (e.g. a withdrawn DAP-SP, which arrives as a
-     * zero-length user-property value that the property reader surfaces as NULL)
-     * yields zero purpose filters - "matches nothing" consent-withdrawal
-     * semantics (see subs.c, purpose_filter_count <= 0) - rather than
-     * dereferencing NULL in the strdup() below. */
-    if(filter == NULL || filter[0] == '\0')
-    {
+    char **set;
+
+    if(purpose_set_expand(filter, &set, num_results)){
         *num_results = 0;
         return NULL;
     }
-
-    mosquitto_pf_expansion *exp_list = mosquitto_malloc(sizeof(mosquitto_pf_expansion));
-    exp_list[0].str = strdup("");
-    exp_list[0].ended = false;
-    uint32_t exp_count = 1;
-
-    char *copy = strdup(filter);
-    char *saveptr;
-    char *level = strtok_r(copy, "/", &saveptr);
-
-    while(level)
-    {
-        char **terms = NULL;
-        uint32_t tcount = parse_one_level(level, &terms);
-        uint32_t new_count = 0;
-        mosquitto_pf_expansion *new_list = combine_expansions(exp_list, exp_count,
-                                                   terms, tcount, &new_count);
-
-        for(uint32_t i = 0; i < tcount; i++)
-        {
-            mosquitto_FREE(terms[i]);
-        }
-        mosquitto_FREE(terms);
-
-        /* combine_expansions copied what it kept. */
-        for(uint32_t i = 0; i < exp_count; i++)
-        {
-            mosquitto_FREE(exp_list[i].str);
-        }
-        mosquitto_FREE(exp_list);
-
-        exp_list = new_list;
-        exp_count = new_count;
-
-        level = strtok_r(NULL, "/", &saveptr);
-    }
-
-    mosquitto_FREE(copy);
-
-    char **results = mosquitto_malloc(exp_count * sizeof(char*));
-    for(uint32_t i = 0; i < exp_count; i++)
-    {
-        results[i] = exp_list[i].str;
-    }
-    mosquitto_FREE(exp_list);
-
-    *num_results = exp_count;
-    return results;
+    return set;
 }
 
 char *purpose_filter_store_dup(const char *purpose)
@@ -167,46 +272,90 @@ char *purpose_filter_store_dup(const char *purpose)
     return filter;
 }
 
-/* True if any '|'-separated filter of mp equals any '|'-separated filter of sp. */
-static bool pf__filters_intersect(const char *mp, const char *sp)
-{
-    char *mp_copy = strdup(mp);
-    if(!mp_copy) return false;
+/* A cursor over the '|'-separated purposes of a canonical set. */
+struct pf_cursor {
+    const char *p;
+    const char *tok;
+    size_t len;
+};
 
-    bool found = false;
-    char *mp_save = NULL;
-    for(char *m = strtok_r(mp_copy, "|", &mp_save); m && !found; m = strtok_r(NULL, "|", &mp_save))
-    {
-        char *sp_copy = strdup(sp);
-        if(!sp_copy) break;
-        char *sp_save = NULL;
-        for(char *s = strtok_r(sp_copy, "|", &sp_save); s; s = strtok_r(NULL, "|", &sp_save))
-        {
-            if(strcmp(m, s) == 0)
-            {
-                found = true;
-                break;
-            }
-        }
-        free(sp_copy);
-    }
-    free(mp_copy);
-    return found;
+static bool pf__next(struct pf_cursor *c)
+{
+    const char *bar;
+
+    if(!c->p || *c->p == '\0') return false;
+    bar = strchr(c->p, '|');
+    c->tok = c->p;
+    c->len = bar ? (size_t)(bar - c->p) : strlen(c->p);
+    c->p = bar ? bar + 1 : NULL;
+    return true;
 }
 
-bool purpose_filter_mp_matches_sp(const char *mp, char *const *sp_filters, uint32_t sp_count)
+/* strcmp order between a canonical token and a purpose. */
+static int pf__tokcmp(const struct pf_cursor *c, const char *purpose)
 {
-    if(!mp || mp[0] == '\0' || !sp_filters || sp_count == 0)
-    {
-        return false;
-    }
+    size_t plen = strlen(purpose);
+    int r = memcmp(c->tok, purpose, c->len < plen ? c->len : plen);
+    if(r) return r;
+    return (c->len > plen) - (c->len < plen);
+}
 
-    for(uint32_t i = 0; i < sp_count; i++)
-    {
-        const char *sp = sp_filters[i];
-        if(!sp) continue;
-        if(strcmp(sp, "*") == 0) return true;       /* allow-all SP entry */
-        if(pf__filters_intersect(mp, sp)) return true;
+/* True when every purpose of the sorted set is in the canonical set (or the canonical
+ * set is "*"); with exclude, also none of them may be in exclude. */
+static bool pf__subset(const char *canonical, char *const *sorted, uint32_t n, bool exclude)
+{
+    struct pf_cursor c = {canonical, NULL, 0};
+    bool have = pf__next(&c);
+
+    for(uint32_t i = 0; i < n; i++){
+        while(have && pf__tokcmp(&c, sorted[i]) < 0){
+            have = pf__next(&c);
+        }
+        if(have && pf__tokcmp(&c, sorted[i]) == 0){
+            if(exclude) return false;
+        }else if(!exclude){
+            return false;
+        }
+    }
+    return true;
+}
+
+bool purpose_mp_permits(const char *mp, char *const *sp, uint32_t sp_count)
+{
+    if(!mp || !sp || sp_count == 0) return false;
+    if(!strcmp(mp, "*")) return true;
+    return pf__subset(mp, sp, sp_count, false);
+}
+
+bool purpose_mp_permits_unrevoked(const char *mp, const char *revoked, char *const *sp, uint32_t sp_count)
+{
+    if(!purpose_mp_permits(mp, sp, sp_count)) return false;
+    if(!revoked || revoked[0] == '\0') return true;
+    if(!strcmp(revoked, "*")) return false;
+    return pf__subset(revoked, sp, sp_count, true);
+}
+
+bool purpose_sets_intersect(const char *a, const char *b)
+{
+    struct pf_cursor ca = {a, NULL, 0};
+    struct pf_cursor cb = {b, NULL, 0};
+    bool have_a, have_b;
+
+    if(!a || !b || a[0] == '\0' || b[0] == '\0') return false;
+    if(!strcmp(a, "*") || !strcmp(b, "*")) return true;
+
+    have_a = pf__next(&ca);
+    have_b = pf__next(&cb);
+    while(have_a && have_b){
+        size_t n = ca.len < cb.len ? ca.len : cb.len;
+        int r = memcmp(ca.tok, cb.tok, n);
+        if(!r) r = (ca.len > cb.len) - (ca.len < cb.len);
+        if(!r) return true;
+        if(r < 0){
+            have_a = pf__next(&ca);
+        }else{
+            have_b = pf__next(&cb);
+        }
     }
     return false;
 }
