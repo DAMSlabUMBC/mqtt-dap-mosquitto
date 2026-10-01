@@ -34,6 +34,15 @@ Contributors:
 #include "dap/purpose_filters.h"
 #include "dap/dap_topics.h"
 
+/* Free the strings of a purpose-filter set. */
+static void free_purpose_strings(char **filters, uint32_t count)
+{
+	for(uint32_t i = 0; i < count; i++){
+		mosquitto_FREE(filters[i]);
+	}
+}
+
+
 int handle__subscribe(struct mosquitto *context)
 {
 	int rc = 0;
@@ -220,6 +229,7 @@ int handle__subscribe(struct mosquitto *context)
 		sub.properties = properties;
 		if(packet__read_string(&context->in_packet, &sub.topic_filter, &slen)){
 			mosquitto_FREE(payload);
+			free_purpose_strings(purpose_filters, purpose_filter_count);
 			return MOSQ_ERR_MALFORMED_PACKET;
 		}
 
@@ -230,6 +240,7 @@ int handle__subscribe(struct mosquitto *context)
 						context->address);
 				mosquitto_FREE(sub.topic_filter);
 				mosquitto_FREE(payload);
+				free_purpose_strings(purpose_filters, purpose_filter_count);
 				return MOSQ_ERR_MALFORMED_PACKET;
 			}
 			if(mosquitto_sub_topic_check(sub.topic_filter)){
@@ -238,18 +249,21 @@ int handle__subscribe(struct mosquitto *context)
 						context->address);
 				mosquitto_FREE(sub.topic_filter);
 				mosquitto_FREE(payload);
+				free_purpose_strings(purpose_filters, purpose_filter_count);
 				return MOSQ_ERR_MALFORMED_PACKET;
 			}
 
 			if(packet__read_byte(&context->in_packet, &sub.options)){
 				mosquitto_FREE(sub.topic_filter);
 				mosquitto_FREE(payload);
+				free_purpose_strings(purpose_filters, purpose_filter_count);
 				return MOSQ_ERR_MALFORMED_PACKET;
 			}
 			if(sub.options & MQTT_SUB_OPT_NO_LOCAL && !strncmp(sub.topic_filter, "$share/", strlen("$share/"))){
 				mosquitto_FREE(sub.topic_filter);
 				mosquitto_FREE(payload);
 				log__printf(NULL, MOSQ_LOG_INFO, "Protocol error from %s: $share subscription with no-local set.", context->id);
+				free_purpose_strings(purpose_filters, purpose_filter_count);
 				return MOSQ_ERR_PROTOCOL;
 			}
 
@@ -266,12 +280,14 @@ int handle__subscribe(struct mosquitto *context)
 				if(MQTT_SUB_OPT_GET_NO_LOCAL(sub.options) && !strncmp(sub.topic_filter, "$share/", 7)){
 					mosquitto_FREE(sub.topic_filter);
 					mosquitto_FREE(payload);
+					free_purpose_strings(purpose_filters, purpose_filter_count);
 					return MOSQ_ERR_PROTOCOL;
 				}
 				retain_handling = MQTT_SUB_OPT_GET_RETAIN_HANDLING(sub.options);
 				if(retain_handling == 0x30 || (sub.options & 0xC0) != 0){
 					mosquitto_FREE(sub.topic_filter);
 					mosquitto_FREE(payload);
+					free_purpose_strings(purpose_filters, purpose_filter_count);
 					return MOSQ_ERR_MALFORMED_PACKET;
 				}
 			}
@@ -281,6 +297,7 @@ int handle__subscribe(struct mosquitto *context)
 						context->address);
 				mosquitto_FREE(sub.topic_filter);
 				mosquitto_FREE(payload);
+				free_purpose_strings(purpose_filters, purpose_filter_count);
 				return MOSQ_ERR_MALFORMED_PACKET;
 			}
 			if(qos > context->max_qos){
@@ -295,6 +312,7 @@ int handle__subscribe(struct mosquitto *context)
 				if(!sub_mount){
 					mosquitto_FREE(sub.topic_filter);
 					mosquitto_FREE(payload);
+					free_purpose_strings(purpose_filters, purpose_filter_count);
 					return MOSQ_ERR_NOMEM;
 				}
 				snprintf(sub_mount, len, "%s%s", context->listener->mount_point, sub.topic_filter);
@@ -324,6 +342,7 @@ int handle__subscribe(struct mosquitto *context)
 					context->id, sub.topic_filter);
 				mosquitto_FREE(sub.topic_filter);
 				mosquitto_FREE(payload);
+				free_purpose_strings(purpose_filters, purpose_filter_count);
 				return MOSQ_ERR_MALFORMED_PACKET;
 			}
 
@@ -336,6 +355,7 @@ int handle__subscribe(struct mosquitto *context)
 					context->id, sub.topic_filter);
 				mosquitto_FREE(sub.topic_filter);
 				mosquitto_FREE(payload);
+				free_purpose_strings(purpose_filters, purpose_filter_count);
 				return MOSQ_ERR_MALFORMED_PACKET;
 			}
 
@@ -347,6 +367,7 @@ int handle__subscribe(struct mosquitto *context)
 				if(!sub.purpose_filters){
 					mosquitto_FREE(sub.topic_filter);
 					mosquitto_FREE(payload);
+					free_purpose_strings(purpose_filters, purpose_filter_count);
 					return MOSQ_ERR_NOMEM;
 				}
 
@@ -366,9 +387,7 @@ int handle__subscribe(struct mosquitto *context)
 						mosquitto_FREE(sub.purpose_filters);
 						mosquitto_FREE(sub.topic_filter);
 						mosquitto_FREE(payload);
-						for(uint32_t k = 0; k < purpose_filter_count; k++){
-							mosquitto_FREE(purpose_filters[k]);
-						}
+						free_purpose_strings(purpose_filters, purpose_filter_count);
 						return MOSQ_ERR_NOMEM;
 					}
 				}
@@ -393,8 +412,11 @@ int handle__subscribe(struct mosquitto *context)
 					}
 					break;
 				default:
+					free_purpose_strings(sub.purpose_filters, sub.purpose_filter_count);
+					mosquitto_FREE(sub.purpose_filters);
 					mosquitto_FREE(sub.topic_filter);
 					mosquitto_FREE(payload);
+					free_purpose_strings(purpose_filters, purpose_filter_count);
 					return rc2;
 			}
 			if(qos > 127){
@@ -406,15 +428,22 @@ int handle__subscribe(struct mosquitto *context)
 			if(allowed){
 				rc2 = plugin__handle_subscribe(context, &sub);
 				if(rc2){
+					free_purpose_strings(sub.purpose_filters, sub.purpose_filter_count);
+					mosquitto_FREE(sub.purpose_filters);
 					mosquitto_FREE(sub.topic_filter);
 					mosquitto_FREE(payload);
+					free_purpose_strings(purpose_filters, purpose_filter_count);
 					return rc2;
 				}
 
+				/* sub__add takes sub.purpose_filters unless it fails. */
 				rc2 = sub__add(context, &sub);
 				if(rc2 > 0){
+					free_purpose_strings(sub.purpose_filters, sub.purpose_filter_count);
+					mosquitto_FREE(sub.purpose_filters);
 					mosquitto_FREE(sub.topic_filter);
 					mosquitto_FREE(payload);
+					free_purpose_strings(purpose_filters, purpose_filter_count);
 					return rc2;
 				}
 				if(context->protocol == mosq_p_mqtt311 || context->protocol == mosq_p_mqtt31){
@@ -422,6 +451,7 @@ int handle__subscribe(struct mosquitto *context)
 						if(retain__queue(context, &sub)){
 							mosquitto_FREE(sub.topic_filter);
 							mosquitto_FREE(payload);
+							free_purpose_strings(purpose_filters, purpose_filter_count);
 							return rc;
 						}
 					}
@@ -432,6 +462,7 @@ int handle__subscribe(struct mosquitto *context)
 						if(retain__queue(context, &sub)){
 							mosquitto_FREE(sub.topic_filter);
 							mosquitto_FREE(payload);
+							free_purpose_strings(purpose_filters, purpose_filter_count);
 							return rc;
 						}
 					}
@@ -439,6 +470,9 @@ int handle__subscribe(struct mosquitto *context)
 				log__printf(NULL, MOSQ_LOG_SUBSCRIBE, "%s %d %s", context->id, qos, sub.topic_filter);
 
 				plugin_persist__handle_subscription_add(context, &sub);
+			}else{
+				free_purpose_strings(sub.purpose_filters, sub.purpose_filter_count);
+				mosquitto_FREE(sub.purpose_filters);
 			}
 			mosquitto_FREE(sub.topic_filter);
 
@@ -450,6 +484,7 @@ int handle__subscribe(struct mosquitto *context)
 			}else{
 				mosquitto_FREE(payload);
 
+				free_purpose_strings(purpose_filters, purpose_filter_count);
 				return MOSQ_ERR_NOMEM;
 			}
 		}
@@ -457,9 +492,7 @@ int handle__subscribe(struct mosquitto *context)
 
 	/* MQTT-DAP: each subscription leaf above took its own strdup'd copy of the
 	 * purpose filters, so free the packet-scoped originals exactly once here. */
-	for(uint32_t i = 0; i < purpose_filter_count; i++){
-		mosquitto_FREE(purpose_filters[i]);
-	}
+	free_purpose_strings(purpose_filters, purpose_filter_count);
 
 	if(context->protocol != mosq_p_mqtt31){
 		if(payloadlen == 0){

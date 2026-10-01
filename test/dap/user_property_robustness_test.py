@@ -71,8 +71,8 @@ def publish_packet(props, topic="robust/data"):
     return mosq_test.gen_publish(topic, qos=1, mid=1, payload=b"x", proto_ver=5, properties=props)
 
 
-def subscribe_packet(props):
-    return mosq_test.gen_subscribe(1, "robust/data", 0, proto_ver=5, properties=props)
+def subscribe_packet(props, topic="robust/data"):
+    return mosq_test.gen_subscribe(1, topic, 0, proto_ver=5, properties=props)
 
 
 def positive_control():
@@ -117,6 +117,8 @@ CASES = [
     ("SUBSCRIBE with an empty-key user property", subscribe_packet(user_props(("", "p"), (SP_KEY, "qa")))),
     ("SUBSCRIBE with an empty DAP-SP value", subscribe_packet(user_props((SP_KEY, "")))),
     ("SUBSCRIBE with an empty key and value", subscribe_packet(user_props(("", ""), (SP_KEY, "qa")))),
+    ("SUBSCRIBE with a DAP-SP and an invalid topic filter",
+     subscribe_packet(user_props((SP_KEY, "qa")), topic="robust/#/data")),
 ]
 
 
