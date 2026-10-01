@@ -1793,6 +1793,17 @@ static int db__message_write_inflight_out_single(struct mosquitto *context, stru
 	uint32_t expiry_interval;
 	uint32_t subscription_id;
 
+	/* Only messages waiting to be written. The DAP re-pass in
+	 * db__message_write_inflight_out_all also walks messages that were already sent
+	 * and are waiting for an ack; those are left to the ack. */
+	if(client_msg->data.state != mosq_ms_publish_qos0
+			&& client_msg->data.state != mosq_ms_publish_qos1
+			&& client_msg->data.state != mosq_ms_publish_qos2
+			&& client_msg->data.state != mosq_ms_resend_pubrel){
+
+		return MOSQ_ERR_SUCCESS;
+	}
+
 	base_msg = client_msg->base_msg;
 
 	expiry_interval = 0;
