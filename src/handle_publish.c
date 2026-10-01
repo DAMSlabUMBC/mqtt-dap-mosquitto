@@ -491,6 +491,30 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 	return rc;
 }
 
+/* Register a '<MP>:<topic>' DAP-MP value; a NULL value or one without ':' is malformed. */
+static int register_mp_property(const char *client_id, const char *value)
+{
+	const char *sep = value ? strchr(value, ':') : NULL;
+	char *filter, *topic;
+
+	if(sep == NULL){
+		return MOSQ_ERR_MALFORMED_PACKET;
+	}
+
+	filter = mosquitto_strndup(value, (size_t)(sep - value));
+	topic = mosquitto_strdup(sep + 1);
+	if(!filter || !topic){
+		mosquitto_FREE(filter);
+		mosquitto_FREE(topic);
+		return MOSQ_ERR_NOMEM;
+	}
+
+	mp__register_topic(client_id, topic, filter);
+	mosquitto_FREE(filter);
+	mosquitto_FREE(topic);
+	return MOSQ_ERR_SUCCESS;
+}
+
 int handle__publish(struct mosquitto *context)
 {
 	uint8_t dup;
@@ -650,37 +674,24 @@ int handle__publish(struct mosquitto *context)
 
 		/* 2.1: property__process_publish moved user props to base_msg->data.properties. */
 
-		/* Immediately check for consent and disallow if not given */
+		/* Immediately check for consent: the first DAP-Allow decides, only "1" gives it */
 		const mosquitto_property *curr_prop_ptr = base_msg->data.properties;
+		bool consent_seen = false;
 		bool consent_given = false;
-		while(curr_prop_ptr)
+		while(curr_prop_ptr && !consent_seen)
 		{
-			/* Parse the current property name/value */
 			char *name, *value;
 
 			curr_prop_ptr = mosquitto_property_read_string_pair(curr_prop_ptr, MQTT_PROP_USER_PROPERTY, &name, &value, false );
 			if(curr_prop_ptr)
 			{
-				/* Check if this is the consent property */
-				if(!strcmp(name, MOSQ_DAP_CONSENT_KEY))
+				if(name && !strcmp(name, MOSQ_DAP_CONSENT_KEY))
 				{
-					/* If value is "1", consent given, keep processing. Otherwise reject */
-					if(!strcmp(value, "1"))
-					{
-						consent_given = true;
-						break;
-					}
-					else
-					{
-						log__printf(NULL, MOSQ_LOG_INFO,
-							"Consent not given for packet from %s, rejecting.",
-							context->id);
-						mosquitto_property_free_all(&properties);
-						db__msg_store_free(base_msg);
-						return MOSQ_ERR_MALFORMED_PACKET;
-					}
+					consent_seen = true;
+					consent_given = (value && !strcmp(value, "1"));
 				}
-				/* Move to the next property */
+				mosquitto_FREE(name);
+				mosquitto_FREE(value);
 				curr_prop_ptr = curr_prop_ptr->next;
 			}
 		}
@@ -702,50 +713,25 @@ int handle__publish(struct mosquitto *context)
 			const mosquitto_property *curr_prop_ptr = base_msg->data.properties;
 			while(curr_prop_ptr)
 			{
-				/* Parse the current property name/value */
+				/* Parse the current property name/value; NULL when empty */
 				char *name, *value;
 				curr_prop_ptr = mosquitto_property_read_string_pair(curr_prop_ptr, MQTT_PROP_USER_PROPERTY, &name, &value, false );
 				if(curr_prop_ptr)
 				{
-					/* Check if this is a DAP-MP property */
-					if(!strcmp(name, MOSQ_DAP_MP_KEY))
+					int reg_rc = MOSQ_ERR_SUCCESS;
+
+					/* Register each DAP-MP property's topic to purpose filter mapping */
+					if(name && !strcmp(name, MOSQ_DAP_MP_KEY))
 					{
-						char *temp, *filter, *topic = NULL;
-
-						/* In Registration by Message, MP is of the form '<MP>:<topic> */
-						temp = strchr(value, ':');
-
-						if (temp == NULL)
-						{
-							mosquitto_property_free_all(&properties);
-							db__msg_store_free(base_msg);
-							return MOSQ_ERR_MALFORMED_PACKET;
-						}
-
-						uint32_t index = (uint32_t)(temp - value);
-						temp++; /* Skip the ':' */
-						
-						// Allocate memory for topic and purpose
-						filter = mosquitto_malloc(index + 1);
-						topic = mosquitto_malloc(strlen(temp) + 1);
-						if(!filter || !topic)
-						{
-							mosquitto_FREE(filter);
-							mosquitto_FREE(topic);
-							mosquitto_property_free_all(&properties);
-							db__msg_store_free(base_msg);
-							return MOSQ_ERR_NOMEM;
-						}
-
-						// Copy
-						filter = strncpy(filter, value, index);
-						filter[index] = '\0';
-						topic = strcpy(topic, temp);
-
-						/* Register the topic to purpose filter mapping */
-						mp__register_topic(context->id, topic, filter);
-						mosquitto_FREE(filter);
-						mosquitto_FREE(topic);
+						reg_rc = register_mp_property(context->id, value);
+					}
+					mosquitto_FREE(name);
+					mosquitto_FREE(value);
+					if(reg_rc)
+					{
+						mosquitto_property_free_all(&properties);
+						db__msg_store_free(base_msg);
+						return reg_rc;
 					}
 					/* Move to the next property */
 					curr_prop_ptr = curr_prop_ptr->next;

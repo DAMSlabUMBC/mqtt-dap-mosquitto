@@ -112,7 +112,7 @@ int handle__subscribe(struct mosquitto *context)
 		const mosquitto_property* curr_prop_ptr = properties;
 		while(curr_prop_ptr)
 		{
-			/* Parse current property */
+			/* Parse current property; name/value are NULL when empty */
 			char* name;
 			char* value;
 
@@ -121,7 +121,7 @@ int handle__subscribe(struct mosquitto *context)
 			if(curr_prop_ptr)
 			{
 				/* Check if this is a purpose filtering property and assign if so */
-				if(!strcmp(name, MOSQ_DAP_SP_KEY))
+				if(name && !strcmp(name, MOSQ_DAP_SP_KEY))
 				{
 					/* The DAP-SP property is present, so the subscriber HAS declared
 					 * an SP - even an empty one. An empty SP is a valid consent
@@ -168,6 +168,8 @@ int handle__subscribe(struct mosquitto *context)
 									mosquitto_FREE(purposes[j]);
 								}
 								mosquitto_FREE(purposes);
+								mosquitto_FREE(name);
+								mosquitto_FREE(value);
 
 								mosquitto_property_free_all(&properties);
 								return MOSQ_ERR_MALFORMED_PACKET;
@@ -183,6 +185,8 @@ int handle__subscribe(struct mosquitto *context)
 								mosquitto_FREE(purposes[j]);
 							}
 							mosquitto_FREE(purposes);
+							mosquitto_FREE(name);
+							mosquitto_FREE(value);
 
 							mosquitto_property_free_all(&properties);
 							return MOSQ_ERR_NOMEM;
@@ -192,10 +196,16 @@ int handle__subscribe(struct mosquitto *context)
 						has_sp = true;
 					}
 
-					/* Free purpose struct. Purposes themselves are free'd later*/
+					/* Free purpose struct and purposes; the kept ones were copied */
+					for(uint32_t i = 0; i < num_results; i++)
+					{
+						mosquitto_FREE(purposes[i]);
+					}
 					mosquitto_FREE(purposes);
 				}
 
+				mosquitto_FREE(name);
+				mosquitto_FREE(value);
 				curr_prop_ptr = curr_prop_ptr->next;
 			}
 		}

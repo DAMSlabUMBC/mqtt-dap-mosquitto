@@ -112,8 +112,9 @@ time_t dap_persist__recv_time(const mosquitto_property *properties)
 	char *name, *value;
 
 	while((p = mosquitto_property_read_string_pair(p, MQTT_PROP_USER_PROPERTY, &name, &value, false)) != NULL){
-		bool found = !strcmp(name, MOSQ_DAP_TIMESTAMP_KEY);
-		if(found){
+		/* name/value are NULL when the key/value is empty. */
+		bool found = name && !strcmp(name, MOSQ_DAP_TIMESTAMP_KEY);
+		if(found && value){
 			recv_time = (time_t)strtoll(value, NULL, 10);
 		}
 		mosquitto_FREE(name);
