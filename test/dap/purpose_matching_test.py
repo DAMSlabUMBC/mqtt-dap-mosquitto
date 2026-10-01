@@ -90,9 +90,11 @@ def rejection_cases():
     sub = client("subR")
     time.sleep(0.2)
     sub.subscribe("pr/#", qos=1, properties=props(PacketTypes.SUBSCRIBE, [("DAP-SP", "qa")]))
-    c.publish("$MP_REG", payload="", qos=0,
-              properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1"), ("DAP-MP", "qa:pr/ok")]))
+    reg = c.publish("$MP_REG", payload="", qos=1,
+                    properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1"), ("DAP-MP", "qa:pr/ok")]))
+    reg.wait_for_publish(5)
     time.sleep(0.3)
+    check(acks.get(reg.mid) == 0, "a QoS 1 registration is acknowledged (%s)" % acks.get(reg.mid))
     no_consent = c.publish("pr/ok", payload=b"x", qos=1, properties=props(PacketTypes.PUBLISH, []))
     no_mp = c.publish("pr/none", payload=b"y", qos=1, properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1")]))
     ok = c.publish("pr/ok", payload=b"z", qos=1, properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1")]))
@@ -107,8 +109,8 @@ def rejection_cases():
           "the publisher stays connected and its valid data is accepted")
     check(received["subR"] == ["pr/ok"], "only the valid data is delivered (got %s)" % received["subR"])
     for cl in (c, sub):
-        cl.loop_stop()
         cl.disconnect()
+        cl.loop_stop()
 
 
 def client_id_case():
@@ -130,8 +132,8 @@ def client_id_case():
     time.sleep(0.5)
     check(got == [["pubC2"], ["pubC2"]], "data carries the publisher's own ID, added or corrected (got %s)" % got)
     for cl in (sub, pub):
-        cl.loop_stop()
         cl.disconnect()
+        cl.loop_stop()
 
 
 def main():

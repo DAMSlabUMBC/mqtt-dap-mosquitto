@@ -841,10 +841,9 @@ int handle__publish(struct mosquitto *context, const struct dap_receipt *receipt
 				}
 			}
 
-			/* Do not forward this registration message */
+			/* Acknowledge this registration message, but do not forward it */
 			mosquitto_property_free_all(&properties);
-			db__msg_store_free(base_msg);
-			return MOSQ_ERR_SUCCESS;
+			return process_bad_message(context, base_msg, MQTT_RC_SUCCESS);
 		}
 		else
 		{
