@@ -148,6 +148,7 @@ static int dap__add_operation(struct dap_pending_ops *map,
     /* Link at the head of the publisher's op list. */
     op->next = entry->ops;
     entry->ops = op;
+    if(order > entry->max_order) entry->max_order = order;
     return 0;
 }
 
@@ -249,6 +250,11 @@ int dap_pending_ops_remove_operation_by_id(struct dap_pending_ops *map, uint64_t
                     HASH_DEL(map->publishers, entry);
                     mosquitto_FREE(entry->pub_id);
                     mosquitto_FREE(entry);
+                }else{
+                    entry->max_order = 0;
+                    for(op = entry->ops; op; op = op->next){
+                        if(op->order > entry->max_order) entry->max_order = op->order;
+                    }
                 }
                 return 0;
             }
@@ -329,7 +335,7 @@ enum dap_op_action dap_pending_ops_match(struct dap_pending_ops *map,
     if(!map || !pub_id) return DAP_OP_ACTION_NONE;
 
     struct dap_pub_entry *entry = dap__find_publisher(map, pub_id);
-    if(!entry) return DAP_OP_ACTION_NONE;
+    if(!entry || msg_order > entry->max_order) return DAP_OP_ACTION_NONE;
 
     /* Scan the publisher's ops, letting a DELETE win outright and otherwise
      * keeping the most recent matching RESTRICT. */

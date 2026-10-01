@@ -304,6 +304,18 @@ static void test_remove_operation(void)
     assert(op_count(&map, "pub1") == 1);
     assert(match(&map, "pub1", "t/a", "p", "sub1", 50, NULL, NULL) == DAP_OP_ACTION_RESTRICT);
 
+    /* With the newer op gone, older ops still decide older messages. */
+    uint64_t old_id = 0;
+    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 100, "*", "*", "*", &old_id);
+    uint64_t new_id = 0;
+    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 900, "*", "*", "*", &new_id);
+    assert(match(&map, "pub1", "t/a", "p", "sub1", 500, NULL, NULL) == DAP_OP_ACTION_DROP);
+    assert(dap_pending_ops_remove_operation_by_id(&map, new_id) == 0);
+    assert(match(&map, "pub1", "t/a", "p", "sub1", 500, NULL, NULL) == DAP_OP_ACTION_NONE);
+    assert(match(&map, "pub1", "t/a", "p", "sub1", 150, NULL, NULL) == DAP_OP_ACTION_RESTRICT);
+    assert(match(&map, "pub1", "t/a", "p", "sub1", 50, NULL, NULL) == DAP_OP_ACTION_DROP);
+    assert(dap_pending_ops_remove_operation_by_id(&map, old_id) == 0);
+
     /* Removing an unknown id is reported as a failure. */
     assert(dap_pending_ops_remove_operation_by_id(&map, 9999) != 0);
 

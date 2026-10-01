@@ -49,6 +49,7 @@ struct dap_pending_op {
 struct dap_pub_entry {
     char *pub_id;               /* hash key */
     struct dap_pending_op *ops; /* head of this publisher's op list */
+    uint64_t max_order;         /* the latest op's order: newer messages skip the list */
     UT_hash_handle hh;
 };
 
