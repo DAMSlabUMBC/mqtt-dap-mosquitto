@@ -60,6 +60,7 @@ static struct dap__op_property* initialize_dap_properties()
 	dap_op_properties->op_client_filters = NULL;
 	dap_op_properties->op_before = 0;
 	dap_op_properties->op_after = 0;
+	dap_op_properties->op_deadline = 0;
 	dap_op_properties->correlation_data = NULL;
 	dap_op_properties->correlation_data_len = 0;
 	dap_op_properties->response_topic = NULL;
@@ -159,6 +160,24 @@ static int process_bad_message(struct mosquitto *context, struct mosquitto__base
 		rc = MQTT_RC_QUOTA_EXCEEDED;
 	}
 	return rc;
+}
+
+
+/* True for the operations whose workflow involves subscribers (paper 6.2). */
+static bool is_subscriber_operation(const char *op)
+{
+	return !strcmp(op, MOSQ_DAP_OP_DELETE) || !strcmp(op, MOSQ_DAP_OP_RESTRICT)
+		|| !strcmp(op, MOSQ_DAP_OP_HISTORY) || !strcmp(op, MOSQ_DAP_OP_UPDATE);
+}
+
+/* The deadline of an operation received at `received`: the one it requests, or
+ * the default. 0 when the requested deadline has already passed. */
+static time_t operation_deadline(const struct dap__op_property *dap_op_properties, time_t received)
+{
+	if(dap_op_properties->op_deadline == 0){
+		return received + MOSQ_DAP_DEFAULT_DEADLINE_SECS;
+	}
+	return dap_op_properties->op_deadline > received ? dap_op_properties->op_deadline : 0;
 }
 
 
@@ -265,6 +284,14 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 				ri__register_info(context->id, stored->data.payload);
 			}
 
+			/* Paper 6.3: an operation that involves subscribers needs a deadline still ahead. */
+			else if(is_subscriber_operation(dap_op_properties->op_id)
+					&& operation_deadline(dap_op_properties, stored->dap_recv_time) == 0)
+			{
+				dap_op_set_reason(dap_op_properties, "Deadline has passed");
+				broker_send_response_failure(context->id, dap_op_properties);
+			}
+
 			/* DELETE and RESTRICT also apply to queued data, through the pending-operation map. */
 			else if(!strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_DELETE) || !strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_RESTRICT))
 			{
@@ -291,12 +318,11 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 
 					struct dr_sublist *relevant = dr__find_relevant_subscribers(context->id, dap_op_properties);
 
-					/* Assign a deadline relative to the receipt timestamp, forward to the
-						* relevant subs on their ORS, register the op with the deadline
-						* tracker, and echo a Pending ack (op id + deadline) to the requester.
-						* The final Success/Failure is settled by the deadline sweep (loop.c)
-						* and the status path, not synchronously here. */
-					time_t deadline = stored->dap_recv_time + MOSQ_DAP_DEFAULT_DEADLINE_SECS;
+					/* Forward to the relevant subs on their ORS, register the op with the
+						* deadline tracker, and echo a Pending ack (op id + deadline) to the
+						* requester. The final Success/Failure is settled by the deadline
+						* sweep (loop.c) and the status path, not synchronously here. */
+					time_t deadline = operation_deadline(dap_op_properties, stored->dap_recv_time);
 					broker_dispatch_pending_operation(context->id,
 							relevant, &stored->data, dap_op_properties, deadline);
 					dr__free_sublist(relevant);
@@ -356,7 +382,7 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 			{	
 				dap_op_properties->op_id_num = dap_pending_ops_allocate_op_id(db.dap_pending_ops);
 				struct dr_sublist *relevant = dr__find_relevant_subscribers(context->id, dap_op_properties);
-				time_t deadline = stored->dap_recv_time + MOSQ_DAP_DEFAULT_DEADLINE_SECS;
+				time_t deadline = operation_deadline(dap_op_properties, stored->dap_recv_time);
 				broker_dispatch_pending_operation(context->id,
 						relevant, &stored->data, dap_op_properties, deadline);
 				dr__free_sublist(relevant);
@@ -539,6 +565,8 @@ static void read_dap_op_properties(const mosquitto_property *p, struct dap__op_p
 					dap_op_properties->op_before = (time_t)strtoll(value, NULL, 10);
 				} else if(!strcmp(name, MOSQ_DAP_OP_AFTER_KEY)){
 					dap_op_properties->op_after = (time_t)strtoll(value, NULL, 10);
+				} else if(!strcmp(name, MOSQ_DAP_DEADLINE_KEY)){
+					dap_op_properties->op_deadline = (time_t)strtoll(value, NULL, 10);
 				} else if(!strcmp(name, MOSQ_DAP_STATUS_KEY)){
 					replace_string(&dap_op_properties->op_status, value);
 				} else if(!strcmp(name, MOSQ_DAP_REASON_KEY)){

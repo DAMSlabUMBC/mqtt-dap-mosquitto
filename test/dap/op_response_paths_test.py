@@ -28,7 +28,6 @@ OSYS = "$OP_SYS"
 OP_REQ = "OP_REQ"
 OP_NOTIF = "OP_NOTIF"
 OP_PURPOSE = "DAP_OP"
-DEADLINE = 30  # MOSQ_DAP_DEFAULT_DEADLINE_SECS
 MP = "quality/assurance"
 TOPIC = "sensors/temp"
 
@@ -178,10 +177,13 @@ def case_history_many_offline(pub):
     for sub in subs:
         sub.disconnect()
     time.sleep(0.2)
-    pub.publish(OSYS, [("DAP-OpType", "HISTORY"), ("DAP-OpTFs", TOPIC)])
-    # Unreached subscribers are reported when the deadline passes.
+    deadline = int(time.time()) + 3
+    pub.publish(OSYS, [("DAP-OpType", "HISTORY"), ("DAP-OpTFs", TOPIC), ("DAP-Deadline", str(deadline))])
+    if not wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Pending", "DAP-Deadline": str(deadline)})):
+        return False
+    # Unreached subscribers are reported when the requested deadline passes.
     expired = {"DAP-Status": "Failure", "DAP-Reason": "Operation deadline expired"}
-    if not wait_for(lambda: pub.got(OP_NOTIF, **expired), timeout=DEADLINE + 10):
+    if not wait_for(lambda: pub.got(OP_NOTIF, **expired), timeout=10):
         return False
     unreached = pub.got(OP_NOTIF, **expired)[0][2].get("DAP-UnreachedClients", "")
     return sorted(unreached.split()) == sorted(ids)
@@ -276,6 +278,12 @@ def case_offline_request_on_session_resume(pub):
     return offline_request_case(pub, resume_session=True)
 
 
+def case_deadline_in_the_past(pub):
+    subscribers_with_data(pub, ["subA"])
+    pub.publish(OSYS, [("DAP-OpType", "DELETE"), ("DAP-OpTFs", TOPIC), ("DAP-Deadline", str(int(time.time()) - 5))])
+    return wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Failure", "DAP-Reason": "Deadline has passed"}))
+
+
 def case_operation_traffic_is_qos1(pub):
     # Requests and notifications are sent at QoS 1 to inboxes subscribed at QoS 1 (paper 6.2).
     sub = subscribers_with_data(pub, ["subA"])[0]
@@ -311,7 +319,8 @@ CASES = [
     ("unrecognised DAP-OpType gets a Failure", case_unknown_op, True),
     ("DELETE with no relevant subscribers gets a Failure", case_delete_no_relevant, True),
     ("HISTORY with an offline subscriber gets a Pending ack", case_history_subscriber_offline, True),
-    ("HISTORY with many offline subscribers lists every one at the deadline", case_history_many_offline, True),
+    ("HISTORY with many offline subscribers lists every one at the requested deadline", case_history_many_offline, True),
+    ("a deadline that has already passed gets a Failure", case_deadline_in_the_past, True),
     ("HISTORY gets a Success once its subscriber responds", case_history_success, True),
     ("AUDIT returns the relevant subscriber ids", case_audit_lists_subscribers, True),
     ("an offline subscriber gets the request when it subscribes again", case_offline_request_on_resubscribe, True),
