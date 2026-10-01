@@ -10,7 +10,7 @@ int dap_stamp_and_enqueue(struct dap_subscription_queues *queues,
                           const char *publisher_id,
                           const char *subscriber_id,
                           const char *topic,
-                          uint16_t mid,
+                          uint64_t cmsg_id,
                           uint32_t sp_version,
                           const char *purpose,
                           struct mosquitto__base_msg *msg,
@@ -38,9 +38,9 @@ int dap_stamp_and_enqueue(struct dap_subscription_queues *queues,
      * leave the applied-op list empty. The send-path gate re-checks pending ops and
      * drops on DROP from there. */
     if(action == DAP_OP_ACTION_RESTRICT){
-        return dap_subscription_queues_enqueue(queues, topic, msg, mid, mp_version, sp_version,
+        return dap_subscription_queues_enqueue(queues, topic, msg, cmsg_id, mp_version, sp_version,
                                                &op_id, 1, enqueue_time);
     }
-    return dap_subscription_queues_enqueue(queues, topic, msg, mid, mp_version, sp_version,
+    return dap_subscription_queues_enqueue(queues, topic, msg, cmsg_id, mp_version, sp_version,
                                            NULL, 0, enqueue_time);
 }

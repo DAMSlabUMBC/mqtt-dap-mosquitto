@@ -21,26 +21,23 @@ struct mosquitto__base_msg;
  * subscription's topic queue, alongside the broker's existing per-client queue.
  *
  * The MP version is looked up by (publisher_id, topic). The SP version is supplied
- * by the caller from the subscription leaf. mid is the per-client message id
- * subs__send assigned; it is stamped on so the send-path hook can correlate the
- * two queue entries when subscriptions overlap (0 for QoS 0, which carries no mid).
+ * by the caller from the subscription leaf. cmsg_id identifies the client message
+ * that was queued for this subscription, so the send-path gate can find its stamp.
  *
- * pending_ops (may be NULL) is consulted with dap_pending_ops_match:
- *   - DROP     -> the message is not enqueued (a DELETE applies);
- *   - RESTRICT -> the message is enqueued stamped with the deciding op id;
- *   - NONE     -> the message is enqueued with no applied op ids.
- * The decided action is written to action_out when non-NULL, so the caller can
- * skip recording the recipient on a DROP. A NULL pending_ops behaves as NONE.
+ * pending_ops (may be NULL) is consulted with dap_pending_ops_match: a RESTRICT
+ * stamps the message with the deciding op id; NONE and DROP stamp none, and the
+ * send-path gate drops the message on a DELETE. The decided action is written to
+ * action_out when non-NULL. A NULL pending_ops behaves as NONE.
  *
- * msg is borrowed. Returns 0 when the message was handled (enqueued or dropped),
- * non-zero on a bad argument or allocation failure.
+ * msg is borrowed. Returns 0 when the message was enqueued, non-zero on a bad
+ * argument or allocation failure.
  */
 int dap_stamp_and_enqueue(struct dap_subscription_queues *queues,
                           struct dap_pending_ops *pending_ops,
                           const char *publisher_id,
                           const char *subscriber_id,
                           const char *topic,
-                          uint16_t mid,
+                          uint64_t cmsg_id,
                           uint32_t sp_version,
                           const char *purpose,
                           struct mosquitto__base_msg *msg,

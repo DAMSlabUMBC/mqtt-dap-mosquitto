@@ -466,6 +466,41 @@ void db__msg_store_compact(void)
 }
 
 
+/* The DAP stamp of an outgoing client message, and the subscription leaf holding it. */
+static struct dap_stamped_msg *db__dap_find_stamp(struct mosquitto *context,
+		struct mosquitto__client_msg *client_msg, struct mosquitto__subleaf **leaf_out)
+{
+	for(int i = 0; i < context->subs_count; i++){
+		struct mosquitto__subleaf *l = context->subs[i];
+		if(!l || !l->dap_queues){
+			continue;
+		}
+		struct dap_stamped_msg *stamp = dap_subscription_queues_find(l->dap_queues,
+				client_msg->base_msg->data.topic, client_msg->base_msg, client_msg->data.cmsg_id);
+		if(stamp){
+			*leaf_out = l;
+			return stamp;
+		}
+	}
+	return NULL;
+}
+
+/* Free the stamp of an outgoing message that is discarded without reaching the send-path gate. */
+static void db__dap_discard_stamp(struct mosquitto *context, struct mosquitto__client_msg *client_msg)
+{
+	struct mosquitto__subleaf *leaf = NULL;
+	struct dap_stamped_msg *stamp;
+
+	if(client_msg->data.direction != mosq_md_out || !client_msg->base_msg){
+		return;
+	}
+	stamp = db__dap_find_stamp(context, client_msg, &leaf);
+	if(stamp){
+		dap_subscription_queues_remove(leaf->dap_queues, client_msg->base_msg->data.topic, stamp);
+		dap_stamped_msg_free(stamp);
+	}
+}
+
 static void db__message_remove_inflight(struct mosquitto *context, struct mosquitto_msg_data *msg_data, struct mosquitto__client_msg *item)
 {
 	if(!context || !msg_data || !item){
@@ -522,6 +557,7 @@ static void db__fill_inflight_out_from_queue(struct mosquitto *context)
 				break;
 		}
 		if(client_msg->base_msg->data.expiry_time && db.now_real_s > client_msg->base_msg->data.expiry_time){
+			db__dap_discard_stamp(context, client_msg);
 			db__message_remove_queued(context, &context->msgs_out, client_msg);
 			continue;
 		}
@@ -913,11 +949,12 @@ int db__message_update_outgoing(struct mosquitto *context, uint16_t mid, enum mo
 }
 
 
-static void db__messages_delete_list(struct mosquitto__client_msg **head)
+static void db__messages_delete_list(struct mosquitto *context, struct mosquitto__client_msg **head)
 {
 	struct mosquitto__client_msg *client_msg, *tmp;
 
 	DL_FOREACH_SAFE(*head, client_msg, tmp){
+		db__dap_discard_stamp(context, client_msg);
 		DL_DELETE(*head, client_msg);
 		db__msg_store_ref_dec(&client_msg->base_msg);
 		mosquitto_FREE(client_msg);
@@ -932,8 +969,8 @@ int db__messages_delete_incoming(struct mosquitto *context)
 		return MOSQ_ERR_INVAL;
 	}
 
-	db__messages_delete_list(&context->msgs_in.inflight);
-	db__messages_delete_list(&context->msgs_in.queued);
+	db__messages_delete_list(context, &context->msgs_in.inflight);
+	db__messages_delete_list(context, &context->msgs_in.queued);
 	context->msgs_in.inflight_bytes = 0;
 	context->msgs_in.inflight_bytes12 = 0;
 	context->msgs_in.inflight_count = 0;
@@ -953,8 +990,8 @@ int db__messages_delete_outgoing(struct mosquitto *context)
 		return MOSQ_ERR_INVAL;
 	}
 
-	db__messages_delete_list(&context->msgs_out.inflight);
-	db__messages_delete_list(&context->msgs_out.queued);
+	db__messages_delete_list(context, &context->msgs_out.inflight);
+	db__messages_delete_list(context, &context->msgs_out.queued);
 	context->msgs_out.inflight_bytes = 0;
 	context->msgs_out.inflight_bytes12 = 0;
 	context->msgs_out.inflight_count = 0;
@@ -1483,12 +1520,14 @@ void db__expire_all_messages(struct mosquitto *context)
 			if(client_msg->data.qos > 0){
 				util__increment_send_quota(context);
 			}
+			db__dap_discard_stamp(context, client_msg);
 			db__message_remove_inflight(context, &context->msgs_out, client_msg);
 		}
 	}
 	db__fill_inflight_out_from_queue(context);
 	DL_FOREACH_SAFE(context->msgs_out.queued, client_msg, tmp){
 		if(client_msg->base_msg->data.expiry_time && db.now_real_s > client_msg->base_msg->data.expiry_time){
+			db__dap_discard_stamp(context, client_msg);
 			db__message_remove_queued(context, &context->msgs_out, client_msg);
 		}
 	}
@@ -1527,6 +1566,7 @@ static void db__client_messages_check_acl(struct mosquitto *context, struct mosq
 				base_msg->data.qos, base_msg->data.retain,
 				base_msg->data.properties, access) != MOSQ_ERR_SUCCESS){
 
+			db__dap_discard_stamp(context, client_msg);
 			DL_DELETE((*head), client_msg);
 			decrement_stats_fn(msg_data, client_msg);
 			plugin_persist__handle_client_msg_delete(context, client_msg);
@@ -1587,24 +1627,12 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 		return DAP_HOOK_HANDLED; /* SKIP: leave it in flight for a later pass */
 	}
 
-	/* Find the stamp for this message: the front of the matching topic queue on one
-	 * of this client's subscription leaves, identified by base_msg + mid. */
+	/* Find the stamp for this message in the matching topic queue of one of this
+	 * client's subscription leaves. */
 	struct mosquitto__base_msg *base_msg = client_msg->base_msg;
 	const char *topic = base_msg->data.topic;
 	struct mosquitto__subleaf *leaf = NULL;
-	struct dap_stamped_msg *stamp = NULL;
-	for(int i = 0; i < context->subs_count; i++){
-		struct mosquitto__subleaf *l = context->subs[i];
-		if(!l || !l->dap_queues){
-			continue;
-		}
-		struct dap_stamped_msg *front = dap_subscription_queues_peek_front(l->dap_queues, topic);
-		if(front && front->base_msg == base_msg && front->mid == this_mid){
-			leaf = l;
-			stamp = front;
-			break;
-		}
-	}
+	struct dap_stamped_msg *stamp = db__dap_find_stamp(context, client_msg, &leaf);
 
 	bool has_stamp = (stamp != NULL);
 	enum dap_send_verdict verdict = DAP_SEND_PASS;
@@ -1654,7 +1682,8 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 				}
 			}
 			if(has_stamp){
-				dap_stamped_msg_free(dap_subscription_queues_dequeue_front(leaf->dap_queues, topic));
+				dap_subscription_queues_remove(leaf->dap_queues, topic, stamp);
+				dap_stamped_msg_free(stamp);
 			}
 			if(is_holding){
 				/* Candidate resolved: clear the hold (no messages were parked in the
@@ -1674,7 +1703,8 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 
 		case DAP_DISP_DROP:
 			if(has_stamp){
-				dap_stamped_msg_free(dap_subscription_queues_dequeue_front(leaf->dap_queues, topic));
+				dap_subscription_queues_remove(leaf->dap_queues, topic, stamp);
+				dap_stamped_msg_free(stamp);
 			}
 			if(is_holding){
 				dap_holding_list_free_held(dap_holding_list_flush(hl, client_id));
@@ -1696,7 +1726,7 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 			return DAP_HOOK_HANDLED;
 
 		case DAP_DISP_BUMP:
-			/* Leave the stamp at the front of its topic queue for re-verification. Move
+			/* Leave the stamp in its topic queue for re-verification. Move
 			 * the message from in flight back to the front of the queue, reversing the
 			 * dequeue's quota decrement, and mark the client as holding it by its mid. */
 			db__msg_remove_from_inflight_stats(&context->msgs_out, client_msg);
@@ -1742,6 +1772,7 @@ static int db__message_write_inflight_out_single(struct mosquitto *context, stru
 			if(client_msg->data.direction == mosq_md_out && client_msg->data.qos > 0){
 				util__increment_send_quota(context);
 			}
+			db__dap_discard_stamp(context, client_msg);
 			db__message_remove_inflight(context, &context->msgs_out, client_msg);
 			db__fill_inflight_out_from_queue(context);
 			return MOSQ_ERR_SUCCESS;

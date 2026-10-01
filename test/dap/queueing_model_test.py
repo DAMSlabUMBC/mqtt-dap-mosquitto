@@ -355,6 +355,7 @@ def stop_clients():
 def main():
     print("# DELETE on queued messages")
     delete_case(overflow=False)
+    delete_case(overflow=True)
 
     print()
     if failures:

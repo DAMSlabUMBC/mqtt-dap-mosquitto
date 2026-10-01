@@ -22,7 +22,7 @@ struct mosquitto__base_msg;
  */
 struct dap_stamped_msg {
     struct mosquitto__base_msg *base_msg; /* stored message, borrowed not owned */
-    uint16_t mid;                        /* matching per-client message id */
+    uint64_t cmsg_id;                    /* cmsg_id of the client message it stamps */
     uint32_t mp_version;                 /* MP version for the publisher/topic pair */
     uint32_t sp_version;                 /* SP version for this subscription/topic pair */
     uint64_t *applied_op_ids;            /* pending-op ids applied to this message */
@@ -57,7 +57,7 @@ int dap_subscription_queues_init(struct dap_subscription_queues *q);
 int dap_subscription_queues_enqueue(struct dap_subscription_queues *q,
                                     const char *topic,
                                     struct mosquitto__base_msg *base_msg,
-                                    uint16_t mid,
+                                    uint64_t cmsg_id,
                                     uint32_t mp_version,
                                     uint32_t sp_version,
                                     const uint64_t *applied_op_ids,
@@ -75,6 +75,20 @@ struct dap_stamped_msg *dap_subscription_queues_peek_front(struct dap_subscripti
  */
 struct dap_stamped_msg *dap_subscription_queues_dequeue_front(struct dap_subscription_queues *q,
                                                               const char *topic);
+
+/*
+ * Find the stamp for a client message (by base_msg and cmsg_id) anywhere in a topic
+ * queue, or NULL if it has none.
+ */
+struct dap_stamped_msg *dap_subscription_queues_find(struct dap_subscription_queues *q,
+                                                     const char *topic,
+                                                     const struct mosquitto__base_msg *base_msg,
+                                                     uint64_t cmsg_id);
+
+/* Unlink a stamp found in a topic queue. The caller takes ownership. */
+void dap_subscription_queues_remove(struct dap_subscription_queues *q,
+                                    const char *topic,
+                                    struct dap_stamped_msg *msg);
 
 /*
  * Re-insert a message at the front of a topic queue (created on first use),

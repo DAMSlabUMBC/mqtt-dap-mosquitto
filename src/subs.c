@@ -71,17 +71,17 @@ static unsigned int hashv_plus = 0;
 static unsigned int hashv_hash = 0;
 
 
-static int subs__send(struct mosquitto__subleaf *leaf, const char *topic, uint8_t qos, int retain, struct mosquitto__base_msg *stored, uint16_t *mid_out)
+static int subs__send(struct mosquitto__subleaf *leaf, const char *topic, uint8_t qos, int retain, struct mosquitto__base_msg *stored, uint64_t *cmsg_id_out)
 {
 	bool client_retain;
 	uint16_t mid;
 	uint8_t client_qos, msg_qos;
 	int rc2;
+	uint64_t last_cmsg_id = leaf->context->last_cmsg_id;
 
-	/* mid_out reports the per-client message id assigned here, so the DAP stamping
-	 * in subs__process can correlate the stamped copy with the wire message.
-	 * Default 0 covers the early returns (ACL deny, QoS 0) that carry no mid. */
-	if(mid_out) *mid_out = 0;
+	/* cmsg_id_out reports the client message queued here for the DAP stamp, or 0
+	 * when nothing was queued (ACL deny, queue full, offline QoS 0). */
+	if(cmsg_id_out) *cmsg_id_out = 0;
 
 	/* Check for ACL topic access. */
 	rc2 = mosquitto_acl_check(leaf->context, topic, stored->data.payloadlen, stored->data.payload, stored->data.qos, stored->data.retain, stored->data.properties, MOSQ_ACL_READ);
@@ -104,7 +104,6 @@ static int subs__send(struct mosquitto__subleaf *leaf, const char *topic, uint8_
 		}else{
 			mid = 0;
 		}
-		if(mid_out) *mid_out = mid;
 		if(MQTT_SUB_OPT_GET_RETAIN_AS_PUBLISHED(leaf->subscription_options)){
 			client_retain = retain;
 		}else{
@@ -112,6 +111,9 @@ static int subs__send(struct mosquitto__subleaf *leaf, const char *topic, uint8_
 		}
 		if(db__message_insert_outgoing(leaf->context, 0, mid, msg_qos, client_retain, stored, leaf->identifier, false, true) == 1){
 			return 1;
+		}
+		if(cmsg_id_out && leaf->context->last_cmsg_id != last_cmsg_id){
+			*cmsg_id_out = leaf->context->last_cmsg_id;
 		}
 	}else{
 		return 1; /* Application error */
@@ -204,15 +206,15 @@ static int subs__process(struct mosquitto__subhier *hier, const char *source_id,
 			}
 		}
 
-		uint16_t sent_mid = 0;
-		rc2 = subs__send(leaf, topic, qos, retain, stored, &sent_mid);
+		uint64_t cmsg_id = 0;
+		rc2 = subs__send(leaf, topic, qos, retain, stored, &cmsg_id);
 
-		/* Alongside the per-client queue subs__send filled above, stamp this matched
-		 * message into the subscription's own topic queue (created on first use). Every
-		 * match is stamped; the send-path gate consults the pending-op map at delivery
-		 * time and produces a PASS, DROP, or BUMP verdict. The stored message is
-		 * borrowed, not owned by the queue. */
-		if(leaf->context && leaf->context->id){
+		/* Alongside the per-client queue subs__send filled above, stamp the queued
+		 * message into the subscription's own topic queue (created on first use). The
+		 * send-path gate consults the pending-op map at delivery time and produces a
+		 * PASS, DROP, or BUMP verdict. The stored message is borrowed, not owned by
+		 * the queue. */
+		if(cmsg_id && leaf->context->id){
 			if(!leaf->dap_queues){
 				leaf->dap_queues = mosquitto_calloc(1, sizeof(struct dap_subscription_queues));
 				if(leaf->dap_queues){
@@ -223,7 +225,7 @@ static int subs__process(struct mosquitto__subhier *hier, const char *source_id,
 				const char *purpose = stored->data.has_purpose_filter ? stored->data.purpose_filter : NULL;
 				dap_stamp_and_enqueue(leaf->dap_queues, db.dap_pending_ops,
 						stored->data.source_id, leaf->context->id, topic,
-						sent_mid, leaf->sp_version, purpose, stored, stored->dap_recv_time, NULL);
+						cmsg_id, leaf->sp_version, purpose, stored, stored->dap_recv_time, NULL);
 				if(stored->data.has_purpose_filter){
 					stored->dap_subs_matched++;
 				}

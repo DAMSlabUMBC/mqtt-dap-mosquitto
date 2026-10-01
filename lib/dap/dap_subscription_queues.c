@@ -56,7 +56,7 @@ void dap_stamped_msg_free(struct dap_stamped_msg *msg)
 int dap_subscription_queues_enqueue(struct dap_subscription_queues *q,
                                     const char *topic,
                                     struct mosquitto__base_msg *base_msg,
-                                    uint16_t mid,
+                                    uint64_t cmsg_id,
                                     uint32_t mp_version,
                                     uint32_t sp_version,
                                     const uint64_t *applied_op_ids,
@@ -69,7 +69,7 @@ int dap_subscription_queues_enqueue(struct dap_subscription_queues *q,
     struct dap_stamped_msg *msg = mosquitto_calloc(1, sizeof(*msg));
     if(!msg) return 1;
     msg->base_msg     = base_msg;
-    msg->mid          = mid;
+    msg->cmsg_id      = cmsg_id;
     msg->mp_version   = mp_version;
     msg->sp_version   = sp_version;
     msg->enqueue_time = enqueue_time;
@@ -121,6 +121,37 @@ struct dap_stamped_msg *dap_subscription_queues_dequeue_front(struct dap_subscri
     msg->prev = NULL;
     msg->next = NULL;
     return msg;
+}
+
+struct dap_stamped_msg *dap_subscription_queues_find(struct dap_subscription_queues *q,
+                                                     const char *topic,
+                                                     const struct mosquitto__base_msg *base_msg,
+                                                     uint64_t cmsg_id)
+{
+    if(!q || !topic) return NULL;
+    struct dap_topic_queue *tq = dap__find_topic(q, topic);
+    if(!tq) return NULL;
+
+    struct dap_stamped_msg *msg;
+    DL_FOREACH(tq->head, msg){
+        if(msg->cmsg_id == cmsg_id && msg->base_msg == base_msg) return msg;
+    }
+    return NULL;
+}
+
+void dap_subscription_queues_remove(struct dap_subscription_queues *q,
+                                    const char *topic,
+                                    struct dap_stamped_msg *msg)
+{
+    if(!q || !topic || !msg) return;
+    struct dap_topic_queue *tq = dap__find_topic(q, topic);
+    if(!tq) return;
+
+    DL_DELETE(tq->head, msg);
+    tq->count--;
+    q->total_count--;
+    msg->prev = NULL;
+    msg->next = NULL;
 }
 
 int dap_subscription_queues_push_front(struct dap_subscription_queues *q,
