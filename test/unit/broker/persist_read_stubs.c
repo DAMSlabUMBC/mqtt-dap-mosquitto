@@ -311,6 +311,14 @@ bool sub__purpose_allows(const struct mosquitto__subleaf *leaf, const struct mos
 	return true;
 }
 
+bool sub__purpose_set_allows(char *const *sp, uint32_t sp_count, const struct mosquitto__base_msg *stored)
+{
+	UNUSED(sp);
+	UNUSED(sp_count);
+	UNUSED(stored);
+	return true;
+}
+
 
 struct dr_sublist;
 
