@@ -22,7 +22,7 @@ enum dap_send_verdict {
     DAP_SEND_PASS = 0,        /* deliver the message as stamped */
     DAP_SEND_FAIL_MP,         /* MP version changed since stamping - re-verify */
     DAP_SEND_FAIL_SP,         /* SP version changed since stamping - re-verify */
-    DAP_SEND_FAIL_OP_MISSING, /* a RESTRICT now applies that the stamp does not cover - re-verify */
+    DAP_SEND_FAIL_RESTRICT,   /* a RESTRICT now applies - re-verify against the purposes it revoked */
     DAP_SEND_DROP_DELETE,     /* a DELETE now applies - drop without delivering */
     DAP_SEND_DROP_PURPOSE,    /* re-verified: the current MP, less any RESTRICT's revoked purposes, no longer permits the current SP - drop */
 };
@@ -31,22 +31,20 @@ enum dap_send_verdict {
  * Decide what to do with a stamped message at send time. The versions it was
  * stamped with are compared against the current MP and SP versions and against
  * the pending operation, if any, that applies right now. The caller computes
- * current_op_action / current_op_id via dap_pending_ops_match; this function does
- * no lookups and has no side effects.
+ * current_op_action via dap_pending_ops_match; this function does no lookups and
+ * has no side effects.
  *
  * Precedence: a pending DELETE (DAP_OP_ACTION_DROP) drops the message regardless
  * of version; otherwise a stale MP or SP version forces re-verification (MP before
- * SP); finally a pending RESTRICT passes only when its op id is already stamped,
- * else re-verification re-stamps it under the current op. DAP_OP_ACTION_NONE with
- * matching versions passes even if the message carries older applied op ids.
+ * SP); finally a pending RESTRICT forces re-verification against the purposes it
+ * revoked.
  *
  * A NULL stamp (e.g. a retained message that was never stamped) always passes.
  */
 enum dap_send_verdict dap_verify_for_send(const struct dap_stamped_msg *stamped,
                                           uint32_t current_mp_version,
                                           uint32_t current_sp_version,
-                                          enum dap_op_action current_op_action,
-                                          uint64_t current_op_id);
+                                          enum dap_op_action current_op_action);
 
 /*
  * What the send-path hook should do with the message it is about to write, once

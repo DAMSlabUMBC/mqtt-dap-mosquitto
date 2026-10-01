@@ -23,5 +23,5 @@ int dap_stamp_and_enqueue(struct dap_subscription_queues *queues,
     }
 
     return dap_subscription_queues_enqueue(queues, topic, msg, cmsg_id, mp_version, sp_version,
-                                           NULL, 0, enqueue_time);
+                                           enqueue_time);
 }

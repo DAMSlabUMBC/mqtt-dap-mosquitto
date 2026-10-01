@@ -5,22 +5,10 @@
 
 #include "dap_subscription_queues.h" /* struct dap_stamped_msg */
 
-/* Is op_id already among the message's applied op ids? */
-static bool stamp_covers_op(const struct dap_stamped_msg *stamped, uint64_t op_id)
-{
-    for (size_t i = 0; i < stamped->num_applied_op_ids; i++) {
-        if (stamped->applied_op_ids[i] == op_id) {
-            return true;
-        }
-    }
-    return false;
-}
-
 enum dap_send_verdict dap_verify_for_send(const struct dap_stamped_msg *stamped,
                                           uint32_t current_mp_version,
                                           uint32_t current_sp_version,
-                                          enum dap_op_action current_op_action,
-                                          uint64_t current_op_id)
+                                          enum dap_op_action current_op_action)
 {
     /* A retained message that was never stamped flows through untouched. */
     if (stamped == NULL) {
@@ -40,10 +28,9 @@ enum dap_send_verdict dap_verify_for_send(const struct dap_stamped_msg *stamped,
         return DAP_SEND_FAIL_SP;
     }
 
-    /* A RESTRICT passes only if the message already carries its op id; otherwise
-     * re-verify it against the purposes the RESTRICT revoked. */
-    if (current_op_action == DAP_OP_ACTION_RESTRICT && !stamp_covers_op(stamped, current_op_id)) {
-        return DAP_SEND_FAIL_OP_MISSING;
+    /* A RESTRICT re-verifies the message against the purposes it revoked. */
+    if (current_op_action == DAP_OP_ACTION_RESTRICT) {
+        return DAP_SEND_FAIL_RESTRICT;
     }
 
     return DAP_SEND_PASS;
@@ -81,7 +68,7 @@ enum dap_send_disposition dap_send_decide(bool has_stamp,
             return DAP_DISP_DROP;
         case DAP_SEND_FAIL_MP:
         case DAP_SEND_FAIL_SP:
-        case DAP_SEND_FAIL_OP_MISSING:
+        case DAP_SEND_FAIL_RESTRICT:
             return DAP_DISP_BUMP;
     }
     return DAP_DISP_DELIVER; /* unreachable; keeps the compiler happy */

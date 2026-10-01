@@ -52,9 +52,6 @@ static void test_stamp_enqueues_with_current_versions(void)
     assert(m->mp_version == 2);
     assert(m->sp_version == 1);
     assert(m->enqueue_time == 4242);
-    /* No pending op applied. */
-    assert(m->num_applied_op_ids == 0);
-    assert(m->applied_op_ids == NULL);
 
     dap_subscription_queues_destroy(&q);
     mp_registry_cleanup();

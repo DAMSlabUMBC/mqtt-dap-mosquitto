@@ -20,8 +20,7 @@ struct mosquitto__base_msg;
  * The MP version is looked up by (publisher_id, topic). The SP version is supplied
  * by the caller from the subscription leaf. cmsg_id identifies the client message
  * that was queued for this subscription, so the send-path gate can find its stamp.
- * Pending operations are applied by that gate, which re-verifies the message under
- * any operation it does not yet carry.
+ * Pending operations are applied by that gate.
  *
  * msg is borrowed. Returns 0 when the message was enqueued, non-zero on a bad
  * argument or allocation failure.

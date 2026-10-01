@@ -28,8 +28,7 @@ void broker_send_response_success(const char *publisher_id, const char *operatio
  * broker-assigned numeric op id and the absolute deadline (epoch seconds). */
 void broker_send_response_pending(const char *publisher_id, struct dap__op_property* dap_op_properties, time_t deadline);
 /* Final failure for a request. Like broker_send_response_success it is sent to the
- * requester's response topic (op_resp/<publisher_id>); pass response_topic == NULL to
- * fall back to ONP/<publisher_id>. */
+ * request's response topic, or to ONP/<publisher_id> when the request named none. */
 void broker_send_response_failure(const char *publisher_id, struct dap__op_property* dap_op_properties);
 
 /* Subscriber-involving dispatch: forward the request to the relevant subscribers on

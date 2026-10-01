@@ -37,9 +37,9 @@ static void test_fifo_within_topic(void)
     struct dap_subscription_queues q;
     dap_subscription_queues_init(&q);
 
-    assert(dap_subscription_queues_enqueue(&q, "t/a", MSG(0), 0, 0, 0, NULL, 0, 0) == 0);
-    assert(dap_subscription_queues_enqueue(&q, "t/a", MSG(1), 0, 0, 0, NULL, 0, 0) == 0);
-    assert(dap_subscription_queues_enqueue(&q, "t/a", MSG(2), 0, 0, 0, NULL, 0, 0) == 0);
+    assert(dap_subscription_queues_enqueue(&q, "t/a", MSG(0), 0, 0, 0, 0) == 0);
+    assert(dap_subscription_queues_enqueue(&q, "t/a", MSG(1), 0, 0, 0, 0) == 0);
+    assert(dap_subscription_queues_enqueue(&q, "t/a", MSG(2), 0, 0, 0, 0) == 0);
     assert(dap_subscription_queues_topic_size(&q, "t/a") == 3);
     assert(dap_subscription_queues_total_size(&q) == 3);
 
@@ -60,9 +60,9 @@ static void test_topics_are_independent(void)
     struct dap_subscription_queues q;
     dap_subscription_queues_init(&q);
 
-    dap_subscription_queues_enqueue(&q, "t/a", MSG(0), 0, 0, 0, NULL, 0, 0);
-    dap_subscription_queues_enqueue(&q, "t/b", MSG(1), 0, 0, 0, NULL, 0, 0);
-    dap_subscription_queues_enqueue(&q, "t/a", MSG(2), 0, 0, 0, NULL, 0, 0);
+    dap_subscription_queues_enqueue(&q, "t/a", MSG(0), 0, 0, 0, 0);
+    dap_subscription_queues_enqueue(&q, "t/b", MSG(1), 0, 0, 0, 0);
+    dap_subscription_queues_enqueue(&q, "t/a", MSG(2), 0, 0, 0, 0);
 
     assert(dap_subscription_queues_topic_size(&q, "t/a") == 2);
     assert(dap_subscription_queues_topic_size(&q, "t/b") == 1);
@@ -84,8 +84,7 @@ static void test_stamping_fields_stored(void)
     struct dap_subscription_queues q;
     dap_subscription_queues_init(&q);
 
-    uint64_t ids[] = {10, 20, 30};
-    assert(dap_subscription_queues_enqueue(&q, "t/a", MSG(5), 0x1BEEF00000001ULL, 5, 7, ids, 3, 4242) == 0);
+    assert(dap_subscription_queues_enqueue(&q, "t/a", MSG(5), 0x1BEEF00000001ULL, 5, 7, 4242) == 0);
 
     /* peek is borrowed - do not free. */
     struct dap_stamped_msg *m = dap_subscription_queues_peek_front(&q, "t/a");
@@ -95,20 +94,14 @@ static void test_stamping_fields_stored(void)
     assert(m->mp_version == 5);
     assert(m->sp_version == 7);
     assert(m->enqueue_time == 4242);
-    assert(m->num_applied_op_ids == 3);
-    assert(m->applied_op_ids[0] == 10 && m->applied_op_ids[1] == 20 && m->applied_op_ids[2] == 30);
 
-    /* The op-id array is copied, not aliased to the caller's storage. */
-    assert(m->applied_op_ids != ids);
-
-    /* A different cmsg_id on a different topic is recorded independently; no op ids. */
-    dap_subscription_queues_enqueue(&q, "t/b", MSG(6), 7, 1, 1, NULL, 0, 9);
+    /* A different cmsg_id on a different topic is recorded independently. */
+    dap_subscription_queues_enqueue(&q, "t/b", MSG(6), 7, 1, 1, 9);
     struct dap_stamped_msg *m2 = dap_subscription_queues_peek_front(&q, "t/b");
     assert(m2->cmsg_id == 7);
-    assert(m2->num_applied_op_ids == 0 && m2->applied_op_ids == NULL);
 
     dap_subscription_queues_destroy(&q);
-    printf("ok - stamping fields (incl. cmsg_id) are stored and the op-id list is copied\n");
+    printf("ok - stamping fields (incl. cmsg_id) are stored\n");
 }
 
 static void test_find_and_remove(void)
@@ -116,9 +109,9 @@ static void test_find_and_remove(void)
     struct dap_subscription_queues q;
     dap_subscription_queues_init(&q);
 
-    dap_subscription_queues_enqueue(&q, "t/a", MSG(0), 1, 0, 0, NULL, 0, 0);
-    dap_subscription_queues_enqueue(&q, "t/a", MSG(1), 2, 0, 0, NULL, 0, 0);
-    dap_subscription_queues_enqueue(&q, "t/a", MSG(2), 3, 0, 0, NULL, 0, 0);
+    dap_subscription_queues_enqueue(&q, "t/a", MSG(0), 1, 0, 0, 0);
+    dap_subscription_queues_enqueue(&q, "t/a", MSG(1), 2, 0, 0, 0);
+    dap_subscription_queues_enqueue(&q, "t/a", MSG(2), 3, 0, 0, 0);
 
     /* Found anywhere in the queue, but only when both base_msg and cmsg_id match. */
     struct dap_stamped_msg *m = dap_subscription_queues_find(&q, "t/a", MSG(1), 2);
@@ -148,8 +141,8 @@ static void test_push_to_front(void)
     struct dap_subscription_queues q;
     dap_subscription_queues_init(&q);
 
-    dap_subscription_queues_enqueue(&q, "t/a", MSG(0), 0, 0, 0, NULL, 0, 0);
-    dap_subscription_queues_enqueue(&q, "t/a", MSG(1), 0, 0, 0, NULL, 0, 0);
+    dap_subscription_queues_enqueue(&q, "t/a", MSG(0), 0, 0, 0, 0);
+    dap_subscription_queues_enqueue(&q, "t/a", MSG(1), 0, 0, 0, 0);
 
     /* Take the front off, then put it back at the front (holding-list pattern). */
     struct dap_stamped_msg *held = dap_subscription_queues_dequeue_front(&q, "t/a");
@@ -173,17 +166,16 @@ static void test_destroy_cleans_everything(void)
     struct dap_subscription_queues q;
     dap_subscription_queues_init(&q);
 
-    uint64_t ids[] = {1, 2};
-    dap_subscription_queues_enqueue(&q, "t/a", MSG(0), 0, 1, 1, ids, 2, 1);
-    dap_subscription_queues_enqueue(&q, "t/a", MSG(1), 0, 1, 1, NULL, 0, 2);
-    dap_subscription_queues_enqueue(&q, "t/b", MSG(2), 0, 1, 1, ids, 2, 3);
+    dap_subscription_queues_enqueue(&q, "t/a", MSG(0), 0, 1, 1, 1);
+    dap_subscription_queues_enqueue(&q, "t/a", MSG(1), 0, 1, 1, 2);
+    dap_subscription_queues_enqueue(&q, "t/b", MSG(2), 0, 1, 1, 3);
 
     dap_subscription_queues_destroy(&q);
 
     /* Destroy leaves the structure empty and reusable. */
     assert(dap_subscription_queues_total_size(&q) == 0);
     assert(dap_subscription_queues_peek_front(&q, "t/a") == NULL);
-    assert(dap_subscription_queues_enqueue(&q, "t/c", MSG(3), 0, 0, 0, NULL, 0, 0) == 0);
+    assert(dap_subscription_queues_enqueue(&q, "t/c", MSG(3), 0, 0, 0, 0) == 0);
     assert(dap_subscription_queues_total_size(&q) == 1);
     dap_subscription_queues_destroy(&q);
 

@@ -1676,11 +1676,10 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 			cur_purpose = stored->purpose_filter;
 		}
 		uint32_t cur_sp = leaf->sp_version;
-		uint64_t op_id = 0;
 		const char *revoked = NULL;
 		enum dap_op_action action = dap_pending_ops_match(db.dap_pending_ops, pub_id, topic,
 				leaf->purpose_filters, leaf->purpose_filter_count, client_id,
-				base_msg->dap_order, &op_id, &revoked);
+				base_msg->dap_order, NULL, &revoked);
 		if(is_holding){
 			/* Re-verify candidate: a DELETE drops it, and so does a publisher's current
 			 * MP, less the purposes a RESTRICT revoked, that no longer permits its
@@ -1694,7 +1693,7 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 				verdict = DAP_SEND_PASS;
 			}
 		}else{
-			verdict = dap_verify_for_send(stamp, cur_mp, cur_sp, action, op_id);
+			verdict = dap_verify_for_send(stamp, cur_mp, cur_sp, action);
 		}
 	}
 

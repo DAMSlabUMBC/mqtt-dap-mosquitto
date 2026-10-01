@@ -17,16 +17,14 @@ struct mosquitto__base_msg;
 
 /*
  * A data message stamped at enqueue time so the send-time check can tell whether
- * anything changed before delivery. The queue owns this wrapper and its
- * applied_op_ids array, not the underlying message.
+ * anything changed before delivery. The queue owns this wrapper, not the
+ * underlying message.
  */
 struct dap_stamped_msg {
     struct mosquitto__base_msg *base_msg; /* stored message, borrowed not owned */
     uint64_t cmsg_id;                    /* cmsg_id of the client message it stamps */
     uint32_t mp_version;                 /* MP version for the publisher/topic pair */
     uint32_t sp_version;                 /* SP version for this subscription/topic pair */
-    uint64_t *applied_op_ids;            /* pending-op ids applied to this message */
-    size_t num_applied_op_ids;
     time_t enqueue_time;                 /* when the message was enqueued */
     struct dap_stamped_msg *prev;        /* utlist DL links */
     struct dap_stamped_msg *next;
@@ -51,8 +49,8 @@ int dap_subscription_queues_init(struct dap_subscription_queues *q);
 
 /*
  * Stamp a message and append it to the FIFO queue for topic (created on first
- * use). The base_msg pointer is stored as-is; applied_op_ids is copied (pass NULL/0
- * for none). Returns 0 on success, non-zero on a bad argument or allocation failure.
+ * use). The base_msg pointer is stored as-is. Returns 0 on success, non-zero on a
+ * bad argument or allocation failure.
  */
 int dap_subscription_queues_enqueue(struct dap_subscription_queues *q,
                                     const char *topic,
@@ -60,8 +58,6 @@ int dap_subscription_queues_enqueue(struct dap_subscription_queues *q,
                                     uint64_t cmsg_id,
                                     uint32_t mp_version,
                                     uint32_t sp_version,
-                                    const uint64_t *applied_op_ids,
-                                    size_t num_applied_op_ids,
                                     time_t enqueue_time);
 
 /* Return the front message of a topic queue without removing it, or NULL if empty. */
