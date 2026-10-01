@@ -119,6 +119,8 @@ CASES = [
     ("SUBSCRIBE with an empty key and value", subscribe_packet(user_props(("", ""), (SP_KEY, "qa")))),
     ("SUBSCRIBE with a DAP-SP and an invalid topic filter",
      subscribe_packet(user_props((SP_KEY, "qa")), topic="robust/#/data")),
+    ("SUBSCRIBE with more DAP-SP purposes than allowed",
+     subscribe_packet(user_props(*[(SP_KEY, "p%03d" % i) for i in range(101)]))),
 ]
 
 

@@ -179,6 +179,7 @@ int handle__subscribe(struct mosquitto *context)
 								mosquitto_FREE(purposes);
 								mosquitto_FREE(name);
 								mosquitto_FREE(value);
+								free_purpose_strings(purpose_filters, purpose_filter_count);
 
 								mosquitto_property_free_all(&properties);
 								return MOSQ_ERR_MALFORMED_PACKET;
@@ -196,6 +197,7 @@ int handle__subscribe(struct mosquitto *context)
 							mosquitto_FREE(purposes);
 							mosquitto_FREE(name);
 							mosquitto_FREE(value);
+							free_purpose_strings(purpose_filters, purpose_filter_count);
 
 							mosquitto_property_free_all(&properties);
 							return MOSQ_ERR_NOMEM;
