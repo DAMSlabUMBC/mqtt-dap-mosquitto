@@ -8,6 +8,7 @@
 #include "property_mosq.h"
 #include "packet_mosq.h"
 
+
 static void map_valid_helper(const char *topic, const char *local_prefix, const char *remote_prefix, const char *incoming, const char *expected)
 {
 	struct mosquitto mosq;
@@ -34,6 +35,7 @@ static void map_valid_helper(const char *topic, const char *local_prefix, const 
 
 	bridge__cleanup_topics(&bridge);
 }
+
 
 static void map_invalid_helper(const char *topic, const char *local_prefix, const char *remote_prefix)
 {
@@ -63,6 +65,7 @@ static void TEST_remap_valid(void)
 	map_valid_helper(NULL, "local", "remote", "remote", "local");
 }
 
+
 static void TEST_remap_invalid(void)
 {
 	/* Examples from man page */
@@ -75,6 +78,7 @@ static void TEST_remap_invalid(void)
 /* ========================================================================
  * TEST SUITE SETUP
  * ======================================================================== */
+
 
 int init_bridge_tests(void)
 {
@@ -98,6 +102,7 @@ int init_bridge_tests(void)
 	return 0;
 }
 
+
 int main(int argc, char *argv[])
 {
 	unsigned int fails;
@@ -105,24 +110,24 @@ int main(int argc, char *argv[])
 	UNUSED(argc);
 	UNUSED(argv);
 
-    if(CU_initialize_registry() != CUE_SUCCESS){
-        printf("Error initializing CUnit registry.\n");
-        return 1;
-    }
+	if(CU_initialize_registry() != CUE_SUCCESS){
+		printf("Error initializing CUnit registry.\n");
+		return 1;
+	}
 
-    if(0
+	if(0
 			|| init_bridge_tests()
 			){
 
-        CU_cleanup_registry();
-        return 1;
-    }
+		CU_cleanup_registry();
+		return 1;
+	}
 
-    CU_basic_set_mode(CU_BRM_VERBOSE);
-    CU_basic_run_tests();
+	CU_basic_set_mode(CU_BRM_VERBOSE);
+	CU_basic_run_tests();
 	fails = CU_get_number_of_failures();
-    CU_cleanup_registry();
+	CU_cleanup_registry();
 
-    return (int)fails;
+	return (int)fails;
 }
 

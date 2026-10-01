@@ -6,6 +6,7 @@
 #include "property_mosq.h"
 #include "packet_mosq.h"
 
+
 static void byte_prop_read_helper(
 		int command,
 		uint8_t *payload,
@@ -18,7 +19,7 @@ static void byte_prop_read_helper(
 	mosquitto_property *properties;
 	int rc;
 
-	memset(&packet, 0, sizeof(struct mosquitto__packet));
+	memset(&packet, 0, sizeof(struct mosquitto__packet_in));
 	packet.payload = payload;
 	packet.remaining_length = remaining_length;
 	rc = property__read_all(command, &packet, &properties);
@@ -35,6 +36,7 @@ static void byte_prop_read_helper(
 	CU_ASSERT_PTR_EQUAL(properties, NULL);
 }
 
+
 static void duplicate_byte_helper(int command, uint8_t identifier)
 {
 	uint8_t payload[20];
@@ -48,6 +50,7 @@ static void duplicate_byte_helper(int command, uint8_t identifier)
 
 	byte_prop_read_helper(command, payload, 5, MOSQ_ERR_DUPLICATE_PROPERTY, identifier, 1);
 }
+
 
 static void bad_byte_helper(int command, uint8_t identifier)
 {
@@ -74,7 +77,7 @@ static void int32_prop_read_helper(
 	mosquitto_property *properties;
 	int rc;
 
-	memset(&packet, 0, sizeof(struct mosquitto__packet));
+	memset(&packet, 0, sizeof(struct mosquitto__packet_in));
 	packet.payload = payload;
 	packet.remaining_length = remaining_length;
 	rc = property__read_all(command, &packet, &properties);
@@ -93,6 +96,7 @@ static void int32_prop_read_helper(
 	}
 	CU_ASSERT_PTR_EQUAL(properties, NULL);
 }
+
 
 static void duplicate_int32_helper(int command, uint8_t identifier)
 {
@@ -127,7 +131,7 @@ static void int16_prop_read_helper(
 	mosquitto_property *properties;
 	int rc;
 
-	memset(&packet, 0, sizeof(struct mosquitto__packet));
+	memset(&packet, 0, sizeof(struct mosquitto__packet_in));
 	packet.payload = payload;
 	packet.remaining_length = remaining_length;
 	rc = property__read_all(command, &packet, &properties);
@@ -143,6 +147,7 @@ static void int16_prop_read_helper(
 	}
 	CU_ASSERT_PTR_EQUAL(properties, NULL);
 }
+
 
 static void duplicate_int16_helper(int command, uint8_t identifier)
 {
@@ -160,6 +165,7 @@ static void duplicate_int16_helper(int command, uint8_t identifier)
 	int16_prop_read_helper(command, payload, 7, MOSQ_ERR_DUPLICATE_PROPERTY, identifier, 1);
 }
 
+
 static void string_prop_read_helper(
 		int command,
 		uint8_t *payload,
@@ -172,7 +178,7 @@ static void string_prop_read_helper(
 	mosquitto_property *properties;
 	int rc;
 
-	memset(&packet, 0, sizeof(struct mosquitto__packet));
+	memset(&packet, 0, sizeof(struct mosquitto__packet_in));
 	packet.payload = payload;
 	packet.remaining_length = remaining_length;
 	rc = property__read_all(command, &packet, &properties);
@@ -189,6 +195,7 @@ static void string_prop_read_helper(
 	}
 	CU_ASSERT_PTR_EQUAL(properties, NULL);
 }
+
 
 static void duplicate_string_helper(int command, uint8_t identifier)
 {
@@ -208,6 +215,7 @@ static void duplicate_string_helper(int command, uint8_t identifier)
 	string_prop_read_helper(command, payload, 9, MOSQ_ERR_DUPLICATE_PROPERTY, identifier, "");
 }
 
+
 static void bad_string_helper(uint8_t identifier)
 {
 	uint8_t payload[20];
@@ -224,6 +232,7 @@ static void bad_string_helper(uint8_t identifier)
 	string_prop_read_helper(CMD_PUBLISH, payload, 7, MOSQ_ERR_MALFORMED_UTF8, identifier, "");
 }
 
+
 static void binary_prop_read_helper(
 		int command,
 		uint8_t *payload,
@@ -237,7 +246,7 @@ static void binary_prop_read_helper(
 	mosquitto_property *properties;
 	int rc;
 
-	memset(&packet, 0, sizeof(struct mosquitto__packet));
+	memset(&packet, 0, sizeof(struct mosquitto__packet_in));
 	packet.payload = payload;
 	packet.remaining_length = remaining_length;
 	rc = property__read_all(command, &packet, &properties);
@@ -254,6 +263,7 @@ static void binary_prop_read_helper(
 	}
 	CU_ASSERT_PTR_EQUAL(properties, NULL);
 }
+
 
 static void duplicate_binary_helper(int command, uint8_t identifier)
 {
@@ -273,6 +283,7 @@ static void duplicate_binary_helper(int command, uint8_t identifier)
 	string_prop_read_helper(command, payload, 9, MOSQ_ERR_DUPLICATE_PROPERTY, identifier, "");
 }
 
+
 static void string_pair_prop_read_helper(
 		uint8_t *payload,
 		uint32_t remaining_length,
@@ -286,7 +297,7 @@ static void string_pair_prop_read_helper(
 	mosquitto_property *properties;
 	int rc;
 
-	memset(&packet, 0, sizeof(struct mosquitto__packet));
+	memset(&packet, 0, sizeof(struct mosquitto__packet_in));
 	packet.payload = payload;
 	packet.remaining_length = remaining_length;
 	rc = property__read_all(CMD_CONNECT, &packet, &properties);
@@ -310,6 +321,7 @@ static void string_pair_prop_read_helper(
 	CU_ASSERT_PTR_NULL(properties);
 }
 
+
 static void varint_prop_read_helper(
 		uint8_t *payload,
 		uint32_t remaining_length,
@@ -321,7 +333,7 @@ static void varint_prop_read_helper(
 	mosquitto_property *properties;
 	int rc;
 
-	memset(&packet, 0, sizeof(struct mosquitto__packet));
+	memset(&packet, 0, sizeof(struct mosquitto__packet_in));
 	packet.payload = payload;
 	packet.remaining_length = remaining_length;
 	rc = property__read_all(CMD_PUBLISH, &packet, &properties);
@@ -340,17 +352,20 @@ static void varint_prop_read_helper(
 	CU_ASSERT_PTR_NULL(properties);
 }
 
+
 static void packet_helper_reason_string_user_property(int command)
 {
-	uint8_t payload[24] = {23,
+	uint8_t payload[24] = {
+		23,
 		MQTT_PROP_REASON_STRING, 0, 6, 'r', 'e', 'a', 's', 'o', 'n',
-		MQTT_PROP_USER_PROPERTY, 0, 4, 'n', 'a', 'm', 'e', 0, 5, 'v', 'a', 'l', 'u', 'e'};
+		MQTT_PROP_USER_PROPERTY, 0, 4, 'n', 'a', 'm', 'e', 0, 5, 'v', 'a', 'l', 'u', 'e'
+	};
 
 	struct mosquitto__packet_in packet;
 	mosquitto_property *properties, *p;
 	int rc;
 
-	memset(&packet, 0, sizeof(struct mosquitto__packet));
+	memset(&packet, 0, sizeof(struct mosquitto__packet_in));
 	packet.payload = payload;
 	packet.remaining_length = sizeof(payload);;
 	rc = property__read_all(command, &packet, &properties);
@@ -380,9 +395,11 @@ static void packet_helper_reason_string_user_property(int command)
 	}
 }
 
+
 /* ========================================================================
  * NO PROPERTIES
  * ======================================================================== */
+
 
 static void TEST_no_properties(void)
 {
@@ -391,7 +408,7 @@ static void TEST_no_properties(void)
 	uint8_t payload[5];
 	int rc;
 
-	memset(&packet, 0, sizeof(struct mosquitto__packet));
+	memset(&packet, 0, sizeof(struct mosquitto__packet_in));
 	memset(payload, 0, sizeof(payload));
 	packet.payload = payload;
 	packet.remaining_length = 1;
@@ -404,6 +421,7 @@ static void TEST_no_properties(void)
 	}
 }
 
+
 static void TEST_truncated(void)
 {
 	struct mosquitto__packet_in packet;
@@ -412,7 +430,7 @@ static void TEST_truncated(void)
 	int rc;
 
 	/* Zero length packet */
-	memset(&packet, 0, sizeof(struct mosquitto__packet));
+	memset(&packet, 0, sizeof(struct mosquitto__packet_in));
 	memset(payload, 0, sizeof(payload));
 	packet.payload = payload;
 	packet.remaining_length = 0;
@@ -422,7 +440,7 @@ static void TEST_truncated(void)
 	CU_ASSERT_EQUAL(packet.pos, 0);
 
 	/* Proplen > 0 but not enough data */
-	memset(&packet, 0, sizeof(struct mosquitto__packet));
+	memset(&packet, 0, sizeof(struct mosquitto__packet_in));
 	memset(payload, 0, sizeof(payload));
 	payload[0] = 2;
 	packet.payload = payload;
@@ -433,7 +451,7 @@ static void TEST_truncated(void)
 	CU_ASSERT_EQUAL(packet.pos, 1);
 
 	/* Proplen > 0 but not enough data */
-	memset(&packet, 0, sizeof(struct mosquitto__packet));
+	memset(&packet, 0, sizeof(struct mosquitto__packet_in));
 	memset(payload, 0, sizeof(payload));
 	payload[0] = 4;
 	payload[1] = MQTT_PROP_PAYLOAD_FORMAT_INDICATOR;
@@ -448,9 +466,11 @@ static void TEST_truncated(void)
 	}
 }
 
+
 /* ========================================================================
  * INVALID PROPERTY ID
  * ======================================================================== */
+
 
 static void TEST_invalid_property_id(void)
 {
@@ -460,7 +480,7 @@ static void TEST_invalid_property_id(void)
 	int rc;
 
 	/* ID = 0 */
-	memset(&packet, 0, sizeof(struct mosquitto__packet));
+	memset(&packet, 0, sizeof(struct mosquitto__packet_in));
 	memset(payload, 0, sizeof(payload));
 	payload[0] = 4;
 	packet.payload = payload;
@@ -471,7 +491,7 @@ static void TEST_invalid_property_id(void)
 	CU_ASSERT_EQUAL(packet.pos, 2);
 
 	/* ID = 4 */
-	memset(&packet, 0, sizeof(struct mosquitto__packet));
+	memset(&packet, 0, sizeof(struct mosquitto__packet_in));
 	memset(payload, 0, sizeof(payload));
 	payload[0] = 4;
 	payload[1] = 4;
@@ -486,9 +506,11 @@ static void TEST_invalid_property_id(void)
 	}
 }
 
+
 /* ========================================================================
  * SINGLE PROPERTIES
  * ======================================================================== */
+
 
 static void TEST_single_payload_format_indicator(void)
 {
@@ -502,6 +524,7 @@ static void TEST_single_payload_format_indicator(void)
 	byte_prop_read_helper(CMD_PUBLISH, payload, 3, MOSQ_ERR_SUCCESS, MQTT_PROP_PAYLOAD_FORMAT_INDICATOR, 1);
 }
 
+
 static void TEST_single_request_problem_information(void)
 {
 	uint8_t payload[20];
@@ -513,6 +536,7 @@ static void TEST_single_request_problem_information(void)
 
 	byte_prop_read_helper(CMD_CONNECT, payload, 3, MOSQ_ERR_SUCCESS, MQTT_PROP_REQUEST_PROBLEM_INFORMATION, 1);
 }
+
 
 static void TEST_single_request_response_information(void)
 {
@@ -526,6 +550,7 @@ static void TEST_single_request_response_information(void)
 	byte_prop_read_helper(CMD_CONNECT, payload, 3, MOSQ_ERR_SUCCESS, MQTT_PROP_REQUEST_RESPONSE_INFORMATION, 1);
 }
 
+
 static void TEST_single_maximum_qos(void)
 {
 	uint8_t payload[20];
@@ -537,6 +562,7 @@ static void TEST_single_maximum_qos(void)
 
 	byte_prop_read_helper(CMD_CONNACK, payload, 3, MOSQ_ERR_SUCCESS, MQTT_PROP_MAXIMUM_QOS, 1);
 }
+
 
 static void TEST_single_retain_available(void)
 {
@@ -550,6 +576,7 @@ static void TEST_single_retain_available(void)
 	byte_prop_read_helper(CMD_CONNACK, payload, 3, MOSQ_ERR_SUCCESS, MQTT_PROP_RETAIN_AVAILABLE, 1);
 }
 
+
 static void TEST_single_wildcard_subscription_available(void)
 {
 	uint8_t payload[20];
@@ -561,6 +588,7 @@ static void TEST_single_wildcard_subscription_available(void)
 
 	byte_prop_read_helper(CMD_CONNACK, payload, 3, MOSQ_ERR_SUCCESS, MQTT_PROP_WILDCARD_SUB_AVAILABLE, 0);
 }
+
 
 static void TEST_single_subscription_identifier_available(void)
 {
@@ -574,6 +602,7 @@ static void TEST_single_subscription_identifier_available(void)
 	byte_prop_read_helper(CMD_CONNACK, payload, 3, MOSQ_ERR_SUCCESS, MQTT_PROP_SUBSCRIPTION_ID_AVAILABLE, 0);
 }
 
+
 static void TEST_single_shared_subscription_available(void)
 {
 	uint8_t payload[20];
@@ -585,6 +614,7 @@ static void TEST_single_shared_subscription_available(void)
 
 	byte_prop_read_helper(CMD_CONNACK, payload, 3, MOSQ_ERR_SUCCESS, MQTT_PROP_SHARED_SUB_AVAILABLE, 1);
 }
+
 
 static void TEST_single_message_expiry_interval(void)
 {
@@ -601,6 +631,7 @@ static void TEST_single_message_expiry_interval(void)
 	int32_prop_read_helper(CMD_WILL, payload, 6, MOSQ_ERR_SUCCESS, MQTT_PROP_MESSAGE_EXPIRY_INTERVAL, 0x12233445);
 }
 
+
 static void TEST_single_session_expiry_interval(void)
 {
 	uint8_t payload[20];
@@ -615,6 +646,7 @@ static void TEST_single_session_expiry_interval(void)
 
 	int32_prop_read_helper(CMD_CONNACK, payload, 6, MOSQ_ERR_SUCCESS, MQTT_PROP_SESSION_EXPIRY_INTERVAL, 0x45342312);
 }
+
 
 static void TEST_single_will_delay_interval(void)
 {
@@ -631,6 +663,7 @@ static void TEST_single_will_delay_interval(void)
 	int32_prop_read_helper(CMD_WILL, payload, 6, MOSQ_ERR_SUCCESS, MQTT_PROP_WILL_DELAY_INTERVAL, 0x45342312);
 }
 
+
 static void TEST_single_maximum_packet_size(void)
 {
 	uint8_t payload[20];
@@ -646,6 +679,7 @@ static void TEST_single_maximum_packet_size(void)
 	int32_prop_read_helper(CMD_CONNECT, payload, 6, MOSQ_ERR_SUCCESS, MQTT_PROP_MAXIMUM_PACKET_SIZE, 0x45342312);
 }
 
+
 static void TEST_single_server_keep_alive(void)
 {
 	uint8_t payload[20];
@@ -658,6 +692,7 @@ static void TEST_single_server_keep_alive(void)
 
 	int16_prop_read_helper(CMD_CONNACK, payload, 4, MOSQ_ERR_SUCCESS, MQTT_PROP_SERVER_KEEP_ALIVE, 0x4534);
 }
+
 
 static void TEST_single_receive_maximum(void)
 {
@@ -672,6 +707,7 @@ static void TEST_single_receive_maximum(void)
 	int16_prop_read_helper(CMD_CONNACK, payload, 4, MOSQ_ERR_SUCCESS, MQTT_PROP_RECEIVE_MAXIMUM, 0x6842);
 }
 
+
 static void TEST_single_topic_alias_maximum(void)
 {
 	uint8_t payload[20];
@@ -685,6 +721,7 @@ static void TEST_single_topic_alias_maximum(void)
 	int16_prop_read_helper(CMD_CONNECT, payload, 4, MOSQ_ERR_SUCCESS, MQTT_PROP_TOPIC_ALIAS_MAXIMUM, 0x6842);
 }
 
+
 static void TEST_single_topic_alias(void)
 {
 	uint8_t payload[20];
@@ -697,6 +734,7 @@ static void TEST_single_topic_alias(void)
 
 	int16_prop_read_helper(CMD_PUBLISH, payload, 4, MOSQ_ERR_SUCCESS, MQTT_PROP_TOPIC_ALIAS, 0x6842);
 }
+
 
 static void TEST_single_content_type(void)
 {
@@ -716,6 +754,7 @@ static void TEST_single_content_type(void)
 	string_prop_read_helper(CMD_PUBLISH, payload, 9, MOSQ_ERR_SUCCESS, MQTT_PROP_CONTENT_TYPE, "hello");
 }
 
+
 static void TEST_single_response_topic(void)
 {
 	uint8_t payload[20];
@@ -733,6 +772,7 @@ static void TEST_single_response_topic(void)
 
 	string_prop_read_helper(CMD_WILL, payload, 9, MOSQ_ERR_SUCCESS, MQTT_PROP_RESPONSE_TOPIC, "hello");
 }
+
 
 static void TEST_single_assigned_client_identifier(void)
 {
@@ -752,6 +792,7 @@ static void TEST_single_assigned_client_identifier(void)
 	string_prop_read_helper(CMD_CONNACK, payload, 9, MOSQ_ERR_SUCCESS, MQTT_PROP_ASSIGNED_CLIENT_IDENTIFIER, "hello");
 }
 
+
 static void TEST_single_authentication_method(void)
 {
 	uint8_t payload[20];
@@ -769,6 +810,7 @@ static void TEST_single_authentication_method(void)
 
 	string_prop_read_helper(CMD_AUTH, payload, 9, MOSQ_ERR_SUCCESS, MQTT_PROP_AUTHENTICATION_METHOD, "hello");
 }
+
 
 static void TEST_single_response_information(void)
 {
@@ -788,6 +830,7 @@ static void TEST_single_response_information(void)
 	string_prop_read_helper(CMD_CONNACK, payload, 9, MOSQ_ERR_SUCCESS, MQTT_PROP_RESPONSE_INFORMATION, "hello");
 }
 
+
 static void TEST_single_server_reference(void)
 {
 	uint8_t payload[20];
@@ -805,6 +848,7 @@ static void TEST_single_server_reference(void)
 
 	string_prop_read_helper(CMD_CONNACK, payload, 9, MOSQ_ERR_SUCCESS, MQTT_PROP_SERVER_REFERENCE, "hello");
 }
+
 
 static void TEST_single_reason_string(void)
 {
@@ -824,6 +868,7 @@ static void TEST_single_reason_string(void)
 	string_prop_read_helper(CMD_PUBCOMP, payload, 9, MOSQ_ERR_SUCCESS, MQTT_PROP_REASON_STRING, "hello");
 }
 
+
 static void TEST_single_correlation_data(void)
 {
 	uint8_t payload[20];
@@ -841,6 +886,7 @@ static void TEST_single_correlation_data(void)
 
 	binary_prop_read_helper(CMD_PUBLISH, payload, 9, MOSQ_ERR_SUCCESS, MQTT_PROP_CORRELATION_DATA, &payload[4], 5);
 }
+
 
 static void TEST_single_authentication_data(void)
 {
@@ -860,6 +906,7 @@ static void TEST_single_authentication_data(void)
 	binary_prop_read_helper(CMD_CONNECT, payload, 9, MOSQ_ERR_SUCCESS, MQTT_PROP_AUTHENTICATION_DATA, &payload[4], 5);
 }
 
+
 static void TEST_single_user_property(void)
 {
 	uint8_t payload[20];
@@ -877,6 +924,7 @@ static void TEST_single_user_property(void)
 
 	string_pair_prop_read_helper(payload, 10, MOSQ_ERR_SUCCESS, MQTT_PROP_USER_PROPERTY, "za", "bc", false);
 }
+
 
 static void TEST_single_subscription_identifier(void)
 {
@@ -936,134 +984,161 @@ static void TEST_single_subscription_identifier(void)
 	varint_prop_read_helper(payload, 6, MOSQ_ERR_SUCCESS, MQTT_PROP_SUBSCRIPTION_IDENTIFIER, 268435455);
 }
 
+
 /* ========================================================================
  * DUPLICATE PROPERTIES
  * ======================================================================== */
+
 
 static void TEST_duplicate_payload_format_indicator(void)
 {
 	duplicate_byte_helper(CMD_PUBLISH, MQTT_PROP_PAYLOAD_FORMAT_INDICATOR);
 }
 
+
 static void TEST_duplicate_request_problem_information(void)
 {
 	duplicate_byte_helper(CMD_CONNECT, MQTT_PROP_REQUEST_PROBLEM_INFORMATION);
 }
+
 
 static void TEST_duplicate_request_response_information(void)
 {
 	duplicate_byte_helper(CMD_CONNECT, MQTT_PROP_REQUEST_RESPONSE_INFORMATION);
 }
 
+
 static void TEST_duplicate_maximum_qos(void)
 {
 	duplicate_byte_helper(CMD_CONNACK, MQTT_PROP_MAXIMUM_QOS);
 }
+
 
 static void TEST_duplicate_retain_available(void)
 {
 	duplicate_byte_helper(CMD_CONNACK, MQTT_PROP_RETAIN_AVAILABLE);
 }
 
+
 static void TEST_duplicate_wildcard_subscription_available(void)
 {
 	duplicate_byte_helper(CMD_CONNACK, MQTT_PROP_WILDCARD_SUB_AVAILABLE);
 }
+
 
 static void TEST_duplicate_subscription_identifier_available(void)
 {
 	duplicate_byte_helper(CMD_CONNACK, MQTT_PROP_SUBSCRIPTION_ID_AVAILABLE);
 }
 
+
 static void TEST_duplicate_shared_subscription_available(void)
 {
 	duplicate_byte_helper(CMD_CONNACK, MQTT_PROP_SHARED_SUB_AVAILABLE);
 }
+
 
 static void TEST_duplicate_message_expiry_interval(void)
 {
 	duplicate_int32_helper(CMD_PUBLISH, MQTT_PROP_MESSAGE_EXPIRY_INTERVAL);
 }
 
+
 static void TEST_duplicate_session_expiry_interval(void)
 {
 	duplicate_int32_helper(CMD_DISCONNECT, MQTT_PROP_SESSION_EXPIRY_INTERVAL);
 }
+
 
 static void TEST_duplicate_will_delay_interval(void)
 {
 	duplicate_int32_helper(CMD_WILL, MQTT_PROP_WILL_DELAY_INTERVAL);
 }
 
+
 static void TEST_duplicate_maximum_packet_size(void)
 {
 	duplicate_int32_helper(CMD_CONNECT, MQTT_PROP_MAXIMUM_PACKET_SIZE);
 }
+
 
 static void TEST_duplicate_server_keep_alive(void)
 {
 	duplicate_int16_helper(CMD_CONNACK, MQTT_PROP_SERVER_KEEP_ALIVE);
 }
 
+
 static void TEST_duplicate_receive_maximum(void)
 {
 	duplicate_int16_helper(CMD_CONNACK, MQTT_PROP_RECEIVE_MAXIMUM);
 }
+
 
 static void TEST_duplicate_topic_alias_maximum(void)
 {
 	duplicate_int16_helper(CMD_CONNECT, MQTT_PROP_TOPIC_ALIAS_MAXIMUM);
 }
 
+
 static void TEST_duplicate_topic_alias(void)
 {
 	duplicate_int16_helper(CMD_PUBLISH, MQTT_PROP_TOPIC_ALIAS);
 }
+
 
 static void TEST_duplicate_content_type(void)
 {
 	duplicate_string_helper(CMD_PUBLISH, MQTT_PROP_CONTENT_TYPE);
 }
 
+
 static void TEST_duplicate_response_topic(void)
 {
 	duplicate_string_helper(CMD_PUBLISH, MQTT_PROP_RESPONSE_TOPIC);
 }
+
 
 static void TEST_duplicate_assigned_client_identifier(void)
 {
 	duplicate_string_helper(CMD_CONNACK, MQTT_PROP_ASSIGNED_CLIENT_IDENTIFIER);
 }
 
+
 static void TEST_duplicate_authentication_method(void)
 {
 	duplicate_string_helper(CMD_AUTH, MQTT_PROP_AUTHENTICATION_METHOD);
 }
+
 
 static void TEST_duplicate_response_information(void)
 {
 	duplicate_string_helper(CMD_CONNACK, MQTT_PROP_RESPONSE_INFORMATION);
 }
 
+
 static void TEST_duplicate_server_reference(void)
 {
 	duplicate_string_helper(CMD_CONNACK, MQTT_PROP_SERVER_REFERENCE);
 }
+
 
 static void TEST_duplicate_reason_string(void)
 {
 	duplicate_string_helper(CMD_PUBACK, MQTT_PROP_REASON_STRING);
 }
 
+
 static void TEST_duplicate_correlation_data(void)
 {
 	duplicate_binary_helper(CMD_PUBLISH, MQTT_PROP_CORRELATION_DATA);
 }
 
+
 static void TEST_duplicate_authentication_data(void)
 {
 	duplicate_binary_helper(CMD_CONNACK, MQTT_PROP_AUTHENTICATION_DATA);
 }
+
 
 static void TEST_duplicate_user_property(void)
 {
@@ -1093,6 +1168,7 @@ static void TEST_duplicate_user_property(void)
 	string_pair_prop_read_helper(payload, 19, MOSQ_ERR_SUCCESS, MQTT_PROP_USER_PROPERTY, "ab", "gh", true);
 }
 
+
 static void TEST_duplicate_subscription_identifier(void)
 {
 	uint8_t payload[20];
@@ -1108,44 +1184,53 @@ static void TEST_duplicate_subscription_identifier(void)
 	varint_prop_read_helper(payload, 5, MOSQ_ERR_MALFORMED_PACKET, MQTT_PROP_SUBSCRIPTION_IDENTIFIER, 0);
 }
 
+
 /* ========================================================================
  * BAD PROPERTY VALUES
  * ======================================================================== */
+
 
 static void TEST_bad_request_problem_information(void)
 {
 	bad_byte_helper(CMD_CONNECT, MQTT_PROP_REQUEST_PROBLEM_INFORMATION);
 }
 
+
 static void TEST_bad_request_response_information(void)
 {
 	bad_byte_helper(CMD_CONNECT, MQTT_PROP_REQUEST_RESPONSE_INFORMATION);
 }
+
 
 static void TEST_bad_maximum_qos(void)
 {
 	bad_byte_helper(CMD_CONNACK, MQTT_PROP_MAXIMUM_QOS);
 }
 
+
 static void TEST_bad_retain_available(void)
 {
 	bad_byte_helper(CMD_CONNACK, MQTT_PROP_RETAIN_AVAILABLE);
 }
+
 
 static void TEST_bad_wildcard_sub_available(void)
 {
 	bad_byte_helper(CMD_CONNACK, MQTT_PROP_WILDCARD_SUB_AVAILABLE);
 }
 
+
 static void TEST_bad_subscription_id_available(void)
 {
 	bad_byte_helper(CMD_CONNACK, MQTT_PROP_SUBSCRIPTION_ID_AVAILABLE);
 }
 
+
 static void TEST_bad_shared_sub_available(void)
 {
 	bad_byte_helper(CMD_CONNACK, MQTT_PROP_SHARED_SUB_AVAILABLE);
 }
+
 
 static void TEST_bad_maximum_packet_size(void)
 {
@@ -1162,6 +1247,7 @@ static void TEST_bad_maximum_packet_size(void)
 	int32_prop_read_helper(CMD_CONNACK, payload, 6, MOSQ_ERR_PROTOCOL, MQTT_PROP_MAXIMUM_PACKET_SIZE, 0);
 }
 
+
 static void TEST_bad_receive_maximum(void)
 {
 	uint8_t payload[20];
@@ -1174,6 +1260,7 @@ static void TEST_bad_receive_maximum(void)
 
 	int32_prop_read_helper(CMD_CONNECT, payload, 4, MOSQ_ERR_PROTOCOL, MQTT_PROP_RECEIVE_MAXIMUM, 0);
 }
+
 
 static void TEST_bad_topic_alias(void)
 {
@@ -1188,10 +1275,12 @@ static void TEST_bad_topic_alias(void)
 	int32_prop_read_helper(CMD_PUBLISH, payload, 4, MOSQ_ERR_PROTOCOL, MQTT_PROP_TOPIC_ALIAS, 0);
 }
 
+
 static void TEST_bad_content_type(void)
 {
 	bad_string_helper(MQTT_PROP_CONTENT_TYPE);
 }
+
 
 static void TEST_bad_subscription_identifier(void)
 {
@@ -1209,13 +1298,16 @@ static void TEST_bad_subscription_identifier(void)
 	varint_prop_read_helper(payload, 7, MOSQ_ERR_MALFORMED_PACKET, MQTT_PROP_SUBSCRIPTION_IDENTIFIER, 0);
 }
 
+
 /* ========================================================================
  * CONTROL PACKET TESTS
  * ======================================================================== */
 
+
 static void TEST_packet_connect(void)
 {
-	uint8_t payload[] = {0,
+	uint8_t payload[] = {
+		0,
 		MQTT_PROP_SESSION_EXPIRY_INTERVAL, 0x12, 0x45, 0x00, 0x00,
 		MQTT_PROP_RECEIVE_MAXIMUM, 0x00, 0x05,
 		MQTT_PROP_MAXIMUM_PACKET_SIZE, 0x12, 0x45, 0x00, 0x00,
@@ -1224,7 +1316,8 @@ static void TEST_packet_connect(void)
 		MQTT_PROP_REQUEST_RESPONSE_INFORMATION, 1,
 		MQTT_PROP_USER_PROPERTY, 0, 4, 'n', 'a', 'm', 'e', 0, 5, 'v', 'a', 'l', 'u', 'e',
 		MQTT_PROP_AUTHENTICATION_METHOD, 0x00, 0x04, 'n', 'o', 'n', 'e',
-		MQTT_PROP_AUTHENTICATION_DATA, 0x00, 0x02, 1, 2};
+		MQTT_PROP_AUTHENTICATION_DATA, 0x00, 0x02, 1, 2
+	};
 
 	struct mosquitto__packet_in packet;
 	mosquitto_property *properties, *p;
@@ -1232,7 +1325,7 @@ static void TEST_packet_connect(void)
 
 	payload[0] = sizeof(payload)-1;
 
-	memset(&packet, 0, sizeof(struct mosquitto__packet));
+	memset(&packet, 0, sizeof(struct mosquitto__packet_in));
 	packet.payload = payload;
 	packet.remaining_length = sizeof(payload);;
 	rc = property__read_all(CMD_CONNECT, &packet, &properties);
@@ -1319,9 +1412,11 @@ static void TEST_packet_connect(void)
 	mosquitto_property_free_all(&properties);
 }
 
+
 static void TEST_packet_connack(void)
 {
-	uint8_t payload[] = {0,
+	uint8_t payload[] = {
+		0,
 		MQTT_PROP_SESSION_EXPIRY_INTERVAL, 0x12, 0x45, 0x00, 0x00,
 		MQTT_PROP_RECEIVE_MAXIMUM, 0x00, 0x05,
 		MQTT_PROP_MAXIMUM_QOS, 1,
@@ -1338,7 +1433,8 @@ static void TEST_packet_connack(void)
 		MQTT_PROP_RESPONSE_INFORMATION, 0x00, 0x03, 'r', 's', 'p',
 		MQTT_PROP_SERVER_REFERENCE, 0x00, 0x04, 's', 'e', 'r', 'v',
 		MQTT_PROP_AUTHENTICATION_METHOD, 0x00, 0x04, 'n', 'o', 'n', 'e',
-		MQTT_PROP_AUTHENTICATION_DATA, 0x00, 0x02, 1, 2};
+		MQTT_PROP_AUTHENTICATION_DATA, 0x00, 0x02, 1, 2
+	};
 
 	struct mosquitto__packet_in packet;
 	mosquitto_property *properties, *p;
@@ -1346,7 +1442,7 @@ static void TEST_packet_connack(void)
 
 	payload[0] = sizeof(payload)-1;
 
-	memset(&packet, 0, sizeof(struct mosquitto__packet));
+	memset(&packet, 0, sizeof(struct mosquitto__packet_in));
 	packet.payload = payload;
 	packet.remaining_length = sizeof(payload);;
 	rc = property__read_all(CMD_CONNACK, &packet, &properties);
@@ -1502,9 +1598,11 @@ static void TEST_packet_connack(void)
 	mosquitto_property_free_all(&properties);
 }
 
+
 static void TEST_packet_publish(void)
 {
-	uint8_t payload[] = {0,
+	uint8_t payload[] = {
+		0,
 		MQTT_PROP_PAYLOAD_FORMAT_INDICATOR, 1,
 		MQTT_PROP_MESSAGE_EXPIRY_INTERVAL, 0x12, 0x45, 0x00, 0x00,
 		MQTT_PROP_TOPIC_ALIAS, 0x00, 0x02,
@@ -1512,7 +1610,8 @@ static void TEST_packet_publish(void)
 		MQTT_PROP_CORRELATION_DATA, 0x00, 0x02, 1, 2,
 		MQTT_PROP_USER_PROPERTY, 0, 4, 'n', 'a', 'm', 'e', 0, 5, 'v', 'a', 'l', 'u', 'e',
 		MQTT_PROP_SUBSCRIPTION_IDENTIFIER, 0x04,
-		MQTT_PROP_CONTENT_TYPE, 0, 5, 'e', 'm', 'p', 't', 'y'};
+		MQTT_PROP_CONTENT_TYPE, 0, 5, 'e', 'm', 'p', 't', 'y'
+	};
 
 	struct mosquitto__packet_in packet;
 	mosquitto_property *properties, *p;
@@ -1520,7 +1619,7 @@ static void TEST_packet_publish(void)
 
 	payload[0] = sizeof(payload)-1;
 
-	memset(&packet, 0, sizeof(struct mosquitto__packet));
+	memset(&packet, 0, sizeof(struct mosquitto__packet_in));
 	packet.payload = payload;
 	packet.remaining_length = sizeof(payload);;
 	rc = property__read_all(CMD_PUBLISH, &packet, &properties);
@@ -1601,31 +1700,38 @@ static void TEST_packet_publish(void)
 	mosquitto_property_free_all(&properties);
 }
 
+
 static void TEST_packet_puback(void)
 {
 	packet_helper_reason_string_user_property(CMD_PUBACK);
 }
+
 
 static void TEST_packet_pubrec(void)
 {
 	packet_helper_reason_string_user_property(CMD_PUBREC);
 }
 
+
 static void TEST_packet_pubrel(void)
 {
 	packet_helper_reason_string_user_property(CMD_PUBREL);
 }
+
 
 static void TEST_packet_pubcomp(void)
 {
 	packet_helper_reason_string_user_property(CMD_PUBCOMP);
 }
 
+
 static void TEST_packet_subscribe(void)
 {
-	uint8_t payload[] = {0,
+	uint8_t payload[] = {
+		0,
 		MQTT_PROP_USER_PROPERTY, 0, 4, 'n', 'a', 'm', 'e', 0, 5, 'v', 'a', 'l', 'u', 'e',
-		MQTT_PROP_SUBSCRIPTION_IDENTIFIER, 0x04};
+		MQTT_PROP_SUBSCRIPTION_IDENTIFIER, 0x04
+	};
 
 	struct mosquitto__packet_in packet;
 	mosquitto_property *properties, *p;
@@ -1633,7 +1739,7 @@ static void TEST_packet_subscribe(void)
 
 	payload[0] = sizeof(payload)-1;
 
-	memset(&packet, 0, sizeof(struct mosquitto__packet));
+	memset(&packet, 0, sizeof(struct mosquitto__packet_in));
 	packet.payload = payload;
 	packet.remaining_length = sizeof(payload);;
 	rc = property__read_all(CMD_SUBSCRIBE, &packet, &properties);
@@ -1662,15 +1768,19 @@ static void TEST_packet_subscribe(void)
 	mosquitto_property_free_all(&properties);
 }
 
+
 static void TEST_packet_suback(void)
 {
 	packet_helper_reason_string_user_property(CMD_SUBACK);
 }
 
+
 static void TEST_packet_unsubscribe(void)
 {
-	uint8_t payload[] = {0,
-		MQTT_PROP_USER_PROPERTY, 0, 4, 'n', 'a', 'm', 'e', 0, 5, 'v', 'a', 'l', 'u', 'e'};
+	uint8_t payload[] = {
+		0,
+		MQTT_PROP_USER_PROPERTY, 0, 4, 'n', 'a', 'm', 'e', 0, 5, 'v', 'a', 'l', 'u', 'e'
+	};
 
 	struct mosquitto__packet_in packet;
 	mosquitto_property *properties, *p;
@@ -1678,7 +1788,7 @@ static void TEST_packet_unsubscribe(void)
 
 	payload[0] = sizeof(payload)-1;
 
-	memset(&packet, 0, sizeof(struct mosquitto__packet));
+	memset(&packet, 0, sizeof(struct mosquitto__packet_in));
 	packet.payload = payload;
 	packet.remaining_length = sizeof(payload);;
 	rc = property__read_all(CMD_UNSUBSCRIBE, &packet, &properties);
@@ -1699,17 +1809,21 @@ static void TEST_packet_unsubscribe(void)
 	mosquitto_property_free_all(&properties);
 }
 
+
 static void TEST_packet_unsuback(void)
 {
 	packet_helper_reason_string_user_property(CMD_UNSUBACK);
 }
 
+
 static void TEST_packet_disconnect(void)
 {
-	uint8_t payload[] = {0,
+	uint8_t payload[] = {
+		0,
 		MQTT_PROP_SESSION_EXPIRY_INTERVAL, 0x12, 0x45, 0x00, 0x00,
 		MQTT_PROP_REASON_STRING, 0, 6, 'r', 'e', 'a', 's', 'o', 'n',
-		MQTT_PROP_USER_PROPERTY, 0, 4, 'n', 'a', 'm', 'e', 0, 5, 'v', 'a', 'l', 'u', 'e'};
+		MQTT_PROP_USER_PROPERTY, 0, 4, 'n', 'a', 'm', 'e', 0, 5, 'v', 'a', 'l', 'u', 'e'
+	};
 
 	struct mosquitto__packet_in packet;
 	mosquitto_property *properties, *p;
@@ -1717,7 +1831,7 @@ static void TEST_packet_disconnect(void)
 
 	payload[0] = sizeof(payload)-1;
 
-	memset(&packet, 0, sizeof(struct mosquitto__packet));
+	memset(&packet, 0, sizeof(struct mosquitto__packet_in));
 	packet.payload = payload;
 	packet.remaining_length = sizeof(payload);;
 	rc = property__read_all(CMD_DISCONNECT, &packet, &properties);
@@ -1755,13 +1869,16 @@ static void TEST_packet_disconnect(void)
 	mosquitto_property_free_all(&properties);
 }
 
+
 static void TEST_packet_auth(void)
 {
-	uint8_t payload[] = {0,
+	uint8_t payload[] = {
+		0,
 		MQTT_PROP_AUTHENTICATION_METHOD, 0x00, 0x04, 'n', 'o', 'n', 'e',
 		MQTT_PROP_AUTHENTICATION_DATA, 0x00, 0x02, 1, 2,
 		MQTT_PROP_REASON_STRING, 0, 6, 'r', 'e', 'a', 's', 'o', 'n',
-		MQTT_PROP_USER_PROPERTY, 0, 4, 'n', 'a', 'm', 'e', 0, 5, 'v', 'a', 'l', 'u', 'e'};
+		MQTT_PROP_USER_PROPERTY, 0, 4, 'n', 'a', 'm', 'e', 0, 5, 'v', 'a', 'l', 'u', 'e'
+	};
 
 	struct mosquitto__packet_in packet;
 	mosquitto_property *properties, *p;
@@ -1769,7 +1886,7 @@ static void TEST_packet_auth(void)
 
 	payload[0] = sizeof(payload)-1;
 
-	memset(&packet, 0, sizeof(struct mosquitto__packet));
+	memset(&packet, 0, sizeof(struct mosquitto__packet_in));
 	packet.payload = payload;
 	packet.remaining_length = sizeof(payload);;
 	rc = property__read_all(CMD_AUTH, &packet, &properties);
@@ -1822,6 +1939,7 @@ static void TEST_packet_auth(void)
 /* ========================================================================
  * TEST SUITE SETUP
  * ======================================================================== */
+
 
 int init_property_read_tests(void)
 {

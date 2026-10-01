@@ -31,16 +31,8 @@ Contributors:
 #  include <sys/stat.h>
 #endif
 
-#if !defined(WITH_TLS) && defined(__linux__) && defined(__GLIBC__)
-#  if __GLIBC_PREREQ(2, 25)
-#    include <sys/random.h>
-#    define HAVE_GETRANDOM 1
-#  endif
-#endif
-
 #ifdef WITH_TLS
 #  include <openssl/bn.h>
-#  include <openssl/rand.h>
 #endif
 
 #ifdef WITH_BROKER
@@ -58,6 +50,7 @@ Contributors:
 #if defined(WITH_WEBSOCKETS) && WITH_WEBSOCKETS == WS_IS_LWS
 #include <libwebsockets.h>
 #endif
+
 
 int mosquitto__check_keepalive(struct mosquitto *mosq)
 {
@@ -79,8 +72,8 @@ int mosquitto__check_keepalive(struct mosquitto *mosq)
 #if defined(WITH_BROKER) && defined(WITH_BRIDGE)
 	/* Check if a lazy bridge should be timed out due to idle. */
 	if(mosq->bridge && mosq->bridge->start_type == bst_lazy
-				&& net__is_connected(mosq)
-				&& now - mosq->next_msg_out - mosq->keepalive >= mosq->bridge->idle_timeout){
+			&& net__is_connected(mosq)
+			&& now - mosq->next_msg_out - mosq->keepalive >= mosq->bridge->idle_timeout){
 
 		log__printf(mosq, MOSQ_LOG_NOTICE, "Bridge connection %s has exceeded idle timeout, disconnecting.", mosq->id);
 		net__socket_close(mosq);
@@ -127,6 +120,7 @@ int mosquitto__check_keepalive(struct mosquitto *mosq)
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 uint16_t mosquitto__mid_generate(struct mosquitto *mosq)
 {
 	/* FIXME - this would be better with atomic increment, but this is safer
@@ -141,7 +135,9 @@ uint16_t mosquitto__mid_generate(struct mosquitto *mosq)
 
 	COMPAT_pthread_mutex_lock(&mosq->mid_mutex);
 	mosq->last_mid++;
-	if(mosq->last_mid == 0) mosq->last_mid++;
+	if(mosq->last_mid == 0){
+		mosq->last_mid++;
+	}
 	mid = mosq->last_mid;
 	COMPAT_pthread_mutex_unlock(&mosq->mid_mutex);
 
@@ -150,6 +146,8 @@ uint16_t mosquitto__mid_generate(struct mosquitto *mosq)
 
 
 #ifdef WITH_TLS
+
+
 int mosquitto__hex2bin_sha1(const char *hex, unsigned char **bin)
 {
 	unsigned char *sha, tmp[SHA_DIGEST_LENGTH];
@@ -167,6 +165,7 @@ int mosquitto__hex2bin_sha1(const char *hex, unsigned char **bin)
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 int mosquitto__hex2bin(const char *hex, unsigned char *bin, int bin_max_len)
 {
 	BIGNUM *bn = NULL;
@@ -175,8 +174,8 @@ int mosquitto__hex2bin(const char *hex, unsigned char *bin, int bin_max_len)
 	size_t i = 0;
 
 	/* Count the number of leading zero */
-	for(i=0; i<strlen(hex); i=i+2) {
-		if(strncmp(hex + i, "00", 2) == 0) {
+	for(i=0; i<strlen(hex); i=i+2){
+		if(strncmp(hex + i, "00", 2) == 0){
 			if(leading_zero >= bin_max_len){
 				return 0;
 			}
@@ -189,7 +188,9 @@ int mosquitto__hex2bin(const char *hex, unsigned char *bin, int bin_max_len)
 	}
 
 	if(BN_hex2bn(&bn, hex) == 0){
-		if(bn) BN_free(bn);
+		if(bn){
+			BN_free(bn);
+		}
 		return 0;
 	}
 	if(BN_num_bytes(bn) + leading_zero > bin_max_len){
@@ -203,12 +204,14 @@ int mosquitto__hex2bin(const char *hex, unsigned char *bin, int bin_max_len)
 }
 #endif
 
+
 void util__increment_receive_quota(struct mosquitto *mosq)
 {
 	if(mosq->msgs_in.inflight_quota < mosq->msgs_in.inflight_maximum){
 		mosq->msgs_in.inflight_quota++;
 	}
 }
+
 
 void util__increment_send_quota(struct mosquitto *mosq)
 {
@@ -224,6 +227,7 @@ void util__decrement_receive_quota(struct mosquitto *mosq)
 		mosq->msgs_in.inflight_quota--;
 	}
 }
+
 
 void util__decrement_send_quota(struct mosquitto *mosq)
 {
@@ -259,12 +263,15 @@ enum mosquitto_client_state mosquitto__get_state(struct mosquitto *mosq)
 }
 
 #ifndef WITH_BROKER
+
+
 void mosquitto__set_request_disconnect(struct mosquitto *mosq, bool request_disconnect)
 {
 	COMPAT_pthread_mutex_lock(&mosq->state_mutex);
 	mosq->request_disconnect = request_disconnect;
 	COMPAT_pthread_mutex_unlock(&mosq->state_mutex);
 }
+
 
 bool mosquitto__get_request_disconnect(struct mosquitto *mosq)
 {

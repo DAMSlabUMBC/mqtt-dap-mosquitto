@@ -6,6 +6,7 @@
 
 static int run = -1;
 
+
 static void on_connect(struct mosquitto *mosq, void *obj, int rc)
 {
 	(void)mosq;
@@ -16,6 +17,7 @@ static void on_connect(struct mosquitto *mosq, void *obj, int rc)
 		exit(1);
 	}
 }
+
 
 int main(int argc, char *argv[])
 {
@@ -37,7 +39,9 @@ int main(int argc, char *argv[])
 	mosquitto_connect_callback_set(mosq, on_connect);
 
 	rc = mosquitto_connect(mosq, "localhost", port, 5);
-	if(rc != MOSQ_ERR_SUCCESS) return rc;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return rc;
+	}
 
 	while(run == -1){
 		rc = mosquitto_loop(mosq, 300, 1);

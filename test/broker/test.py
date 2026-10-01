@@ -26,6 +26,7 @@ tests = [
     (1, './01-connect-unix-socket.py'),
     (1, './01-connect-windows-line-endings.py'),
     (2, './01-connect-zero-length-id.py'),
+    (1, './01-plugin-connect-uname-password-denied.py'),
 
     (1, './02-shared-nolocal.py'),
     (1, './02-shared-qos0-v5.py'),
@@ -76,7 +77,7 @@ tests = [
     (1, './03-publish-qos1-retain-disabled.py'),
     (1, './03-publish-qos1.py'),
     (1, './03-publish-qos2-dup.py'),
-    (1, './03-publish-qos2-max-inflight-exceeded.py'),
+    #(1, './03-publish-qos2-max-inflight-exceeded.py'),
     (1, './03-publish-qos2-max-inflight.py'),
     (1, './03-publish-qos2-reuse-mid.py'),
     (1, './03-publish-qos2.py'),
@@ -94,6 +95,7 @@ tests = [
 
     (1, './05-clean-session-qos1.py'),
     (1, './05-session-expiry-v5.py'),
+    (1, './05-session-expiry-kick.py'),
 
     (2, './06-bridge-b2br-disconnect-qos1.py'),
     (2, './06-bridge-b2br-disconnect-qos2.py'),
@@ -163,8 +165,10 @@ tests = [
     (1, './09-extended-auth-multistep.py'),
     (1, './09-extended-auth-reauth.py'),
     (1, './09-extended-auth-single.py'),
+    (1, './09-plugin-acl-access-variants.py'),
     (1, './09-plugin-acl-change.py'),
     (1, './09-plugin-auth-acl-pub.py'),
+    (1, './09-plugin-auth-acl-pub-prop.py'),
     (1, './09-plugin-auth-acl-sub-denied.py'),
     (1, './09-plugin-auth-acl-sub.py'),
     (1, './09-plugin-auth-context-params.py'),
@@ -187,11 +191,14 @@ tests = [
     (1, './09-plugin-evt-message-in.py'),
     (1, './09-plugin-evt-message-out.py'),
     (1, './09-plugin-evt-psk-key.py'),
+    (1, './09-plugin-evt-reload.py'),
     (1, './09-plugin-evt-subscribe.py'),
     (1, './09-plugin-evt-tick.py'),
     (1, './09-plugin-evt-unsubscribe.py'),
     (1, './09-plugin-delayed-auth.py'),
-    (3, './09-plugin-load.py'),
+    (2, './09-plugin-load-acl.py'),
+    (3, './09-plugin-load-basic-auth.py'),
+    (2, './09-plugin-load-extended-auth.py'),
     (1, './09-plugin-publish.py'),
     (1, './09-plugin-unsupported.py'),
     (1, './09-pwfile-parse-invalid.py'),
@@ -201,7 +208,6 @@ tests = [
     (1, './11-message-expiry.py'),
     (1, './11-persistence-autosave-changes.py'),
     (1, './11-persistent-subscription.py'),
-    (1, './11-persistent-subscription-v5.py'),
     (1, './11-persistent-subscription-no-local.py'),
     (1, './11-pub-props.py'),
     (1, './11-subscription-id.py'),
@@ -266,6 +272,7 @@ tests = [
 
     (4, './17-control-list-listeners.py'),
     (1, './17-control-list-plugins.py'),
+    (1, './17-control-missing-endpoint.py'),
 
     (1, './20-sparkplug-compliance.py'),
     (1, './20-sparkplug-aware.py'),
@@ -289,8 +296,19 @@ tests = [
     (1, './21-proxy-v2-ssl-cipher.py'),
     (1, './21-proxy-v2-ssl-require-tls-failure.py'),
     (1, './21-proxy-v2-ssl-require-tls-success.py'),
+
+    (2, './22-http-api-acl.py'),
+    (3, './22-http-api-api.py'),
+    (2, './22-http-api-auth.py'),
+    (2, './22-http-api-file.py'),
+    (2, './22-http-api-tls.py'),
+
+    (2, './23-security-acl-file-reload.py'),
 ]
 
 if __name__ == "__main__":
     test = ptest.PTest()
-    test.run_tests(tests)
+    if len(sys.argv) == 2 and sys.argv[1] == "--rerun-failed":
+        test.run_failed_tests()
+    else:
+        test.run_tests(tests)

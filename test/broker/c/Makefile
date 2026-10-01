@@ -48,15 +48,19 @@ PLUGIN_SRC = \
 	bad_v4_4.c \
 	bad_v5_1.c \
 	bad_v6.c \
+	kick_last_client.c \
 	plugin_control.c \
 	plugin_evt_client_offline.c \
 	plugin_evt_message_in.c \
 	plugin_evt_message_out.c \
 	plugin_evt_psk_key.c \
+	plugin_evt_reload.c \
 	plugin_evt_subscribe.c \
 	plugin_evt_tick.c \
 	plugin_evt_unsubscribe.c \
-	plugin_evt_persist_client_update.c
+	plugin_evt_persist_client_update.c \
+	plugin_load_acl.c \
+	plugin_load_extended_auth.c
 
 PLUGINS = ${PLUGIN_SRC:.c=.so}
 

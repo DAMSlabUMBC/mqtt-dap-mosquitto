@@ -51,6 +51,7 @@ void init_config(struct mosq_config *cfg)
 	cfg->protocol_version = MQTT_PROTOCOL_V5;
 }
 
+
 void client_config_cleanup(struct mosq_config *cfg)
 {
 	free(cfg->id);
@@ -83,6 +84,7 @@ void client_config_cleanup(struct mosq_config *cfg)
 	free(cfg->data_file);
 }
 
+
 int ctrl_config_parse(struct mosq_config *cfg, int *argc, char **argv[])
 {
 	int rc;
@@ -91,11 +93,15 @@ int ctrl_config_parse(struct mosq_config *cfg, int *argc, char **argv[])
 
 	/* Deal with real argc/argv */
 	rc = client_config_line_proc(cfg, argc, argv);
-	if(rc) return rc;
+	if(rc){
+		return rc;
+	}
 
 	/* Load options from config file - this must be after `-o` has been processed */
 	rc = client_config_load(cfg);
-	if(rc) return rc;
+	if(rc){
+		return rc;
+	}
 
 #ifdef WITH_TLS
 	if((cfg->certfile && !cfg->keyfile) || (cfg->keyfile && !cfg->certfile)){
@@ -132,6 +138,7 @@ int ctrl_config_parse(struct mosq_config *cfg, int *argc, char **argv[])
 
 	return MOSQ_ERR_SUCCESS;
 }
+
 
 /* Process a tokenised single line from a file or set of real argc/argv */
 static int client_config_line_proc(struct mosq_config *cfg, int *argc, char **argvp[])
@@ -245,18 +252,19 @@ static int client_config_line_proc(struct mosq_config *cfg, int *argc, char **ar
 			if((*argc) == 1){
 				fprintf(stderr, "Error: -L argument given but no URL specified.\n\n");
 				return 1;
-			} else {
+			}else{
 				char *url = argv[1];
 				char *topic;
 				char *tmp;
 
-				if(!strncasecmp(url, "mqtt://", 7)) {
+				if(!strncasecmp(url, "mqtt://", 7)){
 					url += 7;
 					cfg->port = 1883;
-				} else if(!strncasecmp(url, "mqtts://", 8)) {
+				}else if(!strncasecmp(url, "mqtts://", 8)){
 					url += 8;
 					cfg->port = 8883;
-				} else {
+					cfg->tls_use_os_certs = true;
+				}else{
 					fprintf(stderr, "Error: Unsupported URL scheme.\n\n");
 					return 1;
 				}
@@ -268,10 +276,10 @@ static int client_config_line_proc(struct mosq_config *cfg, int *argc, char **ar
 				*topic++ = 0;
 
 				tmp = strchr(url, '@');
-				if(tmp) {
+				if(tmp){
 					*tmp++ = 0;
 					char *colon = strchr(url, ':');
-					if(colon) {
+					if(colon){
 						*colon = 0;
 						cfg->password = strdup(colon + 1);
 					}
@@ -285,7 +293,7 @@ static int client_config_line_proc(struct mosq_config *cfg, int *argc, char **ar
 				cfg->host = url;
 
 				tmp = strchr(url, ':');
-				if(tmp) {
+				if(tmp){
 					*tmp++ = 0;
 					if(strlen(tmp) == 0){
 						cfg->host = NULL; /* Prevent free of non-heap memory later */
@@ -406,6 +414,8 @@ static int client_config_line_proc(struct mosq_config *cfg, int *argc, char **ar
 			}
 			argv++;
 			(*argc)--;
+		}else if(!strcmp(argv[0], "--tls-use-os-certs")){
+			cfg->tls_use_os_certs = true;
 		}else if(!strcmp(argv[0], "--tls-version")){
 			if((*argc) == 1){
 				fprintf(stderr, "Error: --tls-version argument given but no version specified.\n\n");
@@ -468,9 +478,10 @@ static int client_config_line_proc(struct mosq_config *cfg, int *argc, char **ar
 	return MOSQ_ERR_SUCCESS;
 
 unknown_option:
-	fprintf(stderr, "Error: Unknown option '%s'.\n",argv[0]);
+	fprintf(stderr, "Error: Unknown option '%s'.\n", argv[0]);
 	return 1;
 }
+
 
 static char *get_default_cfg_location(void)
 {
@@ -524,6 +535,7 @@ static char *get_default_cfg_location(void)
 	return loc;
 }
 
+
 int client_config_load(struct mosq_config *cfg)
 {
 	int rc;
@@ -551,8 +563,10 @@ int client_config_load(struct mosq_config *cfg)
 			return 1;
 		}
 		while(fgets(line, sizeof(line), fptr)){
-			if(line[0] == '#') continue; /* Comments */
-
+			if(line[0] == '#'){
+				/* Comments */
+				continue;
+			}
 			while(line[strlen(line)-1] == 10 || line[strlen(line)-1] == 13){
 				line[strlen(line)-1] = 0;
 			}
@@ -622,7 +636,21 @@ int client_opts_set(struct mosquitto *mosq, struct mosq_config *cfg)
 			}
 			return 1;
 		}
+#  ifdef FINAL_WITH_TLS_PSK
+	}else if(cfg->psk){
+		if(mosquitto_tls_psk_set(mosq, cfg->psk, cfg->psk_identity, NULL)){
+			fprintf(stderr, "Error: Problem setting TLS-PSK options.\n");
+			mosquitto_lib_cleanup();
+			return 1;
+		}
+#  endif
+	}else if(cfg->port == 8883){
+		mosquitto_int_option(mosq, MOSQ_OPT_TLS_USE_OS_CERTS, 1);
 	}
+	if(cfg->tls_use_os_certs){
+		mosquitto_int_option(mosq, MOSQ_OPT_TLS_USE_OS_CERTS, 1);
+	}
+
 	mosquitto_tls_insecure_set(mosq, cfg->insecure);
 	if(cfg->tls_engine && mosquitto_string_option(mosq, MOSQ_OPT_TLS_ENGINE, cfg->tls_engine)){
 		fprintf(stderr, "Error: Problem setting TLS engine, is %s a valid engine?\n", cfg->tls_engine);
@@ -636,12 +664,6 @@ int client_opts_set(struct mosquitto *mosq, struct mosq_config *cfg)
 		fprintf(stderr, "Error: Problem setting TLS ALPN protocol.\n");
 		return 1;
 	}
-#  ifdef FINAL_WITH_TLS_PSK
-	if(cfg->psk && mosquitto_tls_psk_set(mosq, cfg->psk, cfg->psk_identity, NULL)){
-		fprintf(stderr, "Error: Problem setting TLS-PSK options.\n");
-		return 1;
-	}
-#  endif
 	if((cfg->tls_version || cfg->ciphers) && mosquitto_tls_opts_set(mosq, 1, cfg->tls_version, cfg->ciphers)){
 		fprintf(stderr, "Error: Problem setting TLS options, check the options are valid.\n");
 		return 1;
@@ -704,14 +726,20 @@ int client_connect(struct mosquitto *mosq, struct mosq_config *cfg)
 }
 
 #ifdef WITH_SOCKS
+
+
 /* Convert %25 -> %, %3a, %3A -> :, %40 -> @ */
 static int mosquitto__urldecode(char *str)
 {
 	size_t i, j;
 	size_t len;
-	if(!str) return 0;
+	if(!str){
+		return 0;
+	}
 
-	if(!strchr(str, '%')) return 0;
+	if(!strchr(str, '%')){
+		return 0;
+	}
 
 	len = strlen(str);
 	for(i=0; i<len; i++){
@@ -747,6 +775,7 @@ static int mosquitto__urldecode(char *str)
 	}
 	return 0;
 }
+
 
 static int mosquitto__parse_socks_url(struct mosq_config *cfg, char *url)
 {

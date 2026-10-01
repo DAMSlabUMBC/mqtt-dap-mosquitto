@@ -12,12 +12,14 @@ OBJS = \
 	clients.o \
 	client_msgs.o \
 	common.o \
+	dap_ops.o \
 	init.o \
 	plugin.o \
 	restore.o \
 	retain_msgs.o \
 	subscriptions.o \
-	tick.o
+	tick.o \
+	will.o
 
 OBJS_EXTERNAL = \
 	json_help.o

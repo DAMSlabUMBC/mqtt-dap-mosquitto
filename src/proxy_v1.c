@@ -3,6 +3,7 @@
 #  include <ws2tcpip.h>
 #else
 #  include <arpa/inet.h>
+#  include <netinet/in.h>
 #endif
 #include <stdint.h>
 #include "mosquitto_broker_internal.h"
@@ -17,6 +18,7 @@ const uint8_t signature4[11] = {'P', 'R', 'O', 'X', 'Y', ' ', 'T', 'C', 'P', '4'
 const uint8_t signature6[11] = {'P', 'R', 'O', 'X', 'Y', ' ', 'T', 'C', 'P', '6', ' '};
 const uint8_t signatureU[14] = {'P', 'R', 'O', 'X', 'Y', ' ', 'U', 'N', 'K', 'N', 'O', 'W', 'N', ' '};
 
+
 static void proxy_cleanup(struct mosquitto *context)
 {
 	mosquitto_FREE(context->proxy.buf);
@@ -25,9 +27,12 @@ static void proxy_cleanup(struct mosquitto *context)
 
 static int update_transport(struct mosquitto *context)
 {
+#if defined(WITH_WEBSOCKETS) && WITH_WEBSOCKETS == WS_IS_BUILTIN
 	if(context->listener->protocol == mp_websockets){
 		return http__context_init(context);
-	}else{
+	}else
+#endif
+	{
 		context->transport = mosq_t_tcp;
 	}
 	return MOSQ_ERR_SUCCESS;

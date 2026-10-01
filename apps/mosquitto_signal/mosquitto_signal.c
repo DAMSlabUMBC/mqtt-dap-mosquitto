@@ -21,6 +21,7 @@ Contributors:
 
 #include "mosquitto_signal.h"
 
+
 static void print_usage(void)
 {
 	printf("mosquitto_signal is a tool for sending control signals to mosquitto.\n");
@@ -45,11 +46,12 @@ static void print_usage(void)
 	printf("\nSee https://mosquitto.org/ for more information.\n\n");
 }
 
+
 int main(int argc, char *argv[])
 {
 	int idx;
 	int pid = -2;
-	int msig = 0;
+	enum mosq_signal msig = 0;
 
 	if(argc == 1){
 		print_usage();

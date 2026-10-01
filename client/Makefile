@@ -10,8 +10,8 @@ endif
 LOCAL_CFLAGS+=
 LOCAL_CPPFLAGS+=
 LOCAL_LDFLAGS+=
-LOCAL_LDADD+=-lcjson ${SHARED_DEP}
-STATIC_LDADD+=-lcjson
+LOCAL_LDADD+=-lcjson ${SHARED_DEP} ${LIBMOSQ_COMMON}
+STATIC_LDADD+=-lcjson ${LIBMOSQ_COMMON}
 
 ifeq ($(WITH_SOCKS),yes)
 	LOCAL_CPPFLAGS+=-DWITH_SOCKS
@@ -27,6 +27,10 @@ endif
 ifeq ($(WITH_TLS),yes)
 	LOCAL_LDADD+=-lssl -lcrypto
 	STATIC_LDADD+= -lssl -lcrypto
+endif
+
+ifeq ($(UNAME),AIX)
+	LOCAL_LDFLAGS+=-Wl,-bnoipath
 endif
 
 ifeq ($(WITH_SHARED_LIBRARIES),yes)

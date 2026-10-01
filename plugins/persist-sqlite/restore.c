@@ -27,6 +27,7 @@ Contributors:
 #include "mosquitto/mqtt_protocol.h"
 #include "persist_sqlite.h"
 
+
 static uint8_t hex2nibble(char c)
 {
 	switch(c){
@@ -56,6 +57,7 @@ static uint8_t hex2nibble(char c)
 	}
 }
 
+
 static mosquitto_property *json_to_properties(const char *json)
 {
 	mosquitto_property *properties = NULL;
@@ -63,10 +65,14 @@ static mosquitto_property *json_to_properties(const char *json)
 	int propid, proptype;
 	size_t slen;
 
-	if(!json) return NULL;
+	if(!json){
+		return NULL;
+	}
 
 	array = cJSON_Parse(json);
-	if(!array) return NULL;
+	if(!array){
+		return NULL;
+	}
 	if(!cJSON_IsArray(array)){
 		cJSON_Delete(array);
 		return NULL;
@@ -434,17 +440,111 @@ static int retain_restore(struct mosquitto_sqlite *ms)
 }
 
 
+static int publish_will_msg(const char *topic, int payloadlen, const void *payload, int qos, bool retain, mosquitto_property *properties)
+{
+	void *payload_mosq = NULL;
+	int rc;
+
+	if(payloadlen){
+		payload_mosq = mosquitto_malloc((size_t)payloadlen);
+		if(!payload_mosq){
+			return MOSQ_ERR_NOMEM;
+		}
+		memcpy(payload_mosq, payload, (size_t)payloadlen);
+	}
+
+	rc = mosquitto_broker_publish(NULL, topic, payloadlen, payload_mosq, qos, retain, properties);
+	if(rc != MOSQ_ERR_SUCCESS){
+		mosquitto_free(payload_mosq);
+	}
+	return rc;
+}
+
+
+static int will_restore(struct mosquitto_sqlite *ms)
+{
+	sqlite3_stmt *stmt;
+	int rc;
+	long count = 0, failed = 0;
+	const char *clientid, *topic;
+	const void *payload;
+	mosquitto_property *properties;
+	int payloadlen, qos, retain;
+
+	rc = sqlite3_prepare_v2(ms->db,
+			"SELECT w.client_id,w.topic,w.payload,w.payloadlen,w.qos,w.retain,w.properties,"
+			" c.session_expiry_time,c.will_delay_interval"
+			" FROM wills w"
+			" LEFT OUTER JOIN clients c ON c.client_id = w.client_id",
+			-1, &stmt, NULL);
+
+	if(rc != SQLITE_OK){
+		mosquitto_log_printf(MOSQ_LOG_ERR, "sqlite: Error restoring will messages: %s", sqlite3_errstr(rc));
+		return MOSQ_ERR_UNKNOWN;
+	}
+
+	while(sqlite3_step(stmt) == SQLITE_ROW){
+		clientid = (const char *)sqlite3_column_text(stmt, 0);
+		topic = (const char *)sqlite3_column_text(stmt, 1);
+		payload = (const void *)sqlite3_column_blob(stmt, 2);
+		payloadlen = (int)sqlite3_column_int64(stmt, 3);
+		qos = sqlite3_column_int(stmt, 4);
+		retain = (bool)sqlite3_column_int(stmt, 5);
+		properties = json_to_properties((const char *)sqlite3_column_text(stmt, 6));
+
+		rc = mosquitto_client_will_set(clientid, topic, payloadlen, payload, qos, retain, properties);
+		if(rc == MOSQ_ERR_NOT_FOUND){
+			/* If the client does not exist this is the will message of a non-persistent client. */
+			rc = publish_will_msg(topic, payloadlen, payload, qos, retain, properties);
+		}else if(rc == MOSQ_ERR_SUCCESS && (sqlite3_column_int64(stmt, 7) == 0 && sqlite3_column_int64(stmt, 8) == 0)){
+			/* If the client is a persistent client and was connected at the moment of a crash
+				 and has no will delay we publish it's will message now, but need a new copy of the properties. */
+			properties = json_to_properties((const char *)sqlite3_column_text(stmt, 6));
+			rc = publish_will_msg(topic, payloadlen, payload, qos, retain, properties);
+		}
+
+		if(rc == MOSQ_ERR_SUCCESS){
+			count++;
+		}else{
+			mosquitto_property_free_all(&properties);
+			failed++;
+		}
+	}
+	sqlite3_finalize(stmt);
+
+	mosquitto_log_printf(MOSQ_LOG_INFO, "sqlite: Restored %ld will messages (%ld failed)", count, failed);
+
+	return rc;
+}
+
+
 int persist_sqlite__restore_cb(int event, void *event_data, void *userdata)
 {
 	struct mosquitto_sqlite *ms = userdata;
 	UNUSED(event);
 	UNUSED(event_data);
 
-	if(base_msg_restore(ms)) return MOSQ_ERR_UNKNOWN;
-	if(retain_restore(ms)) return MOSQ_ERR_UNKNOWN;
-	if(client_restore(ms)) return MOSQ_ERR_UNKNOWN;
-	if(subscription_restore(ms)) return MOSQ_ERR_UNKNOWN;
-	if(client_msg_restore(ms)) return MOSQ_ERR_UNKNOWN;
+	if(base_msg_restore(ms)){
+		return MOSQ_ERR_UNKNOWN;
+	}
+	if(retain_restore(ms)){
+		return MOSQ_ERR_UNKNOWN;
+	}
+	if(client_restore(ms)){
+		return MOSQ_ERR_UNKNOWN;
+	}
+	if(subscription_restore(ms)){
+		return MOSQ_ERR_UNKNOWN;
+	}
+	if(client_msg_restore(ms)){
+		return MOSQ_ERR_UNKNOWN;
+	}
+	if(will_restore(ms)){
+		return MOSQ_ERR_UNKNOWN;
+	}
+	if(persist_sqlite__dap_restore(ms)){
+		return MOSQ_ERR_UNKNOWN;
+	}
 
 	return 0;
 }

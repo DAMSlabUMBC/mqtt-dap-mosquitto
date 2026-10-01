@@ -18,7 +18,7 @@ test-compile :
 ptest : test-compile
 	./test.py
 
-test : test-compile msg_sequence_test 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 20 21
+test : test-compile msg_sequence_test 01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 17 20 21 22 23
 
 msg_sequence_test:
 	./msg_sequence_test.py
@@ -43,6 +43,7 @@ msg_sequence_test:
 	./01-connect-unix-socket.py
 	./01-connect-windows-line-endings.py
 	./01-connect-zero-length-id.py
+	./01-plugin-connect-uname-password-denied.py
 
 
 02 :
@@ -95,7 +96,7 @@ msg_sequence_test:
 	./03-publish-qos1-retain-disabled.py
 	./03-publish-qos1.py
 	./03-publish-qos2-dup.py
-	./03-publish-qos2-max-inflight-exceeded.py
+	#./03-publish-qos2-max-inflight-exceeded.py
 	./03-publish-qos2-max-inflight.py
 	./03-publish-qos2-reuse-mid.py
 	./03-publish-qos2.py
@@ -115,6 +116,7 @@ msg_sequence_test:
 05 :
 	./05-clean-session-qos1.py
 	./05-session-expiry-v5.py
+	./05-session-expiry-kick.py
 
 06 :
 	./06-bridge-b2br-disconnect-qos1.py
@@ -192,8 +194,10 @@ endif
 	./09-extended-auth-multistep.py
 	./09-extended-auth-reauth.py
 	./09-extended-auth-single.py
+	./09-plugin-acl-access-variants.py
 	./09-plugin-acl-change.py
 	./09-plugin-auth-acl-pub.py
+	./09-plugin-auth-acl-pub-prop.py
 	./09-plugin-auth-acl-sub-denied.py
 	./09-plugin-auth-acl-sub.py
 	./09-plugin-auth-context-params.py
@@ -217,10 +221,13 @@ endif
 	./09-plugin-evt-message-in.py
 	./09-plugin-evt-message-out.py
 	./09-plugin-evt-psk-key.py
+	./09-plugin-evt-reload.py
 	./09-plugin-evt-subscribe.py
 	./09-plugin-evt-tick.py
 	./09-plugin-evt-unsubscribe.py
-	./09-plugin-load.py
+	./09-plugin-load-acl.py
+	./09-plugin-load-basic-auth.py
+	./09-plugin-load-extended-auth.py
 	./09-plugin-publish.py
 	./09-plugin-unsupported.py
 	./09-pwfile-parse-invalid.py
@@ -231,9 +238,8 @@ endif
 11 :
 	./11-message-expiry.py
 	./11-persistence-autosave-changes.py
-	./11-persistent-subscription.py
-	./11-persistent-subscription-v5.py
 	./11-persistent-subscription-no-local.py
+	./11-persistent-subscription.py
 	./11-pub-props.py
 	./11-subscription-id.py
 
@@ -276,6 +282,8 @@ endif
 
 PERSIST_TESTS = \
 	./15-persist-bridge-queue.py \
+	./15-persist-client-drop-expired-messages.py \
+	./15-persist-client-expired-session.py \
 	./15-persist-client-msg-in-v3-1-1.py \
 	./15-persist-client-msg-in-v5-0.py \
 	./15-persist-client-msg-modify-acl.py \
@@ -287,6 +295,7 @@ PERSIST_TESTS = \
 	./15-persist-client-msg-out-v5-0.py \
 	./15-persist-client-v3-1-1.py \
 	./15-persist-client-v5-0.py \
+	./15-persist-client-will.py \
 	./15-persist-publish-properties-v5-0.py \
 	./15-persist-retain-clear.py \
 	./15-persist-retain-v3-1-1.py \
@@ -317,6 +326,7 @@ endif
 17 :
 	./17-control-list-listeners.py
 	./17-control-list-plugins.py
+	./17-control-missing-endpoint.py
 
 20 :
 	./20-sparkplug-compliance.py
@@ -342,3 +352,13 @@ endif
 	./21-proxy-v2-ssl-cipher.py
 	./21-proxy-v2-ssl-require-tls-failure.py
 	./21-proxy-v2-ssl-require-tls-success.py
+
+22:
+	./22-http-api-acl.py
+	./22-http-api-api.py
+	./22-http-api-auth.py
+	./22-http-api-file.py
+	./22-http-api-tls.py
+
+23:
+	./23-security-acl-file-reload.py

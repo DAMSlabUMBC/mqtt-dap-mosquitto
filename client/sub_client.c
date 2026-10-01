@@ -37,8 +37,10 @@ Contributors:
 #include "sub_client_output.h"
 
 struct mosq_config cfg;
+static bool run = true;
 bool process_messages = true;
 int msg_count = 0;
+int message_rate_msg_count = 0;
 struct mosquitto *g_mosq = NULL;
 int last_mid = 0;
 static bool timed_out = false;
@@ -49,16 +51,17 @@ static HANDLE timeout_h = NULL;
 #endif
 
 #ifdef WIN32
+
+
 void CALLBACK timeout_cb(PVOID lpParameter, BOOLEAN TimerOrWaitFired)
 {
 	UNUSED(lpParameter);
 	UNUSED(TimerOrWaitFired);
 
-	if (connack_received) {
+	if(connack_received){
 		process_messages = false;
 		mosquitto_disconnect_v5(g_mosq, MQTT_RC_DISCONNECT_WITH_WILL_MSG, cfg.disconnect_props);
-	}
-	else {
+	}else{
 		exit(-1);
 	}
 
@@ -67,6 +70,8 @@ void CALLBACK timeout_cb(PVOID lpParameter, BOOLEAN TimerOrWaitFired)
 	timeout_h = NULL;
 }
 #else
+
+
 static void my_signal_handler(int signum)
 {
 	if(signum == SIGALRM || signum == SIGTERM || signum == SIGINT){
@@ -76,6 +81,7 @@ static void my_signal_handler(int signum)
 		}else{
 			exit(-1);
 		}
+		run = false;
 	}
 	if(signum == SIGALRM){
 		timed_out = true;
@@ -92,7 +98,11 @@ static void my_message_callback(struct mosquitto *mosq, void *obj, const struct 
 	UNUSED(obj);
 	UNUSED(properties);
 
-	if(process_messages == false) return;
+	message_rate_msg_count++;
+
+	if(process_messages == false){
+		return;
+	}
 
 	if(cfg.retained_only && !message->retain && process_messages){
 		process_messages = false;
@@ -102,11 +112,15 @@ static void my_message_callback(struct mosquitto *mosq, void *obj, const struct 
 		return;
 	}
 
-	if(message->retain && cfg.no_retain) return;
+	if(message->retain && cfg.no_retain){
+		return;
+	}
 	if(cfg.filter_outs){
 		for(i=0; i<cfg.filter_out_count; i++){
 			mosquitto_topic_matches_sub(cfg.filter_outs[i], message->topic, &res);
-			if(res) return;
+			if(res){
+				return;
+			}
 		}
 	}
 
@@ -129,6 +143,7 @@ static void my_message_callback(struct mosquitto *mosq, void *obj, const struct 
 		}
 	}
 }
+
 
 static void my_connect_callback(struct mosquitto *mosq, void *obj, int result, int flags, const mosquitto_property *properties)
 {
@@ -163,6 +178,7 @@ static void my_connect_callback(struct mosquitto *mosq, void *obj, int result, i
 	}
 }
 
+
 static void my_subscribe_callback(struct mosquitto *mosq, void *obj, int mid, int qos_count, const int *granted_qos)
 {
 	int i;
@@ -170,12 +186,18 @@ static void my_subscribe_callback(struct mosquitto *mosq, void *obj, int mid, in
 	bool should_print = cfg.debug && !cfg.quiet;
 	UNUSED(obj);
 
-	if(should_print) printf("Subscribed (mid: %d): %d", mid, granted_qos[0]);
+	if(should_print){
+		printf("Subscribed (mid: %d): %d", mid, granted_qos[0]);
+	}
 	for(i=1; i<qos_count; i++){
-		if(should_print) printf(", %d", granted_qos[i]);
+		if(should_print){
+			printf(", %d", granted_qos[i]);
+		}
 		some_sub_allowed |= (granted_qos[i] < 128);
 	}
-	if(should_print) printf("\n");
+	if(should_print){
+		printf("\n");
+	}
 
 	if(some_sub_allowed == false){
 		mosquitto_disconnect_v5(mosq, 0, cfg.disconnect_props);
@@ -187,6 +209,7 @@ static void my_subscribe_callback(struct mosquitto *mosq, void *obj, int mid, in
 	}
 }
 
+
 static void my_log_callback(struct mosquitto *mosq, void *obj, int level, const char *str)
 {
 	UNUSED(mosq);
@@ -196,6 +219,7 @@ static void my_log_callback(struct mosquitto *mosq, void *obj, int level, const 
 	printf("%s\n", str);
 }
 
+
 static void print_version(void)
 {
 	int major, minor, revision;
@@ -203,6 +227,7 @@ static void print_version(void)
 	mosquitto_lib_version(&major, &minor, &revision);
 	printf("mosquitto_sub version %s running on libmosquitto %d.%d.%d.\n", VERSION, major, minor, revision);
 }
+
 
 static void print_usage(void)
 {
@@ -321,7 +346,7 @@ static void print_usage(void)
 	printf(" --key : client private key for authentication, if required by server.\n");
 	printf(" --keyform : keyfile type, can be either \"pem\" or \"engine\".\n");
 	printf(" --ciphers : openssl compatible list of TLS ciphers to support.\n");
-	printf(" --tls-version : TLS protocol version, can be one of tlsv1.3 tlsv1.2 or tlsv1.1.\n");
+	printf(" --tls-version : TLS protocol version, can be one of tlsv1.3 or tlsv1.2.\n");
 	printf("                 Defaults to tlsv1.2 if available.\n");
 	printf(" --insecure : do not verify the the server certificate. Using this option means that\n");
 	printf("              you cannot be sure that the remote host is the server you wish to connect\n");
@@ -343,11 +368,12 @@ static void print_usage(void)
 	printf("\nSee https://mosquitto.org/ for more information.\n\n");
 }
 
+
 int main(int argc, char *argv[])
 {
 	int rc;
 #ifndef WIN32
-		struct sigaction sigact;
+	struct sigaction sigact;
 #endif
 
 	mosquitto_lib_init();
@@ -393,6 +419,12 @@ int main(int argc, char *argv[])
 	if(cfg.debug){
 		mosquitto_log_callback_set(g_mosq, my_log_callback);
 	}
+	if(cfg.message_rate){
+		process_messages = false;
+#ifndef WIN32
+		cfg.watch = false;
+#endif
+	}
 	mosquitto_subscribe_callback_set(g_mosq, my_subscribe_callback);
 	mosquitto_connect_v5_callback_set(g_mosq, my_connect_callback);
 	mosquitto_message_v5_callback_set(g_mosq, my_message_callback);
@@ -436,7 +468,25 @@ int main(int argc, char *argv[])
 	}
 #endif
 
-	rc = mosquitto_loop_forever(g_mosq, -1, 1);
+	if(cfg.message_rate){
+		rc = mosquitto_loop_start(g_mosq);
+		if(rc){
+			return rc;
+		}
+		while(run){
+#ifdef WIN32
+			Sleep(1000);
+#else
+			struct timespec ts = {1, 0};
+			nanosleep(&ts, NULL);
+#endif
+			int message_count = message_rate_msg_count;
+			message_rate_msg_count = 0;
+			printf("%d msgs/s\n", message_count);
+		}
+	}else{
+		rc = mosquitto_loop_forever(g_mosq, -1, 1);
+	}
 
 	mosquitto_destroy(g_mosq);
 	mosquitto_lib_cleanup();

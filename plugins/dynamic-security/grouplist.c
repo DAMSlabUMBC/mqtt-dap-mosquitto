@@ -25,11 +25,13 @@ Contributors:
 #include "dynamic_security.h"
 #include "json_help.h"
 
+
 /* ################################################################
  * #
  * # Plugin global variables
  * #
  * ################################################################ */
+
 
 /* ################################################################
  * #
@@ -37,17 +39,20 @@ Contributors:
  * #
  * ################################################################ */
 
+
 /* ################################################################
  * #
  * # Local variables
  * #
  * ################################################################ */
 
+
 /* ################################################################
  * #
  * # Utility functions
  * #
  * ################################################################ */
+
 
 static int dynsec_grouplist__cmp(void *a, void *b)
 {
@@ -63,13 +68,16 @@ static int dynsec_grouplist__cmp(void *a, void *b)
 	}
 }
 
+
 cJSON *dynsec_grouplist__all_to_json(struct dynsec__grouplist *base_grouplist)
 {
 	struct dynsec__grouplist *grouplist, *grouplist_tmp;
 	cJSON *j_groups, *j_group;
 
 	j_groups = cJSON_CreateArray();
-	if(j_groups == NULL) return NULL;
+	if(j_groups == NULL){
+		return NULL;
+	}
 
 	HASH_ITER(hh, base_grouplist, grouplist, grouplist_tmp){
 		j_group = cJSON_CreateObject();
@@ -89,7 +97,6 @@ cJSON *dynsec_grouplist__all_to_json(struct dynsec__grouplist *base_grouplist)
 	}
 	return j_groups;
 }
-
 
 
 int dynsec_grouplist__add(struct dynsec__grouplist **base_grouplist, struct dynsec__group *group, int priority)

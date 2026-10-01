@@ -29,6 +29,7 @@ Contributors:
 
 #include "mosquitto.h"
 
+
 cJSON *mosquitto_properties_to_json(const mosquitto_property *properties)
 {
 	cJSON *array, *obj;
@@ -37,10 +38,14 @@ cJSON *mosquitto_properties_to_json(const mosquitto_property *properties)
 	uint16_t len;
 	int propid;
 
-	if(!properties) return NULL;
+	if(!properties){
+		return NULL;
+	}
 
 	array = cJSON_CreateArray();
-	if(!array) return NULL;
+	if(!array){
+		return NULL;
+	}
 
 	do{
 		propid = mosquitto_property_identifier(properties);
@@ -52,9 +57,9 @@ cJSON *mosquitto_properties_to_json(const mosquitto_property *properties)
 		cJSON_AddItemToArray(array, obj);
 		/* identifier, (key), value */
 		if(cJSON_AddStringToObject(obj,
-					"identifier",
-					mosquitto_property_identifier_to_string(propid)) == NULL
-					){
+				"identifier",
+				mosquitto_property_identifier_to_string(propid)) == NULL
+				){
 			cJSON_Delete(array);
 			return NULL;
 		}

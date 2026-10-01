@@ -39,7 +39,7 @@ endif
 .PHONY : really clean install
 
 OBJS= \
-	mosquitto.o \
+	libmosquitto.o \
 	actions_publish.o \
 	actions_subscribe.o \
 	actions_unsubscribe.o \
@@ -69,11 +69,6 @@ OBJS= \
 	packet_datatypes.o \
 	packet_mosq.o \
 	property_mosq.o \
-	purpose_filters.o \
-	mp_registry.o \
-	ri_registry.o \
-	dr_registry.o \
-	rights_registry.o \
 	read_handle.o \
 	send_connect.o \
 	send_disconnect.o \
@@ -86,7 +81,24 @@ OBJS= \
 	thread_mosq.o \
 	tls_mosq.o \
 	util_mosq.o \
-	will_mosq.o
+	will_mosq.o \
+	dap/dap_deadline_tracker.o \
+	dap/dap_holding_list.o \
+	dap/dap_metrics.o \
+	dap/dap_op_request.o \
+	dap/dap_op_requester.o \
+	dap/dap_pending_ops.o \
+	dap/dap_pqueue.o \
+	dap/dap_send_verify.o \
+	dap/dap_stamp.o \
+	dap/dap_subscription_queues.o \
+	dap/dap_timestamp.o \
+	dap/dap_topics.o \
+	dap/dr_registry.o \
+	dap/mp_registry.o \
+	dap/purpose_filters.o \
+	dap/ri_registry.o \
+	dap/rights_registry.o
 
 OBJS_EXTERNAL=
 
@@ -120,7 +132,7 @@ ifeq ($(WITH_STATIC_LIBRARIES),yes)
 endif
 	$(INSTALL) -d "${DESTDIR}${libdir}/pkgconfig"
 	$(INSTALL) -m644 ${R}/libmosquitto.pc.in "${DESTDIR}${libdir}/pkgconfig/libmosquitto.pc"
-	sed ${SEDINPLACE} -e "s#@CMAKE_INSTALL_PREFIX@#${prefix}#" -e "s#@VERSION@#${VERSION}#" "${DESTDIR}${libdir}/pkgconfig/libmosquitto.pc"
+	sed ${SEDINPLACE} -e "s#@CMAKE_INSTALL_PREFIX@#${prefix}#" -e "s#@CMAKE_INSTALL_LIBDIR@#lib${LIB_SUFFIX}#" -e "s#@VERSION@#${VERSION}#" "${DESTDIR}${libdir}/pkgconfig/libmosquitto.pc"
 ifeq ($(WITH_SHARED_LIBRARIES),yes)
 	$(MAKE) -C cpp install
 endif

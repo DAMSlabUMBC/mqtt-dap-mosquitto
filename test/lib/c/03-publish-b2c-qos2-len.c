@@ -6,6 +6,7 @@
 
 static int run = -1;
 
+
 static void on_connect(struct mosquitto *mosq, void *obj, int rc)
 {
 	(void)mosq;
@@ -15,6 +16,7 @@ static void on_connect(struct mosquitto *mosq, void *obj, int rc)
 		exit(1);
 	}
 }
+
 
 static void on_message(struct mosquitto *mosq, void *obj, const struct mosquitto_message *msg)
 {
@@ -48,6 +50,7 @@ static void on_message(struct mosquitto *mosq, void *obj, const struct mosquitto
 	mosquitto_disconnect(mosq);
 }
 
+
 static void on_disconnect(struct mosquitto *mosq, void *obj, int rc)
 {
 	(void)mosq;
@@ -56,6 +59,7 @@ static void on_disconnect(struct mosquitto *mosq, void *obj, int rc)
 
 	run = 0;
 }
+
 
 int main(int argc, char *argv[])
 {
@@ -80,7 +84,9 @@ int main(int argc, char *argv[])
 	mosquitto_message_callback_set(mosq, on_message);
 
 	rc = mosquitto_connect(mosq, "localhost", port, 60);
-	if(rc != MOSQ_ERR_SUCCESS) return rc;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return rc;
+	}
 
 	while(run == -1){
 		mosquitto_loop(mosq, 100, 1);

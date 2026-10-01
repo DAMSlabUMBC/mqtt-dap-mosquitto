@@ -24,6 +24,7 @@ Contributors:
 #include <ctype.h>
 #include <errno.h>
 #include <limits.h>
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,6 +46,25 @@ Contributors:
 #endif
 
 #include "mosquitto.h"
+
+void (*libcommon_vprintf)(const char *fmt, va_list va) = NULL;
+
+
+void libcommon_printf(const char *fmt, ...)
+{
+	va_list va;
+
+	va_start(va, fmt);
+
+	if(libcommon_vprintf){
+		libcommon_vprintf(fmt, va);
+	}else{
+		vfprintf(stderr, fmt, va);
+	}
+
+	va_end(va);
+}
+
 
 FILE *mosquitto_fopen(const char *path, const char *mode, bool restrict_read)
 {
@@ -111,10 +131,10 @@ FILE *mosquitto_fopen(const char *path, const char *mode, bool restrict_read)
 			sec.lpSecurityDescriptor = &sd;
 
 			hfile = CreateFileA(buf, dwShareMode, FILE_SHARE_READ,
-				&sec,
-				dwCreationDisposition,
-				FILE_ATTRIBUTE_NORMAL,
-				NULL);
+					&sec,
+					dwCreationDisposition,
+					FILE_ATTRIBUTE_NORMAL,
+					NULL);
 
 			LocalFree(pacl);
 
@@ -133,7 +153,7 @@ FILE *mosquitto_fopen(const char *path, const char *mode, bool restrict_read)
 			}
 			return fptr;
 
-		}else {
+		}else{
 			return fopen(buf, mode);
 		}
 	}
@@ -146,7 +166,10 @@ FILE *mosquitto_fopen(const char *path, const char *mode, bool restrict_read)
 
 		old_mask = umask(0077);
 
-		int open_flags = O_NOFOLLOW;
+		int open_flags = 0;
+		if(!getenv("MOSQUITTO_UNSAFE_ALLOW_SYMLINKS")){
+			open_flags |= O_NOFOLLOW;
+		}
 		for(size_t i = 0; i<strlen(mode); i++){
 			if(mode[i] == 'r'){
 				open_flags |= O_RDONLY;
@@ -164,14 +187,18 @@ FILE *mosquitto_fopen(const char *path, const char *mode, bool restrict_read)
 			}
 		}
 		int fd = open(path, open_flags, 0600);
-		if(fd < 0) return NULL;
+		if(fd < 0){
+			return NULL;
+		}
 		fptr = fdopen(fd, mode);
 
 		umask(old_mask);
 	}else{
 		fptr = fopen(path, mode);
 	}
-	if(!fptr) return NULL;
+	if(!fptr){
+		return NULL;
+	}
 
 	if(fstat(fileno(fptr), &statbuf) < 0){
 		fclose(fptr);
@@ -180,13 +207,9 @@ FILE *mosquitto_fopen(const char *path, const char *mode, bool restrict_read)
 
 	if(restrict_read){
 		if(statbuf.st_mode & S_IRWXO){
-#ifdef WITH_BROKER
-			log__printf(NULL, MOSQ_LOG_WARNING,
-#else
-			fprintf(stderr,
-#endif
+			libcommon_printf(
 					"Warning: File %s has world readable permissions. Future versions will refuse to load this file.\n"
-					"To fix this, use `chmod 0700 %s`.",
+					"To fix this, use `chmod 0700 %s`.\n",
 					path, path);
 #if 0
 			return NULL;
@@ -198,13 +221,9 @@ FILE *mosquitto_fopen(const char *path, const char *mode, bool restrict_read)
 
 			getpwuid_r(getuid(), &pw, buf, sizeof(buf), &result);
 			if(result){
-#ifdef WITH_BROKER
-				log__printf(NULL, MOSQ_LOG_WARNING,
-#else
-				fprintf(stderr,
-#endif
+				libcommon_printf(
 						"Warning: File %s owner is not %s. Future versions will refuse to load this file."
-						"To fix this, use `chown %s %s`.",
+						"To fix this, use `chown %s %s`.\n",
 						path, result->pw_name, result->pw_name, path);
 			}
 #if 0
@@ -216,14 +235,9 @@ FILE *mosquitto_fopen(const char *path, const char *mode, bool restrict_read)
 			char buf[4096];
 			struct group grp, *result;
 
-			getgrgid_r(getgid(), &grp, buf, sizeof(buf), &result);
-			if(result){
-#ifdef WITH_BROKER
-				log__printf(NULL, MOSQ_LOG_WARNING,
-#else
-				fprintf(stderr,
-#endif
-						"Warning: File %s group is not %s. Future versions will refuse to load this file.",
+			if(getgrgid_r(getgid(), &grp, buf, sizeof(buf), &result) == 0){
+				libcommon_printf(
+						"Warning: File %s group is not %s. Future versions will refuse to load this file.\n",
 						path, result->gr_name);
 			}
 #if 0
@@ -234,9 +248,7 @@ FILE *mosquitto_fopen(const char *path, const char *mode, bool restrict_read)
 	}
 
 	if(!S_ISREG(statbuf.st_mode)){
-#ifdef WITH_BROKER
-		log__printf(NULL, MOSQ_LOG_ERR, "Error: %s is not a file.", path);
-#endif
+		libcommon_printf("Error: %s is not a file.", path);
 		fclose(fptr);
 		return NULL;
 	}
@@ -249,13 +261,15 @@ char *mosquitto_trimblanks(char *str)
 {
 	char *endptr;
 
-	if(str == NULL) return NULL;
+	if(str == NULL){
+		return NULL;
+	}
 
-	while(isspace(str[0])){
+	while(isspace((unsigned char)str[0])){
 		str++;
 	}
 	endptr = &str[strlen(str)-1];
-	while(endptr > str && isspace(endptr[0])){
+	while(endptr > str && isspace((unsigned char)endptr[0])){
 		endptr[0] = '\0';
 		endptr--;
 	}
@@ -307,18 +321,19 @@ char *mosquitto_fgets(char **buf, int *buflen, FILE *stream)
 
 
 #define INVOKE_LOG_FN(format, ...) \
-	do{ \
-	  if(log_fn){ \
-			int tmp_err_no = errno; \
-			char msg[2*PATH_MAX]; \
-			snprintf(msg, sizeof(msg), (format), __VA_ARGS__); \
-			msg[sizeof(msg)-1] = '\0'; \
-			(*log_fn)(msg); \
-			errno = tmp_err_no; \
-		} \
-	}while (0)
+		do{ \
+			if(log_fn){ \
+				int tmp_err_no = errno; \
+				char msg[2*PATH_MAX]; \
+				snprintf(msg, sizeof(msg), (format), __VA_ARGS__); \
+				msg[sizeof(msg)-1] = '\0'; \
+				(*log_fn)(msg); \
+				errno = tmp_err_no; \
+			} \
+		}while(0)
 
-int mosquitto_write_file(const char* target_path, bool restrict_read, int (*write_fn)(FILE* fptr, void* user_data), void* user_data, void (*log_fn)(const char* msg))
+
+int mosquitto_write_file(const char *target_path, bool restrict_read, int (*write_fn)(FILE *fptr, void *user_data), void *user_data, void (*log_fn)(const char *msg))
 {
 	int rc = 0;
 	FILE *fptr = NULL;
@@ -335,7 +350,7 @@ int mosquitto_write_file(const char* target_path, bool restrict_read, int (*writ
 
 #ifndef WIN32
 	/**
- 	*
+	*
 	* If a system lost power during the rename operation at the
 	* end of this file the filesystem could potentially be left
 	* with a directory that looks like this after powerup:
@@ -429,4 +444,50 @@ error:
 		unlink(tmp_file_path);
 	}
 	return MOSQ_ERR_ERRNO;
+}
+
+
+int mosquitto_read_file(const char *file, bool restrict_read, char **buf, size_t *buflen)
+{
+	FILE *fptr;
+	long l;
+	size_t buflen_i;
+
+	*buf = NULL;
+	if(buflen){
+		*buflen = 0;
+	}
+	fptr = mosquitto_fopen(file, "rt", restrict_read);
+	if(fptr == NULL){
+		return MOSQ_ERR_ERRNO;
+	}
+
+	fseek(fptr, 0, SEEK_END);
+	l = ftell(fptr);
+	fseek(fptr, 0, SEEK_SET);
+	if(l < 0){
+		fclose(fptr);
+		return MOSQ_ERR_ERRNO;
+	}else if(l == 0){
+		fclose(fptr);
+		return MOSQ_ERR_SUCCESS;
+	}
+	buflen_i = (size_t)l;
+
+	*buf = mosquitto_calloc(buflen_i+1, sizeof(char));
+	if((*buf) == NULL){
+		fclose(fptr);
+		return MOSQ_ERR_NOMEM;
+	}
+	if(fread(*buf, 1, buflen_i, fptr) != buflen_i){
+		mosquitto_FREE(*buf);
+		fclose(fptr);
+		return MOSQ_ERR_INVAL;
+	}
+	fclose(fptr);
+	if(buflen){
+		*buflen = buflen_i;
+	}
+
+	return MOSQ_ERR_SUCCESS;
 }

@@ -61,13 +61,14 @@ fuzzing/broker/broker_fuzz_handle_unsubscribe
 fuzzing/broker/broker_fuzz_initial_packet
 fuzzing/broker/broker_fuzz_initial_packet_with_init
 fuzzing/broker/broker_fuzz_password_file
+fuzzing/broker/broker_fuzz_proxy_v1
+fuzzing/broker/broker_fuzz_proxy_v2
 fuzzing/broker/broker_fuzz_psk_file
 fuzzing/broker/broker_fuzz_queue_msg
 fuzzing/broker/broker_fuzz_read_handle
 fuzzing/broker/broker_fuzz_second_packet
 fuzzing/broker/broker_fuzz_second_packet_with_init
 fuzzing/broker/broker_fuzz_test_config
-
 fuzzing/corpora/broker/*
 fuzzing/corpora/broker_packet_seed_corpus.zip
 fuzzing/corpora/client/*
@@ -76,6 +77,16 @@ fuzzing/corpora/db_dump_seed_corpus.zip
 fuzzing/lib/lib_fuzz_pub_topic_check2
 fuzzing/lib/lib_fuzz_sub_topic_check2
 fuzzing/lib/lib_fuzz_utf8
+fuzzing/libcommon/libcommon_fuzz_property
+fuzzing/libcommon/libcommon_fuzz_property.pb.cc
+fuzzing/libcommon/libcommon_fuzz_property.pb.h
+fuzzing/libcommon/libcommon_fuzz_pub_topic_check2
+fuzzing/libcommon/libcommon_fuzz_sub_topic_check2
+fuzzing/libcommon/libcommon_fuzz_topic_matching
+fuzzing/libcommon/libcommon_fuzz_topic_matching.pb.cc
+fuzzing/libcommon/libcommon_fuzz_topic_matching.pb.h
+fuzzing/libcommon/libcommon_fuzz_topic_tokenise
+fuzzing/libcommon/libcommon_fuzz_utf8
 fuzzing/plugins/dynamic-security/dynsec_fuzz_load
 
 lib/cpp/libmosquittopp.so*
@@ -83,12 +94,14 @@ lib/cpp/libmosquittopp.a
 lib/libmosquitto.so*
 lib/libmosquitto.a
 
-man/mosquitto.8
-man/mosquitto-tls.7
-man/mosquitto.conf.5
 man/libmosquitto.3
+man/mosquitto-tls.7
+man/mosquitto.7
+man/mosquitto.8
+man/mosquitto.conf.5
 man/mosquitto_ctrl.1
 man/mosquitto_ctrl_dynsec.1
+man/mosquitto_ctrl_shell.1
 man/mosquitto_passwd.1
 man/mosquitto_pub.1
 man/mosquitto_rr.1
@@ -101,6 +114,13 @@ out/
 src/mosquitto
 src/mosquitto_broker.a
 
+test/apps/ctrl/ctrl_shell_broker_test
+test/apps/ctrl/ctrl_shell_completion_test
+test/apps/ctrl/ctrl_shell_dynsec_test
+test/apps/ctrl/ctrl_shell_help_test
+test/apps/ctrl/ctrl_shell_options_test
+test/apps/ctrl/ctrl_shell_pre_connect_test
+test/apps/ctrl/ctrl_shell_test
 test/broker/broker.pid
 test/test_client
 test/fake_user
@@ -145,12 +165,12 @@ obj-*/
 # Emacs generated files
 *~
 
+# clangd
+.cache/
+
+# VSCode generated files
+.vscode/
+
 # Others
 tmp/
-Untitled.mov
-
-# test/broker runtime scratch (generated configs, persistence/dynsec state dirs)
-test/broker/*.conf
-!test/broker/03-publish-qos1-queued-bytes.conf
-test/broker/[0-9][0-9][0-9][0-9]/
-test/broker/*.pw
+failed-tests.json

@@ -2,12 +2,21 @@
 Containers built with this Dockerfile build as source from published tarballs.
 
 ## Mount Points
-Three docker volumes have been created in the image to be used for configuration, persistent storage and logs.
+A docker mount point has been created in the image to be used for configuration.
 ```
 /mosquitto/config
+```
+
+Two docker volumes have been created in the image to be used for persistent storage and logs.
+```
 /mosquitto/data
 /mosquitto/log
 ```
+
+## User/Group
+
+The image runs mosquitto under the mosquitto user and group, which are created
+with a uid and gid of 1883.
 
 ## Running without a configuration file
 Mosquitto 2.0 requires you to configure listeners and authentication before it
@@ -58,3 +67,16 @@ docker run -it -p 1883:1883 -v <path-to-configuration-file>:/mosquitto/config/mo
 :boom: if the mosquitto configuration (mosquitto.conf) was modified
 to use non-default ports, the docker run command will need to be updated
 to expose the ports that have been configured.
+
+**Important**: The default configuration only listens on the
+loopback interface. This means that there is no way to access Mosquitto in the
+docker container without using a custom configuration containing at least
+a listener. You also need to make a decision to allow anonymous connections or
+to set up a different method of client authentication.
+
+i.e. to configure a Mosquitto docker container as if it was running locally,
+add the following to `mosquitto.conf`:
+```
+listener 1883
+allow_anonymous true
+```

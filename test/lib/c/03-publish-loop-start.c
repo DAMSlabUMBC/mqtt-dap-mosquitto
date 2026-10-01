@@ -7,6 +7,7 @@
 
 static int run = -1;
 
+
 static void on_connect_v5(struct mosquitto *mosq, void *obj, int rc, int flags, const mosquitto_property *properties)
 {
 	(void)obj;
@@ -20,6 +21,7 @@ static void on_connect_v5(struct mosquitto *mosq, void *obj, int rc, int flags, 
 	}
 }
 
+
 static void on_disconnect_v5(struct mosquitto *mosq, void *obj, int rc, const mosquitto_property *properties)
 {
 	(void)mosq;
@@ -28,6 +30,7 @@ static void on_disconnect_v5(struct mosquitto *mosq, void *obj, int rc, const mo
 
 	run = rc;
 }
+
 
 static void on_subscribe_v5(struct mosquitto *mosq, void *obj, int mid, int qos_count, const int *granted_qos, const mosquitto_property *props)
 {
@@ -40,6 +43,7 @@ static void on_subscribe_v5(struct mosquitto *mosq, void *obj, int mid, int qos_
 	mosquitto_publish_v5(mosq, NULL, "loop/test", strlen("message"), "message", 0, false, NULL);
 }
 
+
 static void on_message_v5(struct mosquitto *mosq, void *obj, const struct mosquitto_message *msg, const mosquitto_property *properties)
 {
 	(void)obj;
@@ -48,6 +52,7 @@ static void on_message_v5(struct mosquitto *mosq, void *obj, const struct mosqui
 
 	mosquitto_disconnect(mosq);
 }
+
 
 int main(int argc, char *argv[])
 {
@@ -74,7 +79,9 @@ int main(int argc, char *argv[])
 	mosquitto_message_v5_callback_set(mosq, on_message_v5);
 
 	rc = mosquitto_connect_bind_v5(mosq, "localhost", port, 60, NULL, NULL);
-	if(rc != MOSQ_ERR_SUCCESS) return rc;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return rc;
+	}
 
 	mosquitto_loop_start(mosq);
 	struct timespec tv = { 0, 50e6 };

@@ -8,6 +8,7 @@
 
 static int run = -1;
 
+
 static void on_connect(struct mosquitto *mosq, void *obj, int rc)
 {
 	UNUSED(obj);
@@ -19,6 +20,7 @@ static void on_connect(struct mosquitto *mosq, void *obj, int rc)
 	}
 }
 
+
 static void on_publish(struct mosquitto *mosq, void *obj, int mid)
 {
 	UNUSED(mosq);
@@ -27,6 +29,7 @@ static void on_publish(struct mosquitto *mosq, void *obj, int mid)
 
 	run = 0;
 }
+
 
 int main(int argc, char *argv[])
 {
@@ -49,7 +52,9 @@ int main(int argc, char *argv[])
 	mosquitto_publish_callback_set(mosq, on_publish);
 
 	rc = mosquitto_connect(mosq, "localhost", port, 60);
-	if(rc != MOSQ_ERR_SUCCESS) return rc;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return rc;
+	}
 
 	while(run == -1){
 		mosquitto_loop(mosq, -1, 1);

@@ -7,6 +7,7 @@
 
 static int run = -1;
 
+
 static void do_loop(struct mosquitto *mosq)
 {
 	int sock;
@@ -16,10 +17,12 @@ static void do_loop(struct mosquitto *mosq)
 
 	sock = mosquitto_socket(mosq);
 
-	if(sock < 0) exit(1);
+	if(sock < 0){
+		exit(1);
+	}
 
-    FD_ZERO(&readfds);
-    FD_ZERO(&writefds);
+	FD_ZERO(&readfds);
+	FD_ZERO(&writefds);
 
 	FD_SET(sock, &readfds);
 
@@ -35,7 +38,9 @@ static void do_loop(struct mosquitto *mosq)
 		}
 
 		fdcount = select(sock+1, &readfds, &writefds, NULL, &tv);
-		if(fdcount < 0) exit(1);
+		if(fdcount < 0){
+			exit(1);
+		}
 		if(FD_ISSET(sock, &readfds)){
 			mosquitto_loop_read(mosq, 1);
 		}
@@ -61,6 +66,7 @@ static void on_connect_v5(struct mosquitto *mosq, void *obj, int rc, int flags, 
 	}
 }
 
+
 static void on_disconnect_v5(struct mosquitto *mosq, void *obj, int rc, const mosquitto_property *properties)
 {
 	(void)mosq;
@@ -69,6 +75,7 @@ static void on_disconnect_v5(struct mosquitto *mosq, void *obj, int rc, const mo
 
 	run = rc;
 }
+
 
 static void on_subscribe_v5(struct mosquitto *mosq, void *obj, int mid, int qos_count, const int *granted_qos, const mosquitto_property *props)
 {
@@ -81,6 +88,7 @@ static void on_subscribe_v5(struct mosquitto *mosq, void *obj, int mid, int qos_
 	mosquitto_publish_v5(mosq, NULL, "loop/test", strlen("message"), "message", 0, false, NULL);
 }
 
+
 static void on_message_v5(struct mosquitto *mosq, void *obj, const struct mosquitto_message *msg, const mosquitto_property *properties)
 {
 	(void)mosq;
@@ -90,6 +98,7 @@ static void on_message_v5(struct mosquitto *mosq, void *obj, const struct mosqui
 
 	mosquitto_disconnect(mosq);
 }
+
 
 int main(int argc, char *argv[])
 {
@@ -116,7 +125,9 @@ int main(int argc, char *argv[])
 	mosquitto_message_v5_callback_set(mosq, on_message_v5);
 
 	rc = mosquitto_connect_bind_v5(mosq, "localhost", port, 60, NULL, NULL);
-	if(rc != MOSQ_ERR_SUCCESS) return rc;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return rc;
+	}
 
 	do_loop(mosq);
 	mosquitto_destroy(mosq);

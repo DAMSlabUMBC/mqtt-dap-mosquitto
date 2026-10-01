@@ -19,7 +19,7 @@ Contributors:
 #include "config.h"
 
 #include <time.h>
-#ifdef __APPLE__
+#if defined(__APPLE__) || defined(_AIX)
 #include <sys/socket.h>
 #endif
 
@@ -33,6 +33,7 @@ Contributors:
 
 #include "uthash.h"
 
+
 int context__init_sock(struct mosquitto *context, mosq_sock_t sock, bool get_address)
 {
 	context->sock = sock;
@@ -42,8 +43,8 @@ int context__init_sock(struct mosquitto *context, mosq_sock_t sock, bool get_add
 			char address[1024];
 
 			if(!net__socket_get_address(context->sock,
-						address, sizeof(address),
-						&context->remote_port)){
+					address, sizeof(address),
+					&context->remote_port)){
 
 				context->address = mosquitto_strdup(address);
 			}
@@ -62,7 +63,9 @@ struct mosquitto *context__init(void)
 	struct mosquitto *context;
 
 	context = mosquitto_calloc(1, sizeof(struct mosquitto));
-	if(!context) return NULL;
+	if(!context){
+		return NULL;
+	}
 
 	context->in_packet.packet_buffer_size = db.config->packet_buffer_size;
 	context->in_packet.packet_buffer = mosquitto_calloc(1, context->in_packet.packet_buffer_size);
@@ -122,11 +125,14 @@ struct mosquitto *context__init(void)
 	return context;
 }
 
+
 static void context__cleanup_out_packets(struct mosquitto *context)
 {
 	struct mosquitto__packet *packet;
 
-	if(!context) return;
+	if(!context){
+		return;
+	}
 
 	while(context->out_packet){
 		packet = context->out_packet;
@@ -148,7 +154,9 @@ static void context__cleanup_out_packets(struct mosquitto *context)
  */
 void context__cleanup(struct mosquitto *context, bool force_free)
 {
-	if(!context) return;
+	if(!context){
+		return;
+	}
 
 	if(force_free){
 		context->clean_start = true;
@@ -214,12 +222,13 @@ void context__send_will(struct mosquitto *ctxt)
 		}
 
 		if(mosquitto_acl_check(ctxt,
-					ctxt->will->msg.topic,
-					(uint32_t)ctxt->will->msg.payloadlen,
-					ctxt->will->msg.payload,
-					(uint8_t)ctxt->will->msg.qos,
-					ctxt->will->msg.retain,
-					MOSQ_ACL_WRITE) == MOSQ_ERR_SUCCESS){
+				ctxt->will->msg.topic,
+				(uint32_t)ctxt->will->msg.payloadlen,
+				ctxt->will->msg.payload,
+				(uint8_t)ctxt->will->msg.qos,
+				ctxt->will->msg.retain,
+				ctxt->will->properties,
+				MOSQ_ACL_WRITE) == MOSQ_ERR_SUCCESS){
 
 			/* Unexpected disconnect, queue the client will. */
 			db__messages_easy_queue(ctxt,
@@ -246,11 +255,21 @@ void context__disconnect(struct mosquitto *context, int reason)
 	if(context->transport == mosq_t_ws){
 		uint8_t buf[4] = {0x88, 0x02, 0x03, context->wsd.disconnect_reason};
 		/* Send the disconnect reason, but don't care if it fails */
-		if(send(context->sock, buf, 4, 0)){};
+		if(send(context->sock, buf, 4, 0)){
+		}
 	}
 #endif
+	if(context->id){
+		struct mosquitto *context_found;
+		HASH_FIND(hh_id, db.contexts_by_id_delayed_auth, context->id, strlen(context->id), context_found);
+		if(context_found == context){
+			net__socket_close(context);
+			context__add_to_disused(context);
+			return;
+		}
+	}
 
-	if(context->session_expiry_interval == 0){
+	if(context->session_expiry_interval == MQTT_SESSION_EXPIRY_IMMEDIATE){
 		plugin__handle_disconnect(context, reason);
 	}else{
 		plugin__handle_client_offline(context, reason);
@@ -263,7 +282,7 @@ void context__disconnect(struct mosquitto *context, int reason)
 	/* Outgoing bridge connection never expire */
 #endif
 	{
-		if(context->session_expiry_interval == 0){
+		if(context->session_expiry_interval == MQTT_SESSION_EXPIRY_IMMEDIATE){
 			plugin_persist__handle_client_delete(context);
 			/* Client session is due to be expired now */
 			if(context->will_delay_interval == 0){
@@ -280,9 +299,12 @@ void context__disconnect(struct mosquitto *context, int reason)
 	context__cleanup_out_packets(context);
 }
 
+
 void context__add_to_disused(struct mosquitto *context)
 {
-	if(context->state == mosq_cs_disused) return;
+	if(context->state == mosq_cs_disused){
+		return;
+	}
 
 	mosquitto__set_state(context, mosq_cs_disused);
 
@@ -291,6 +313,7 @@ void context__add_to_disused(struct mosquitto *context)
 	context->for_free_next = db.ll_for_free;
 	db.ll_for_free = context;
 }
+
 
 void context__free_disused(void)
 {
@@ -339,17 +362,22 @@ void context__remove_from_by_id(struct mosquitto *context)
 {
 	struct mosquitto *context_found;
 
-	if(context->in_by_id == true && context->id){
-		HASH_FIND(hh_id, db.contexts_by_id_delayed_auth, context->id, strlen(context->id), context_found);
-		if(context_found){
-			HASH_DELETE(hh_id, db.contexts_by_id_delayed_auth, context_found);
-		}
+	if(!context->id){
+		return;
+	}
 
+	if(context->in_by_id){
 		HASH_FIND(hh_id, db.contexts_by_id, context->id, strlen(context->id), context_found);
-		if(context_found){
+		if(context_found == context){
 			HASH_DELETE(hh_id, db.contexts_by_id, context_found);
 		}
 		context->id_hashv = 0;
 		context->in_by_id = false;
+		return;
+	}
+
+	HASH_FIND(hh_id, db.contexts_by_id_delayed_auth, context->id, strlen(context->id), context_found);
+	if(context_found == context){
+		HASH_DELETE(hh_id, db.contexts_by_id_delayed_auth, context_found);
 	}
 }

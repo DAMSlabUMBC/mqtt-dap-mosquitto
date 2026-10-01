@@ -64,7 +64,7 @@ Contributors:
 
 MOSQUITTO_PLUGIN_DECLARE_VERSION(5);
 
-struct client_list{
+struct client_list {
 	UT_hash_handle hh;
 	struct client_list *next, *prev;
 	time_t sub_end;
@@ -75,6 +75,7 @@ struct client_list{
 static mosquitto_plugin_id_t *mosq_pid = NULL;
 static struct client_list *clients = NULL;
 static struct client_list *active_subs = NULL;
+
 
 static int connect_callback(int event, void *event_data, void *userdata)
 {
@@ -182,7 +183,7 @@ static int tick_callback(int event, void *event_data, void *userdata)
 		}
 	}
 
-	/* Declare that we want another call in at most 1 second */
+	/* Declare that we want another call in 1 second at the earliest */
 	ed->next_s = 1;
 
 	return MOSQ_ERR_SUCCESS;
@@ -203,10 +204,13 @@ int mosquitto_plugin_init(mosquitto_plugin_id_t *identifier, void **user_data, s
 	rc = mosquitto_callback_register(mosq_pid, MOSQ_EVT_CONNECT, connect_callback, NULL, NULL);
 	rc = mosquitto_callback_register(mosq_pid, MOSQ_EVT_DISCONNECT, disconnect_callback, NULL, NULL);
 	rc = mosquitto_callback_register(mosq_pid, MOSQ_EVT_ACL_CHECK, acl_check_callback, NULL, NULL);
-	if(rc) return rc;
+	if(rc){
+		return rc;
+	}
 	rc = mosquitto_callback_register(mosq_pid, MOSQ_EVT_TICK, tick_callback, NULL, NULL);
 	return rc;
 }
+
 
 int mosquitto_plugin_cleanup(void *user_data, struct mosquitto_opt *opts, int opt_count)
 {

@@ -20,7 +20,7 @@ ms_send_pubrec = 10
 ms_queued = 11
 
 
-def write_config(filename, port, additional_config_entries : dict = {}):
+def write_config(filename, port, additional_config_entries: dict = {}):
     with open(filename, "w") as f:
         f.write("listener %d\n" % (port))
         f.write("allow_anonymous true\n")
@@ -28,7 +28,7 @@ def write_config(filename, port, additional_config_entries : dict = {}):
             f"plugin {mosq_test.get_build_root()}/plugins/persist-sqlite/mosquitto_persist_sqlite.so\n"
         )
         f.write("plugin_opt_db_file %d/mosquitto.sqlite3\n" % (port))
-        for entry, value in additional_config_entries.items():            
+        for entry, value in additional_config_entries.items():
             f.write(f"{entry} {value}\n")
 
 
@@ -71,12 +71,18 @@ def init(port, create_db_of_version: list[int] = None):
                 f"INSERT INTO version_info(component,major,minor,patch) VALUES ('database_schema',{','.join([str(i) for i in create_db_of_version])});",
             ]:
                 cursor.execute(statement)
+            if create_db_of_version[1] >= 1:
+                for statement in [
+                    "CREATE TABLE wills(client_id TEXT PRIMARY KEY,payload BLOB,topic STRING NOT NULL,payloadlen INTEGER,qos INTEGER,retain INTEGER,properties STRING);"
+                ]:
+                    cursor.execute(statement)
 
         cursor.close()
         con.commit()
         con.close()
         # We need to set write permission to everybody as broker will start with privilege drop
         os.chmod(f"{port}/mosquitto.sqlite3", 0o666)
+
 
 def cleanup(port):
     rc = 1
@@ -113,10 +119,16 @@ def check_version_infos(port, database_schema_version):
         "SELECT major,minor,patch FROM version_info WHERE component = 'database_schema';"
     )
     row = cur.fetchone()
-    assert len(row) == len(database_schema_version)
+
+    if len(row) != len(database_schema_version):
+        raise ValueError("Could not fetch db version info from DB")
     for i in range(len(row)):
-        assert row[i] == database_schema_version[i]
+        if row[i] != database_schema_version[i]:
+            raise ValueError(
+                f"DB version info {'.'.join([str(v) for v in row])} != expected {'.'.join([str(v) for v in database_schema_version])}"
+            )
     con.close()
+
 
 def check_counts(
     port,
@@ -126,6 +138,7 @@ def check_counts(
     base_msgs=0,
     retain_msgs=0,
     subscriptions=0,
+    wills=None
 ):
     con = sqlite3.connect(f"{port}/mosquitto.sqlite3")
     cur = con.cursor()
@@ -164,6 +177,14 @@ def check_counts(
     row = cur.fetchone()
     if row[0] != retain_msgs:
         raise ValueError("Found %d retain_msgs, expected %d" % (row[0], retain_msgs))
+
+    if wills is not None:
+        cur.execute("SELECT COUNT(*) FROM wills")
+        row = cur.fetchone()
+        if row[0] != wills:
+            raise ValueError("Found %d wills, expected %d" % (row[0], wills))
+        
+    
     con.close()
 
 
@@ -190,9 +211,13 @@ def check_client(
         "SELECT client_id, username, will_delay_time, session_expiry_time, "
         + "listener_port, max_packet_size, max_qos, retain_available, "
         + "session_expiry_interval, will_delay_interval "
-        + "FROM clients"
+        + "FROM clients "
+        + f"WHERE client_id = '{client_id}'"
     )
     row = cur.fetchone()
+
+    if row is None:
+        raise ValueError(f"Cannot find client {client_id} in db")
 
     if row[0] != client_id:
         raise ValueError("Invalid client_id %s / %s" % (row[0], client_id))
@@ -203,11 +228,13 @@ def check_client(
     if (will_delay_time == 0 and row[2] != 0) or (will_delay_time != 0 and row[2] == 0):
         raise ValueError("Invalid will_delay_time %d / %d" % (row[2], will_delay_time))
 
-    if (session_expiry_time == 0 and row[3] != 0) or (
-        session_expiry_time != 0 and row[3] == 0
+    if session_expiry_time and (
+        (session_expiry_time == 0 and row[3] != 0)
+        or (session_expiry_time != 0 and row[3] == 0)
     ):
         raise ValueError(
-            "Invalid session_expiry_time %d / %d" % (row[3], session_expiry_time)
+            "Invalid session_expiry_time %d / %d for client %s"
+            % (row[3], session_expiry_time, client_id)
         )
 
     if listener_port is not None and row[4] != listener_port:
@@ -237,6 +264,25 @@ def check_client(
     con.close()
 
 
+def modify_client(port: int, client_id: str, sub_expiry_time: int):
+    num_modified_rows = 0
+    con = sqlite3.connect(f"{port}/mosquitto.sqlite3")
+    try:
+        cur = con.cursor()
+        cur.execute(
+            "UPDATE clients"
+            + f" SET session_expiry_time = session_expiry_time - {sub_expiry_time}"
+            + f" WHERE client_id = ?",
+            (client_id,),
+        )
+        num_modified_rows = cur.rowcount
+        con.commit()
+    finally:
+        con.close()
+
+    return num_modified_rows
+
+
 def check_subscription(
     port, client_id, topic, subscription_options, subscription_identifier
 ):
@@ -244,9 +290,13 @@ def check_subscription(
     cur = con.cursor()
     cur.execute(
         "SELECT client_id, topic, subscription_options, subscription_identifier "
-        + "FROM subscriptions"
+        + "FROM subscriptions "
+        + f"WHERE client_id = '{client_id}'"
     )
     row = cur.fetchone()
+
+    if row is None:
+        raise ValueError(f"Cannot find client {client_id} in db")
 
     if row[0] != client_id:
         raise ValueError("Invalid client_id %s / %s" % (row[0], client_id))
@@ -268,7 +318,7 @@ def check_subscription(
 
 
 def check_client_msg(
-        port, client_id, cmsg_id, store_id, dup, direction, mid, qos, retain, state, idx=0
+    port, client_id, cmsg_id, store_id, dup, direction, mid, qos, retain, state
 ):
     con = sqlite3.connect(f"{port}/mosquitto.sqlite3")
     try:
@@ -276,39 +326,60 @@ def check_client_msg(
         cur.execute(
             "SELECT client_id,cmsg_id,store_id,dup,direction,mid,qos,retain,state "
             + "FROM client_msgs "
-            + "ORDER BY cmsg_id"
+            + f"WHERE client_id = '{client_id}' AND cmsg_id = {cmsg_id}"
         )
-        for i in range(0, idx + 1):
-            row = cur.fetchone()
+        row = cur.fetchone()
+
+        msg_id = f"client_id={client_id},cmsg_id={cmsg_id}"
+        if row is None:
+            raise ValueError(
+                f"Cannot find client message client_id = {client_id} cmsg_id = {msg_id} in db."
+            )
 
         if row[0] != client_id:
-            raise ValueError("Invalid client_id %s / %s" % (row[0], client_id))
+            raise ValueError(
+                "Invalid client_id %s / %s for message %s" % (row[0], client_id, msg_id)
+            )
 
         if row[1] != cmsg_id:
-            raise ValueError("Invalid cmsg_id %s / %s" % (row[1], cmsg_id))
+            raise ValueError(
+                "Invalid cmsg_id %s / %s for message %s" % (row[1], cmsg_id, msg_id)
+            )
 
         if row[2] != store_id:
-            raise ValueError("Invalid store_id %d / %d" % (row[2], store_id))
+            raise ValueError(
+                "Invalid store_id %d / %d for message %s" % (row[2], store_id, msg_id)
+            )
 
         if row[3] != dup:
-            raise ValueError("Invalid dup %d / %d" % (row[3], dup))
+            raise ValueError(
+                "Invalid dup %d / %d for message %s" % (row[3], dup, msg_id)
+            )
 
         if row[4] != direction:
-            raise ValueError("Invalid direction %d / %d" % (row[4], direction))
+            raise ValueError(
+                "Invalid direction %d / %d for message %s" % (row[4], direction, msg_id)
+            )
 
         if row[5] != mid:
-            raise ValueError("Invalid mid %d / %d" % (row[5], mid))
+            raise ValueError(
+                "Invalid mid %d / %d for message %s" % (row[5], mid, msg_id)
+            )
 
         if row[6] != qos:
-            raise ValueError("Invalid qos %d / %d" % (row[6], qos))
+            raise ValueError(
+                "Invalid qos %d / %d for message %s" % (row[6], qos, msg_id)
+            )
 
         if row[7] != retain:
-            raise ValueError("Invalid retain %d / %d" % (row[7], retain))
+            raise ValueError(
+                "Invalid retain %d / %d for message %s" % (row[7], retain, msg_id)
+            )
 
         if row[8] != state:
-            raise ValueError("Invalid state %d / %d" % (row[8], state))
-    except ValueError as err:
-        raise ValueError(str(err)+ f" at index {idx}") from err
+            raise ValueError(
+                "Invalid state %d / %d for message %s" % (row[8], state, msg_id)
+            )
     finally:
         con.close()
 
@@ -337,7 +408,10 @@ def check_base_msg(
         )
         for i in range(0, idx + 1):
             row = cur.fetchone()
-        
+
+        if row is None:
+            raise ValueError(f"no base messages")
+
         if row[0] == 0:
             raise ValueError("Invalid store_id %d / %d" % (row[0], store_id))
 
@@ -354,7 +428,9 @@ def check_base_msg(
             raise ValueError("Invalid source_id %s / %s" % (row[4], source_id))
 
         if row[5] != source_username:
-            raise ValueError("Invalid source_username %s / %s" % (row[5], source_username))
+            raise ValueError(
+                "Invalid source_username %s / %s" % (row[5], source_username)
+            )
 
         if row[6] != payloadlen or (payloadlen != 0 and row[6] != len(row[3])):
             raise ValueError("Invalid payloadlen %d / %d" % (row[6], payloadlen))
@@ -371,11 +447,29 @@ def check_base_msg(
         if row[10] != retain:
             raise ValueError("Invalid retain %d / %d" % (row[10], retain))
     except ValueError as err:
-        raise ValueError(str(err)+ f" at index {idx}") from err
+        raise ValueError(str(err) + f" at index {idx}") from err
     finally:
         con.close()
 
     return row[0]
+
+
+def modify_base_msgs(
+    port: int,
+    sub_expiry_time: int,
+):
+    num_modified_rows = 0
+    con = sqlite3.connect(f"{port}/mosquitto.sqlite3")
+    try:
+        cur = con.cursor()
+        cur.execute(
+            "UPDATE base_msgs" + f" SET expiry_time = expiry_time - {sub_expiry_time}"
+        )
+        num_modified_rows = cur.rowcount
+        con.commit()
+    finally:
+        con.close()
+    return num_modified_rows
 
 
 def check_retain(port, topic, store_id):
@@ -387,3 +481,55 @@ def check_retain(port, topic, store_id):
     if row[0] != store_id:
         raise ValueError("Invalid store_id %d / %d" % (row[0], store_id))
     con.close()
+
+
+def check_will(
+    port,
+    client_id: str,
+    payload: bytes,
+    topic: str,
+    qos: int,
+    retain: int,
+    properties: str,
+    idx=0,
+):
+    con = sqlite3.connect(f"{port}/mosquitto.sqlite3")
+    try:
+        cur = con.cursor()
+        cur.execute(
+            "SELECT client_id,topic,payload,payloadlen,qos,retain,properties "
+            "FROM wills",
+        )
+        for i in range(0, idx + 1):
+            row = cur.fetchone()
+
+        if row is None:
+            raise ValueError(f"no will at index {idx}")
+
+        if row[0] != client_id:
+            raise ValueError(f"Invalid client_id {row[0]} / {client_id}")
+
+        if row[1] != topic:
+            raise ValueError("Invalid topic %s / %s" % (row[2], topic))
+
+        if row[2] != payload:
+            raise ValueError("Invalid payload %s / %s" % (row[2], payload))
+
+        if row[3] != len(payload):
+            raise ValueError("Invalid payloadlen %d / %d" % (row[3], len(payload)))
+
+        if row[4] != qos:
+            raise ValueError("Invalid qos %d / %d" % (row[4], qos))
+
+        if row[5] != retain:
+            raise ValueError("Invalid retain %d / %d" % (row[5], retain))
+
+        if row[6] != properties:
+            raise ValueError("Invalid properties %s / %s" % (row[6], properties))
+
+    except ValueError as err:
+        raise ValueError(str(err) + f" at index {idx}") from err
+    finally:
+        con.close()
+
+    return row[0]

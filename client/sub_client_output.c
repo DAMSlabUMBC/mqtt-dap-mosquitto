@@ -19,7 +19,7 @@ Contributors:
 #include "config.h"
 
 #ifdef WIN32
-   /* For rand_s on Windows */
+/* For rand_s on Windows */
 #  define _CRT_RAND_S
 #  include <fcntl.h>
 #  include <io.h>
@@ -55,7 +55,7 @@ Contributors:
 
 extern struct mosq_config cfg;
 
-struct fieldoptions{
+struct fieldoptions {
 	int field_width;
 	int precision;
 	char hexsepchar;
@@ -63,13 +63,14 @@ struct fieldoptions{
 	char pad;
 };
 
-struct watch_topic{
+struct watch_topic {
 	UT_hash_handle hh;
 	char *topic;
 	int line;
 };
 static int watch_max = 2;
 static struct watch_topic *watch_items = NULL;
+
 
 static int get_time(struct tm **ti, long *ns)
 {
@@ -114,12 +115,14 @@ static const signed char nibble_to_hex[] = {
 	'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'
 };
 
+
 static void hexsep(int xpos, int precision, char sepchar)
 {
 	if(precision > 0 && xpos%precision == (precision-1)){
 		putchar(sepchar);
 	}
 }
+
 
 static void write_payload(const unsigned char *payload, int payloadlen, int hex, struct fieldoptions *fopts)
 {
@@ -208,7 +211,9 @@ static int json_print_properties(cJSON *root, const mosquitto_property *properti
 			case MQTT_PROP_CONTENT_TYPE:
 			case MQTT_PROP_RESPONSE_TOPIC:
 				mosquitto_property_read_string(prop, identifier, &strvalue, false);
-				if(strvalue == NULL) return MOSQ_ERR_NOMEM;
+				if(strvalue == NULL){
+					return MOSQ_ERR_NOMEM;
+				}
 				tmp = cJSON_CreateString(strvalue);
 				free(strvalue);
 				strvalue = NULL;
@@ -216,7 +221,9 @@ static int json_print_properties(cJSON *root, const mosquitto_property *properti
 
 			case MQTT_PROP_CORRELATION_DATA:
 				mosquitto_property_read_binary(prop, MQTT_PROP_CORRELATION_DATA, (void **)&binvalue, &i16value, false);
-				if(binvalue == NULL) return MOSQ_ERR_NOMEM;
+				if(binvalue == NULL){
+					return MOSQ_ERR_NOMEM;
+				}
 				tmp = cJSON_CreateString(binvalue);
 				free(binvalue);
 				binvalue = NULL;
@@ -284,6 +291,7 @@ static void format_time_8601(const struct tm *ti, int ns, char *buf, size_t len)
 	snprintf(&buf[strlen("2020-05-06T21:48:00.")], 9, "%06d", ns/1000);
 	buf[strlen("2020-05-06T21:48:00.000000")] = c;
 }
+
 
 static int json_print(const struct mosquitto_message *message, const mosquitto_property *properties, const struct tm *ti, int ns, bool escaped, bool pretty)
 {
@@ -369,6 +377,8 @@ static void formatted_print_blank(struct fieldoptions *fopts)
 
 
 #ifdef __STDC_IEC_559__
+
+
 static int formatted_print_float(const unsigned char *payload, int payloadlen, char format, struct fieldoptions *fopts)
 {
 	float float_value;
@@ -449,6 +459,7 @@ static void formatted_print_str(const char *value, struct fieldoptions *fopts)
 		}
 	}
 }
+
 
 static void formatted_print_percent(const struct mosq_config *lcfg, const struct mosquitto_message *message, const mosquitto_property *properties, char format, struct fieldoptions *fopts)
 {
@@ -727,7 +738,7 @@ static void formatted_print(const struct mosq_config *lcfg, const struct mosquit
 						}
 					}
 
-					char strf[3] = {0, 0 ,0};
+					char strf[3] = {0, 0, 0};
 					strf[0] = '%';
 					strf[1] = lcfg->format[i];
 					strf[2] = 0;
@@ -803,6 +814,8 @@ static void rand_init(void)
 }
 
 #ifndef WIN32
+
+
 static void watch_print(const struct mosquitto_message *message)
 {
 	struct watch_topic *item = NULL;
@@ -882,6 +895,7 @@ void print_message(struct mosq_config *lcfg, const struct mosquitto_message *mes
 	}
 #endif
 }
+
 
 void output_init(struct mosq_config *lcfg)
 {

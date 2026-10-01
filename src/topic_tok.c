@@ -62,13 +62,19 @@ int sub__topic_tokenise(const char *subtopic, char **local_sub, char ***topics, 
 	int topic_index = 0;
 	size_t len;
 
+	if(!subtopic){
+		return MOSQ_ERR_INVAL;
+	}
+
 	len = strlen(subtopic);
 	if(len == 0){
 		return MOSQ_ERR_INVAL;
 	}
 
 	*local_sub = mosquitto_strdup(subtopic);
-	if((*local_sub) == NULL) return MOSQ_ERR_NOMEM;
+	if((*local_sub) == NULL){
+		return MOSQ_ERR_NOMEM;
+	}
 
 	count = 0;
 	saveptr = *local_sub;
@@ -102,6 +108,11 @@ int sub__topic_tokenise(const char *subtopic, char **local_sub, char ***topics, 
 		}
 
 		if(sharename){
+			if(strpbrk((*topics)[1], "+#")){
+				mosquitto_FREE(*local_sub);
+				mosquitto_FREE(*topics);
+				return MOSQ_ERR_PROTOCOL;
+			}
 			(*sharename) = (*topics)[1];
 		}
 

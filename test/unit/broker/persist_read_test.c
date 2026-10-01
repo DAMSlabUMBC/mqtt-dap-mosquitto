@@ -7,6 +7,7 @@
 #include <CUnit/Basic.h>
 #include "path_helper.h"
 
+#include "mosquitto.h"
 #include "mosquitto_broker_internal.h"
 #include "persist.h"
 #include "property_mosq.h"
@@ -17,6 +18,14 @@ int last_qos;
 uint32_t last_identifier;
 
 struct mosquitto_db db;
+
+
+static void dummy_vprintf(const char *fmt, va_list va)
+{
+	UNUSED(fmt);
+	UNUSED(va);
+}
+
 
 static void test_cleanup(void)
 {
@@ -31,6 +40,7 @@ static void test_cleanup(void)
 	}
 	db__close();
 }
+
 
 static void TEST_persistence_disabled(void)
 {
@@ -83,13 +93,14 @@ static void TEST_corrupt_header(void)
 	cat_sourcedir_with_relpath(persistence_filepath, "/files/persist_read/corrupt-header-short.test-db");
 	config.persistence_filepath = persistence_filepath;
 	rc = persist__restore();
-	CU_ASSERT_EQUAL(rc, 1);
+	CU_ASSERT_EQUAL(rc, MOSQ_ERR_ERRNO);
 
 	cat_sourcedir_with_relpath(persistence_filepath, "/files/persist_read/corrupt-header-long.test-db");
 	config.persistence_filepath = persistence_filepath;
 	rc = persist__restore();
 	CU_ASSERT_EQUAL(rc, 1);
 }
+
 
 static void TEST_unsupported_version(void)
 {
@@ -106,7 +117,7 @@ static void TEST_unsupported_version(void)
 	config.persistence_filepath = persistence_filepath;
 
 	rc = persist__restore();
-	CU_ASSERT_EQUAL(rc, 1);
+	CU_ASSERT_EQUAL(rc, MOSQ_ERR_INVAL);
 }
 
 
@@ -165,7 +176,7 @@ static void TEST_v3_config_truncated(void)
 	config.persistence_filepath = persistence_filepath;
 
 	rc = persist__restore();
-	CU_ASSERT_EQUAL(rc, 1);
+	CU_ASSERT_EQUAL(rc, MOSQ_ERR_UNKNOWN);
 	CU_ASSERT_EQUAL(db.last_db_id, 0);
 }
 
@@ -185,7 +196,7 @@ static void TEST_v3_config_bad_dbid(void)
 	config.persistence_filepath = persistence_filepath;
 
 	rc = persist__restore();
-	CU_ASSERT_EQUAL(rc, 1);
+	CU_ASSERT_EQUAL(rc, MOSQ_ERR_INVAL);
 	CU_ASSERT_EQUAL(db.last_db_id, 0);
 }
 
@@ -247,6 +258,7 @@ static void TEST_v3_message_store(void)
 	test_cleanup();
 }
 
+
 static void TEST_v3_client(void)
 {
 	struct mosquitto__config config;
@@ -275,6 +287,7 @@ static void TEST_v3_client(void)
 	}
 	test_cleanup();
 }
+
 
 static void TEST_v3_client_message(void)
 {
@@ -330,6 +343,7 @@ static void TEST_v3_client_message(void)
 	test_cleanup();
 }
 
+
 static void TEST_v3_retain(void)
 {
 	struct mosquitto__config config;
@@ -380,6 +394,7 @@ static void TEST_v3_retain(void)
 	test_cleanup();
 }
 
+
 static void TEST_v3_sub(void)
 {
 	struct mosquitto__config config;
@@ -414,6 +429,7 @@ static void TEST_v3_sub(void)
 	}
 	test_cleanup();
 }
+
 
 static void TEST_v4_message_store(void)
 {
@@ -451,6 +467,7 @@ static void TEST_v4_message_store(void)
 	}
 	test_cleanup();
 }
+
 
 static void TEST_v6_config_ok(void)
 {
@@ -594,6 +611,7 @@ static void TEST_v6_message_store_props(void)
 	test_cleanup();
 }
 
+
 static void TEST_v5_client(void)
 {
 	struct mosquitto__config config;
@@ -622,6 +640,7 @@ static void TEST_v5_client(void)
 	}
 	test_cleanup();
 }
+
 
 static void TEST_v6_client(void)
 {
@@ -662,6 +681,7 @@ static void TEST_v6_client(void)
 	}
 	test_cleanup();
 }
+
 
 static void TEST_v6_client_message(void)
 {
@@ -713,6 +733,7 @@ static void TEST_v6_client_message(void)
 	test_cleanup();
 }
 
+
 static void TEST_v6_client_message_props(void)
 {
 	struct mosquitto__config config;
@@ -763,6 +784,7 @@ static void TEST_v6_client_message_props(void)
 	test_cleanup();
 }
 
+
 static void TEST_v6_retain(void)
 {
 	struct mosquitto__config config;
@@ -810,6 +832,7 @@ static void TEST_v6_retain(void)
 	test_cleanup();
 }
 
+
 static void TEST_v6_sub(void)
 {
 	struct mosquitto__config config;
@@ -846,9 +869,35 @@ static void TEST_v6_sub(void)
 	test_cleanup();
 }
 
+
+static void TEST_v6_base_msg_topic_0(void)
+{
+	struct mosquitto__config config;
+	int rc;
+
+	last_sub = NULL;
+	last_qos = -1;
+
+	memset(&db, 0, sizeof(struct mosquitto_db));
+	memset(&config, 0, sizeof(struct mosquitto__config));
+	db.config = &config;
+
+	config.persistence = true;
+	char persistence_filepath[4096];
+	cat_sourcedir_with_relpath(persistence_filepath, "/files/persist_read/v6-base-msg-topic-0.test-db");
+	config.persistence_filepath = persistence_filepath;
+
+	rc = persist__restore();
+	CU_ASSERT_EQUAL(rc, MOSQ_ERR_INVAL);
+
+	test_cleanup();
+}
+
+
 /* ========================================================================
  * TEST SUITE SETUP
  * ======================================================================== */
+
 
 int init_persist_read_tests(void)
 {
@@ -887,6 +936,7 @@ int init_persist_read_tests(void)
 			|| !CU_add_test(test_suite, "v6 client message+props", TEST_v6_client_message_props)
 			|| !CU_add_test(test_suite, "v6 retain", TEST_v6_retain)
 			|| !CU_add_test(test_suite, "v6 sub", TEST_v6_sub)
+			|| !CU_add_test(test_suite, "v6 base msg topic 0", TEST_v6_base_msg_topic_0)
 			){
 
 		printf("Error adding persist CUnit tests.\n");
@@ -896,6 +946,7 @@ int init_persist_read_tests(void)
 	return 0;
 }
 
+
 int main(int argc, char *argv[])
 {
 	unsigned int fails;
@@ -903,23 +954,25 @@ int main(int argc, char *argv[])
 	UNUSED(argc);
 	UNUSED(argv);
 
-    if(CU_initialize_registry() != CUE_SUCCESS){
-        printf("Error initializing CUnit registry.\n");
-        return 1;
-    }
+	libcommon_vprintf = dummy_vprintf;
 
-    if(0
+	if(CU_initialize_registry() != CUE_SUCCESS){
+		printf("Error initializing CUnit registry.\n");
+		return 1;
+	}
+
+	if(0
 			|| init_persist_read_tests()
 			){
 
-        CU_cleanup_registry();
-        return 1;
-    }
+		CU_cleanup_registry();
+		return 1;
+	}
 
-    CU_basic_set_mode(CU_BRM_VERBOSE);
-    CU_basic_run_tests();
+	CU_basic_set_mode(CU_BRM_VERBOSE);
+	CU_basic_run_tests();
 	fails = CU_get_number_of_failures();
-    CU_cleanup_registry();
+	CU_cleanup_registry();
 
-    return (int)fails;
+	return (int)fails;
 }

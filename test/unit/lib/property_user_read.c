@@ -5,6 +5,7 @@
 #include "property_mosq.h"
 #include "packet_mosq.h"
 
+
 static void generate_full_proplist(mosquitto_property **proplist)
 {
 	int rc;
@@ -13,85 +14,138 @@ static void generate_full_proplist(mosquitto_property **proplist)
 	 * property. Very useful for testing though. */
 	rc = mosquitto_property_add_byte(proplist, MQTT_PROP_PAYLOAD_FORMAT_INDICATOR, 1);
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_int32(proplist, MQTT_PROP_MESSAGE_EXPIRY_INTERVAL, 3600);
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_string(proplist, MQTT_PROP_CONTENT_TYPE, "application/json");
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_string(proplist, MQTT_PROP_RESPONSE_TOPIC, "response/topic");
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_binary(proplist, MQTT_PROP_CORRELATION_DATA, "correlation-data", strlen("correlation-data"));
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_varint(proplist, MQTT_PROP_SUBSCRIPTION_IDENTIFIER, 63);
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_int32(proplist, MQTT_PROP_SESSION_EXPIRY_INTERVAL, 86400);
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_string(proplist, MQTT_PROP_ASSIGNED_CLIENT_IDENTIFIER, "mosquitto-test");
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_int16(proplist, MQTT_PROP_SERVER_KEEP_ALIVE, 180);
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_string(proplist, MQTT_PROP_AUTHENTICATION_METHOD, "basic");
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_binary(proplist, MQTT_PROP_AUTHENTICATION_DATA, "password", strlen("password"));
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_byte(proplist, MQTT_PROP_REQUEST_PROBLEM_INFORMATION, 1);
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_int32(proplist, MQTT_PROP_WILL_DELAY_INTERVAL, 1800);
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_byte(proplist, MQTT_PROP_REQUEST_RESPONSE_INFORMATION, 1);
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_string(proplist, MQTT_PROP_RESPONSE_INFORMATION, "response");
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_string(proplist, MQTT_PROP_SERVER_REFERENCE, "localhost");
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_string(proplist, MQTT_PROP_REASON_STRING, "reason");
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_int16(proplist, MQTT_PROP_RECEIVE_MAXIMUM, 1024);
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_int16(proplist, MQTT_PROP_TOPIC_ALIAS_MAXIMUM, 64);
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_int16(proplist, MQTT_PROP_TOPIC_ALIAS, 15);
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_byte(proplist, MQTT_PROP_MAXIMUM_QOS, 0);
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_byte(proplist, MQTT_PROP_RETAIN_AVAILABLE, 0);
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_string_pair(proplist, MQTT_PROP_USER_PROPERTY, "user-agent", "mosquitto/test");
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_int32(proplist, MQTT_PROP_MAXIMUM_PACKET_SIZE, 200000000);
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_byte(proplist, MQTT_PROP_WILDCARD_SUB_AVAILABLE, 0);
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_byte(proplist, MQTT_PROP_SUBSCRIPTION_ID_AVAILABLE, 0);
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 	rc = mosquitto_property_add_byte(proplist, MQTT_PROP_SHARED_SUB_AVAILABLE, 0);
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
 }
+
 
 static void generate_partial_proplist(mosquitto_property **proplist)
 {
@@ -146,9 +200,11 @@ static void generate_partial_proplist(mosquitto_property **proplist)
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
 }
 
+
 /* ========================================================================
  * SINGLE READ
  * ======================================================================== */
+
 
 static void read_byte_helper(const mosquitto_property *proplist, int identifier, uint8_t expected_value)
 {
@@ -160,6 +216,7 @@ static void read_byte_helper(const mosquitto_property *proplist, int identifier,
 	CU_ASSERT_EQUAL(value, expected_value);
 }
 
+
 static void read_int16_helper(const mosquitto_property *proplist, int identifier, uint16_t expected_value)
 {
 	const mosquitto_property *prop;
@@ -169,6 +226,7 @@ static void read_int16_helper(const mosquitto_property *proplist, int identifier
 	CU_ASSERT_PTR_NOT_NULL(prop);
 	CU_ASSERT_EQUAL(value, expected_value);
 }
+
 
 static void read_int32_helper(const mosquitto_property *proplist, int identifier, uint32_t expected_value)
 {
@@ -180,6 +238,7 @@ static void read_int32_helper(const mosquitto_property *proplist, int identifier
 	CU_ASSERT_EQUAL(value, expected_value);
 }
 
+
 static void read_varint_helper(const mosquitto_property *proplist, int identifier, uint32_t expected_value)
 {
 	const mosquitto_property *prop;
@@ -189,6 +248,7 @@ static void read_varint_helper(const mosquitto_property *proplist, int identifie
 	CU_ASSERT_PTR_NOT_NULL(prop);
 	CU_ASSERT_EQUAL(value, expected_value);
 }
+
 
 static void read_binary_helper(const mosquitto_property *proplist, int identifier, const void *expected_value, uint16_t expected_length)
 {
@@ -210,6 +270,7 @@ static void read_binary_helper(const mosquitto_property *proplist, int identifie
 	SAFE_FREE(value);
 }
 
+
 static void read_string_helper(const mosquitto_property *proplist, int identifier, const char *expected_value)
 {
 	const mosquitto_property *prop;
@@ -227,6 +288,7 @@ static void read_string_helper(const mosquitto_property *proplist, int identifie
 	}
 	SAFE_FREE(value);
 }
+
 
 static void read_string_pair_helper(const mosquitto_property *proplist, int identifier, const char *expected_key, const char *expected_value)
 {
@@ -265,7 +327,9 @@ static void TEST_read_null_binary(void)
 
 	rc = mosquitto_property_add_binary(&proplist, MQTT_PROP_CORRELATION_DATA, NULL, 0);
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 
 	read_binary_helper(proplist, MQTT_PROP_CORRELATION_DATA, NULL, 0);
 
@@ -279,6 +343,7 @@ static void TEST_read_null_binary(void)
 	mosquitto_property_free_all(&proplist_copy);
 }
 
+
 static void TEST_read_null_string(void)
 {
 	int rc;
@@ -286,7 +351,9 @@ static void TEST_read_null_string(void)
 
 	rc = mosquitto_property_add_string(&proplist, MQTT_PROP_CONTENT_TYPE, NULL);
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 
 	read_string_helper(proplist, MQTT_PROP_CONTENT_TYPE, NULL);
 
@@ -300,6 +367,7 @@ static void TEST_read_null_string(void)
 	mosquitto_property_free_all(&proplist_copy);
 }
 
+
 static void TEST_read_null_string_pair(void)
 {
 	int rc;
@@ -307,7 +375,9 @@ static void TEST_read_null_string_pair(void)
 
 	rc = mosquitto_property_add_string_pair(&proplist, MQTT_PROP_USER_PROPERTY, NULL, NULL);
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 
 	read_string_pair_helper(proplist, MQTT_PROP_USER_PROPERTY, NULL, NULL);
 
@@ -321,13 +391,16 @@ static void TEST_read_null_string_pair(void)
 	mosquitto_property_free_all(&proplist_copy);
 }
 
+
 static void TEST_read_single_byte(void)
 {
 	int rc;
 	mosquitto_property *proplist = NULL, *proplist_copy = NULL;
 
 	generate_full_proplist(&proplist);
-	if(!proplist) return;
+	if(!proplist){
+		return;
+	}
 
 	read_byte_helper(proplist, MQTT_PROP_PAYLOAD_FORMAT_INDICATOR, 1);
 	read_byte_helper(proplist, MQTT_PROP_REQUEST_PROBLEM_INFORMATION, 1);
@@ -355,13 +428,16 @@ static void TEST_read_single_byte(void)
 	mosquitto_property_free_all(&proplist_copy);
 }
 
+
 static void TEST_read_single_int16(void)
 {
 	int rc;
 	mosquitto_property *proplist = NULL, *proplist_copy = NULL;
 
 	generate_full_proplist(&proplist);
-	if(!proplist) return;
+	if(!proplist){
+		return;
+	}
 
 	read_int16_helper(proplist, MQTT_PROP_SERVER_KEEP_ALIVE, 180);
 	read_int16_helper(proplist, MQTT_PROP_RECEIVE_MAXIMUM, 1024);
@@ -381,13 +457,16 @@ static void TEST_read_single_int16(void)
 	mosquitto_property_free_all(&proplist_copy);
 }
 
+
 static void TEST_read_single_int32(void)
 {
 	int rc;
 	mosquitto_property *proplist = NULL, *proplist_copy = NULL;
 
 	generate_full_proplist(&proplist);
-	if(!proplist) return;
+	if(!proplist){
+		return;
+	}
 
 	read_int32_helper(proplist, MQTT_PROP_MESSAGE_EXPIRY_INTERVAL, 3600);
 	read_int32_helper(proplist, MQTT_PROP_SESSION_EXPIRY_INTERVAL, 86400);
@@ -407,13 +486,16 @@ static void TEST_read_single_int32(void)
 	mosquitto_property_free_all(&proplist_copy);
 }
 
+
 static void TEST_read_single_varint(void)
 {
 	int rc;
 	mosquitto_property *proplist = NULL, *proplist_copy = NULL;
 
 	generate_full_proplist(&proplist);
-	if(!proplist) return;
+	if(!proplist){
+		return;
+	}
 
 	read_varint_helper(proplist, MQTT_PROP_SUBSCRIPTION_IDENTIFIER, 63);
 
@@ -427,13 +509,16 @@ static void TEST_read_single_varint(void)
 	mosquitto_property_free_all(&proplist_copy);
 }
 
+
 static void TEST_read_single_binary(void)
 {
 	int rc;
 	mosquitto_property *proplist = NULL, *proplist_copy = NULL;
 
 	generate_full_proplist(&proplist);
-	if(!proplist) return;
+	if(!proplist){
+		return;
+	}
 
 	read_binary_helper(proplist, MQTT_PROP_CORRELATION_DATA, "correlation-data", strlen("correlation-data"));
 	read_binary_helper(proplist, MQTT_PROP_AUTHENTICATION_DATA, "password", strlen("password"));
@@ -451,13 +536,16 @@ static void TEST_read_single_binary(void)
 	mosquitto_property_free_all(&proplist_copy);
 }
 
+
 static void TEST_read_single_string(void)
 {
 	int rc;
 	mosquitto_property *proplist = NULL, *proplist_copy = NULL;
 
 	generate_full_proplist(&proplist);
-	if(!proplist) return;
+	if(!proplist){
+		return;
+	}
 
 	read_string_helper(proplist, MQTT_PROP_CONTENT_TYPE, "application/json");
 	read_string_helper(proplist, MQTT_PROP_RESPONSE_TOPIC, "response/topic");
@@ -485,13 +573,16 @@ static void TEST_read_single_string(void)
 	mosquitto_property_free_all(&proplist_copy);
 }
 
+
 static void TEST_read_single_string_pair(void)
 {
 	int rc;
 	mosquitto_property *proplist = NULL, *proplist_copy = NULL;
 
 	generate_full_proplist(&proplist);
-	if(!proplist) return;
+	if(!proplist){
+		return;
+	}
 
 	read_string_pair_helper(proplist, MQTT_PROP_USER_PROPERTY, "user-agent", "mosquitto/test");
 
@@ -507,9 +598,11 @@ static void TEST_read_single_string_pair(void)
 	mosquitto_property_free_all(&proplist_copy);
 }
 
+
 /* ========================================================================
  * MISSING READ
  * ======================================================================== */
+
 
 static void missing_read_helper(mosquitto_property *proplist)
 {
@@ -608,7 +701,9 @@ static void TEST_read_missing(void)
 	int rc;
 
 	generate_partial_proplist(&proplist);
-	if(!proplist) return;
+	if(!proplist){
+		return;
+	}
 
 	missing_read_helper(proplist);
 	rc = mosquitto_property_copy_all(&proplist_copy, proplist);
@@ -622,9 +717,11 @@ static void TEST_read_missing(void)
 	mosquitto_property_free_all(&proplist_copy);
 }
 
+
 /* ========================================================================
  * STRING TO PROPERTY INFO
  * ======================================================================== */
+
 
 static void string_to_property_info_helper(const char *str, int rc_expected, int identifier_expected, int type_expected)
 {
@@ -638,6 +735,7 @@ static void string_to_property_info_helper(const char *str, int rc_expected, int
 		CU_ASSERT_EQUAL(type, type_expected);
 	}
 }
+
 
 static void TEST_string_to_property_info(void)
 {
@@ -679,6 +777,7 @@ static void TEST_string_to_property_info(void)
 /* ========================================================================
  * TEST SUITE SETUP
  * ======================================================================== */
+
 
 int init_property_user_read_tests(void)
 {

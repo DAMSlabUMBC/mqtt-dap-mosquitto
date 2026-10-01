@@ -46,6 +46,7 @@ MOSQUITTO_PLUGIN_DECLARE_VERSION(5);
 
 static mosquitto_plugin_id_t *mosq_pid = NULL;
 
+
 static int connect_callback(int event, void *event_data, void *userdata)
 {
 	struct mosquitto_evt_connect *ed = event_data;
@@ -67,6 +68,7 @@ static int connect_callback(int event, void *event_data, void *userdata)
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 static int disconnect_callback(int event, void *event_data, void *userdata)
 {
 	struct mosquitto_evt_disconnect *ed = event_data;
@@ -84,7 +86,9 @@ static int disconnect_callback(int event, void *event_data, void *userdata)
 	if(len < (int)sizeof(topic)){
 		/* Expire our "disconnected" message after a day. */
 		rc = mosquitto_property_add_int32(&proplist, MQTT_PROP_MESSAGE_EXPIRY_INTERVAL, 86400);
-		if(rc) return rc;
+		if(rc){
+			return rc;
+		}
 
 		rc = mosquitto_broker_publish_copy(NULL, topic, 1, "0", 0, true, proplist);
 		if(rc){
@@ -110,10 +114,13 @@ int mosquitto_plugin_init(mosquitto_plugin_id_t *identifier, void **user_data, s
 	mosquitto_plugin_set_info(identifier, PLUGIN_NAME, PLUGIN_VERSION);
 
 	rc = mosquitto_callback_register(mosq_pid, MOSQ_EVT_CONNECT, connect_callback, NULL, NULL);
-	if(rc) return rc;
+	if(rc){
+		return rc;
+	}
 	rc = mosquitto_callback_register(mosq_pid, MOSQ_EVT_DISCONNECT, disconnect_callback, NULL, NULL);
 	return rc;
 }
+
 
 /* mosquitto_plugin_cleanup() is optional in 2.1 and later. Use it only if you have your own cleanup to do */
 int mosquitto_plugin_cleanup(void *user_data, struct mosquitto_opt *opts, int opt_count)

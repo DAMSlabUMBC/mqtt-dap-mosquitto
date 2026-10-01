@@ -127,7 +127,7 @@ static struct mosquitto *bridge__new(struct mosquitto__bridge *bridge)
 	new_context->retain_available = bridge->outgoing_retain;
 	new_context->protocol = bridge->protocol_version;
 	if(!bridge->clean_start_local){
-		new_context->session_expiry_interval = UINT32_MAX;
+		new_context->session_expiry_interval = MQTT_SESSION_EXPIRY_NEVER;
 		plugin_persist__handle_client_add(new_context);
 		if(new_context->expiry_list_item){
 			/* We've restored from persistence and been added to the session
@@ -148,11 +148,13 @@ static struct mosquitto *bridge__new(struct mosquitto__bridge *bridge)
 	return new_context;
 }
 
+
 static void bridge__destroy(struct mosquitto *context)
 {
 	send__disconnect(context, MQTT_RC_SUCCESS, NULL);
 	context__cleanup(context, true);
 }
+
 
 void bridge__start_all(void)
 {
@@ -184,42 +186,57 @@ void bridge__start_all(void)
 	}
 }
 
+
 static int bridge__set_tcp_keepalive(struct mosquitto *context)
 {
-	unsigned int idle = context->bridge->tcp_keepalive_idle;
-	unsigned int interval = context->bridge->tcp_keepalive_interval;
-	unsigned int counter = context->bridge->tcp_keepalive_counter;
 	unsigned int enabled = 1;
 	bool ret;
 
-	if(idle == 0 || interval == 0 || counter == 0) return MOSQ_ERR_SUCCESS;
+	if(context->bridge->tcp_keepalive_idle == 0
+			|| context->bridge->tcp_keepalive_interval == 0
+			|| context->bridge->tcp_keepalive_counter == 0){
+
+		return MOSQ_ERR_SUCCESS;
+	}
 
 #ifdef WIN32
-	ret =
-		setsockopt(context->sock, SOL_SOCKET, SO_KEEPALIVE, (char *)&enabled, sizeof(enabled)) ||
-		setsockopt(context->sock, IPPROTO_TCP, TCP_KEEPIDLE, (char *)&idle, sizeof(idle)) ||
-		setsockopt(context->sock, IPPROTO_TCP, TCP_KEEPINTVL, (char *)&interval, sizeof(interval)) ||
-		setsockopt(context->sock, IPPROTO_TCP, TCP_KEEPCNT, (char *)&counter, sizeof(counter));
+#  define SETSOCKOPT_TYPE char *
 #else
-	ret =
-		setsockopt(context->sock, SOL_SOCKET, SO_KEEPALIVE, (const void*)&enabled, sizeof(enabled)) ||
-#ifndef __APPLE__
-		setsockopt(context->sock, IPPROTO_TCP, TCP_KEEPIDLE, (const void*)&idle, sizeof(idle)) ||
-#endif
-		setsockopt(context->sock, IPPROTO_TCP, TCP_KEEPINTVL, (const void*)&interval, sizeof(interval)) ||
-		setsockopt(context->sock, IPPROTO_TCP, TCP_KEEPCNT, (const void*)&counter, sizeof(counter));
+#  define SETSOCKOPT_TYPE const void *
 #endif
 
-	if(ret) return MOSQ_ERR_UNKNOWN;
+	ret = setsockopt(context->sock, SOL_SOCKET, SO_KEEPALIVE, (SETSOCKOPT_TYPE)&enabled, sizeof(enabled));
+
+#ifdef TCP_KEEPIDLE
+	ret = ret || setsockopt(context->sock, IPPROTO_TCP, TCP_KEEPIDLE,
+			(SETSOCKOPT_TYPE)&context->bridge->tcp_keepalive_idle, sizeof(context->bridge->tcp_keepalive_idle));
+#endif
+#ifdef TCP_KEEPINTVL
+	ret = ret || setsockopt(context->sock, IPPROTO_TCP, TCP_KEEPINTVL,
+			(SETSOCKOPT_TYPE)&context->bridge->tcp_keepalive_interval, sizeof(context->bridge->tcp_keepalive_interval));
+#endif
+#ifdef TCP_KEEPCNT
+	ret = ret || setsockopt(context->sock, IPPROTO_TCP, TCP_KEEPCNT,
+			(SETSOCKOPT_TYPE)&context->bridge->tcp_keepalive_counter, sizeof(context->bridge->tcp_keepalive_counter));
+#endif
+
+#undef SETSOCKOPT_TYPE
+
+	if(ret){
+		return MOSQ_ERR_UNKNOWN;
+	}
 
 	return MOSQ_ERR_SUCCESS;
 }
 
 #ifdef WITH_TCP_USER_TIMEOUT
-static int bridge__set_tcp_user_timeout(struct mosquitto *context) {
+
+
+static int bridge__set_tcp_user_timeout(struct mosquitto *context)
+{
 	int timeout = context->bridge->tcp_user_timeout;
-	if(timeout >= 0) {
-		if(setsockopt(context->sock, IPPROTO_TCP, TCP_USER_TIMEOUT, (char *)&timeout, sizeof(timeout))) {
+	if(timeout >= 0){
+		if(setsockopt(context->sock, IPPROTO_TCP, TCP_USER_TIMEOUT, (char *)&timeout, sizeof(timeout))){
 			return MOSQ_ERR_UNKNOWN;
 		}
 	}
@@ -229,6 +246,8 @@ static int bridge__set_tcp_user_timeout(struct mosquitto *context) {
 #endif
 
 #if defined(__GLIBC__) && defined(WITH_ADNS)
+
+
 static int bridge__connect_step1(struct mosquitto *context)
 {
 	int rc;
@@ -238,7 +257,9 @@ static int bridge__connect_step1(struct mosquitto *context)
 	struct mosquitto__bridge_topic *cur_topic;
 	uint8_t qos;
 
-	if(!context || !context->bridge) return MOSQ_ERR_INVAL;
+	if(!context || !context->bridge){
+		return MOSQ_ERR_INVAL;
+	}
 
 	mosquitto__set_state(context, mosq_cs_new);
 	context->sock = INVALID_SOCKET;
@@ -270,6 +291,7 @@ static int bridge__connect_step1(struct mosquitto *context)
 				qos = cur_topic->qos;
 			}
 			struct mosquitto_subscription sub;
+			memset(&sub, 0, sizeof(sub));
 			sub.topic_filter = cur_topic->local_topic;
 			sub.identifier = 0;
 			sub.options = MQTT_SUB_OPT_NO_LOCAL | MQTT_SUB_OPT_RETAIN_AS_PUBLISHED | qos;
@@ -300,7 +322,9 @@ static int bridge__connect_step1(struct mosquitto *context)
 		}else{
 			notification_topic_len = strlen(context->bridge->remote_clientid)+strlen("$SYS/broker/connection//state");
 			notification_topic = mosquitto_malloc(sizeof(char)*(notification_topic_len+1));
-			if(!notification_topic) return MOSQ_ERR_NOMEM;
+			if(!notification_topic){
+				return MOSQ_ERR_NOMEM;
+			}
 
 			snprintf(notification_topic, notification_topic_len+1, "$SYS/broker/connection/%s/state", context->bridge->remote_clientid);
 
@@ -321,7 +345,7 @@ static int bridge__connect_step1(struct mosquitto *context)
 
 	log__printf(NULL, MOSQ_LOG_NOTICE, "Connecting bridge (step 1) %s (%s:%d)", context->bridge->name, context->bridge->addresses[context->bridge->cur_address].address, context->bridge->addresses[context->bridge->cur_address].port);
 	rc = net__try_connect_step1(context, context->bridge->addresses[context->bridge->cur_address].address);
-	if(rc > 0 ){
+	if(rc > 0){
 		if(rc == MOSQ_ERR_TLS){
 			mux__delete(context);
 			net__socket_close(context);
@@ -343,7 +367,9 @@ static int bridge__connect_step2(struct mosquitto *context)
 {
 	int rc;
 
-	if(!context || !context->bridge) return MOSQ_ERR_INVAL;
+	if(!context || !context->bridge){
+		return MOSQ_ERR_INVAL;
+	}
 
 	log__printf(NULL, MOSQ_LOG_NOTICE, "Connecting bridge (step 2) %s (%s:%d)", context->bridge->name, context->bridge->addresses[context->bridge->cur_address].address, context->bridge->addresses[context->bridge->cur_address].port);
 	rc = net__try_connect_step2(context, context->bridge->addresses[context->bridge->cur_address].port, &context->sock);
@@ -399,9 +425,13 @@ int bridge__connect_step3(struct mosquitto *context)
 		loop__update_next_event(5000);
 	}
 
-	if(bridge__set_tcp_keepalive(context) != MOSQ_ERR_SUCCESS) return MOSQ_ERR_UNKNOWN;
+	if(bridge__set_tcp_keepalive(context) != MOSQ_ERR_SUCCESS){
+		return MOSQ_ERR_UNKNOWN;
+	}
 #ifdef WITH_TCP_USER_TIMEOUT
-	if(bridge__set_tcp_user_timeout(context)) return MOSQ_ERR_UNKNOWN;
+	if(bridge__set_tcp_user_timeout(context)){
+		return MOSQ_ERR_UNKNOWN;
+	}
 #endif
 
 	if(context->bridge->receive_maximum != 0){
@@ -412,7 +442,7 @@ int bridge__connect_step3(struct mosquitto *context)
 		receive_maximum.next = properties;
 		properties = &receive_maximum;
 	}
-	if(context->bridge->session_expiry_interval != 0){
+	if(context->bridge->session_expiry_interval != MQTT_SESSION_EXPIRY_IMMEDIATE){
 		session_expiry_interval.value.i32 = context->bridge->session_expiry_interval;
 		session_expiry_interval.identifier = MQTT_PROP_SESSION_EXPIRY_INTERVAL;
 		session_expiry_interval.property_type = MQTT_PROP_TYPE_INT32;
@@ -449,6 +479,7 @@ int bridge__connect_step3(struct mosquitto *context)
 }
 #else
 
+
 int bridge__connect(struct mosquitto *context)
 {
 	int rc, rc2;
@@ -463,7 +494,9 @@ int bridge__connect(struct mosquitto *context)
 	mosquitto_property topic_alias_max;
 	mosquitto_property *properties = NULL;
 
-	if(!context || !context->bridge) return MOSQ_ERR_INVAL;
+	if(!context || !context->bridge){
+		return MOSQ_ERR_INVAL;
+	}
 
 	mosquitto__set_state(context, mosq_cs_new);
 	context->sock = INVALID_SOCKET;
@@ -497,6 +530,7 @@ int bridge__connect(struct mosquitto *context)
 				qos = cur_topic->qos;
 			}
 			struct mosquitto_subscription sub;
+			memset(&sub, 0, sizeof(sub));
 			sub.topic_filter = cur_topic->local_topic;
 			sub.identifier = 0;
 			sub.options = MQTT_SUB_OPT_NO_LOCAL | MQTT_SUB_OPT_RETAIN_AS_PUBLISHED | qos;
@@ -527,7 +561,9 @@ int bridge__connect(struct mosquitto *context)
 		}else{
 			notification_topic_len = strlen(context->bridge->remote_clientid)+strlen("$SYS/broker/connection//state");
 			notification_topic = mosquitto_malloc(sizeof(char)*(notification_topic_len+1));
-			if(!notification_topic) return MOSQ_ERR_NOMEM;
+			if(!notification_topic){
+				return MOSQ_ERR_NOMEM;
+			}
 
 			snprintf(notification_topic, notification_topic_len+1, "$SYS/broker/connection/%s/state", context->bridge->remote_clientid);
 
@@ -573,9 +609,13 @@ int bridge__connect(struct mosquitto *context)
 
 	HASH_ADD(hh_sock, db.contexts_by_sock, sock, sizeof(context->sock), context);
 
-	if (bridge__set_tcp_keepalive(context) != MOSQ_ERR_SUCCESS) return MOSQ_ERR_UNKNOWN;
+	if(bridge__set_tcp_keepalive(context) != MOSQ_ERR_SUCCESS){
+		return MOSQ_ERR_UNKNOWN;
+	}
 #ifdef WITH_TCP_USER_TIMEOUT
-	if(bridge__set_tcp_user_timeout(context)) return MOSQ_ERR_UNKNOWN;
+	if(bridge__set_tcp_user_timeout(context)){
+		return MOSQ_ERR_UNKNOWN;
+	}
 #endif
 
 	if(context->bridge->receive_maximum != 0){
@@ -586,7 +626,7 @@ int bridge__connect(struct mosquitto *context)
 		receive_maximum.next = properties;
 		properties = &receive_maximum;
 	}
-	if(context->bridge->session_expiry_interval != 0){
+	if(context->bridge->session_expiry_interval != MQTT_SESSION_EXPIRY_IMMEDIATE){
 		session_expiry_interval.value.i32 = context->bridge->session_expiry_interval;
 		session_expiry_interval.identifier = MQTT_PROP_SESSION_EXPIRY_INTERVAL;
 		session_expiry_interval.property_type = MQTT_PROP_TYPE_INT32;
@@ -655,7 +695,9 @@ int bridge__on_connect(struct mosquitto *context)
 		}else{
 			notification_topic_len = strlen(context->bridge->remote_clientid)+strlen("$SYS/broker/connection//state");
 			notification_topic = mosquitto_malloc(sizeof(char)*(notification_topic_len+1));
-			if(!notification_topic) return MOSQ_ERR_NOMEM;
+			if(!notification_topic){
+				return MOSQ_ERR_NOMEM;
+			}
 
 			snprintf(notification_topic, notification_topic_len+1, "$SYS/broker/connection/%s/state", context->bridge->remote_clientid);
 			notification_payload = '1';
@@ -681,9 +723,9 @@ int bridge__on_connect(struct mosquitto *context)
 			}
 			if(context->bridge->protocol_version == mosq_p_mqtt5){
 				sub_opts = sub_opts
-					| MQTT_SUB_OPT_NO_LOCAL
-					| MQTT_SUB_OPT_RETAIN_AS_PUBLISHED
-					| MQTT_SUB_OPT_SEND_RETAIN_ALWAYS;
+						| MQTT_SUB_OPT_NO_LOCAL
+						| MQTT_SUB_OPT_RETAIN_AS_PUBLISHED
+						| MQTT_SUB_OPT_SEND_RETAIN_ALWAYS;
 			}
 			if(send__subscribe(context, NULL, 1, &cur_topic->remote_topic, sub_opts, NULL)){
 				return 1;
@@ -742,9 +784,11 @@ void bridge__reload(void)
 	int j;
 
 	// destroy old bridges that dissappeared
-	for(i=0;i<db.bridge_count;i++){
-		for(j=0;j<db.config->bridge_count;j++){
-			if(!strcmp(db.bridges[i]->bridge->name, db.config->bridges[j]->name)) break;
+	for(i=0; i<db.bridge_count; i++){
+		for(j=0; j<db.config->bridge_count; j++){
+			if(!strcmp(db.bridges[i]->bridge->name, db.config->bridges[j]->name)){
+				break;
+			}
 		}
 
 		if(j==db.config->bridge_count){
@@ -752,9 +796,11 @@ void bridge__reload(void)
 		}
 	}
 
-	for(i=0;i<db.config->bridge_count;i++){
-		for(j=0;j<db.bridge_count; j++){
-			if(!strcmp(db.config->bridges[i]->name, db.bridges[j]->bridge->name)) break;
+	for(i=0; i<db.config->bridge_count; i++){
+		for(j=0; j<db.bridge_count; j++){
+			if(!strcmp(db.config->bridges[i]->name, db.bridges[j]->bridge->name)){
+				break;
+			}
 		}
 
 		if(j==db.bridge_count){
@@ -766,8 +812,10 @@ void bridge__reload(void)
 
 		if(db.config->bridges[i]->reload_type == brt_immediate){
 			// in this case, an existing bridge should match
-			for(j=0;j<db.bridge_count;j++){
-				if(!strcmp(db.config->bridges[i]->name, db.bridges[j]->bridge->name)) break;
+			for(j=0; j<db.bridge_count; j++){
+				if(!strcmp(db.config->bridges[i]->name, db.bridges[j]->bridge->name)){
+					break;
+				}
 			}
 
 			assert(j<db.bridge_count);
@@ -778,6 +826,7 @@ void bridge__reload(void)
 		}
 	}
 }
+
 
 void bridge__db_cleanup(void)
 {
@@ -809,15 +858,17 @@ void bridge__cleanup(struct mosquitto *context)
 	if(db.bridge_count == 0){
 		mosquitto_FREE(db.bridges);
 	}else{
-		db.bridges = mosquitto_realloc(db.bridges, (unsigned) db.bridge_count * sizeof(db.bridges[0]));
+		db.bridges = mosquitto_realloc(db.bridges, (unsigned)db.bridge_count * sizeof(db.bridges[0]));
 	}
 
 	mosquitto_FREE(context->bridge->name);
 	mosquitto_FREE(context->bridge->local_clientid);
 	mosquitto_FREE(context->bridge->local_username);
 	mosquitto_FREE(context->bridge->local_password);
+#ifdef WITH_TLS
 	mosquitto_FREE(context->bridge->tls_certfile);
 	mosquitto_FREE(context->bridge->tls_keyfile);
+#endif
 
 	if(context->bridge->remote_clientid != context->id){
 		mosquitto_FREE(context->bridge->remote_clientid);
@@ -854,9 +905,11 @@ void bridge__cleanup(struct mosquitto *context)
 static void bridge__packet_cleanup(struct mosquitto *context)
 {
 	struct mosquitto__packet *packet;
-	if(!context) return;
+	if(!context){
+		return;
+	}
 
-    while(context->out_packet){
+	while(context->out_packet){
 		packet = context->out_packet;
 		context->out_packet = context->out_packet->next;
 		mosquitto_FREE(packet);
@@ -871,12 +924,14 @@ static void bridge__packet_cleanup(struct mosquitto *context)
 	packet__cleanup(&(context->in_packet));
 }
 
+
 static int rand_between(int low, int high)
 {
 	int r;
 	mosquitto_getrandom(&r, sizeof(int));
 	return (abs(r) % (high - low)) + low;
 }
+
 
 static void bridge__backoff_step(struct mosquitto__bridge *bridge)
 {
@@ -891,20 +946,27 @@ static void bridge__backoff_step(struct mosquitto__bridge *bridge)
 	}
 }
 
+
 static void bridge__backoff_reset(struct mosquitto__bridge *bridge)
 {
 	bridge->restart_timeout = bridge->backoff_base;
 }
 
+
 static void bridge__update_backoff(struct mosquitto__bridge *bridge)
 {
-	if(!bridge) return;
-	if(!bridge->backoff_cap) return; /* skip if not using jitter */
+	if(!bridge){
+		return;
+	}
+	if(!bridge->backoff_cap){
+		/* skip if not using jitter */
+		return;
 
-	if (bridge->connected_at && db.now_s - bridge->connected_at >= bridge->stable_connection_period) {
+	}
+	if(bridge->connected_at && db.now_s - bridge->connected_at >= bridge->stable_connection_period){
 		log__printf(NULL, MOSQ_LOG_INFO, "Bridge %s connection was stable enough, resetting backoff", bridge->name);
 		bridge__backoff_reset(bridge);
-	} else {
+	}else{
 		bridge__backoff_step(bridge);
 	}
 
@@ -912,6 +974,7 @@ static void bridge__update_backoff(struct mosquitto__bridge *bridge)
 
 	log__printf(NULL, MOSQ_LOG_INFO, "Bridge %s next backoff will be %d ms", bridge->name, bridge->restart_timeout);
 }
+
 
 static void bridge_check_pending(struct mosquitto *context)
 {
@@ -939,11 +1002,12 @@ static void bridge_check_pending(struct mosquitto *context)
 	}
 }
 
+
 static bool reload_if_needed(struct mosquitto *context)
 {
 	int i;
 
-	for(i=0;i<db.config->bridge_count;i++){
+	for(i=0; i<db.config->bridge_count; i++){
 		if(db.config->bridges[i] && !strcmp(context->bridge->name, db.config->bridges[i]->name)){
 			bridge__destroy(context);
 			bridge__new(db.config->bridges[i]);
@@ -956,6 +1020,7 @@ static bool reload_if_needed(struct mosquitto *context)
 	return false;
 }
 
+
 void bridge_check(void)
 {
 	static time_t last_check = 0;
@@ -965,10 +1030,14 @@ void bridge_check(void)
 	int rc;
 	int err;
 
-	if(db.now_s <= last_check) return;
+	if(db.now_s <= last_check){
+		return;
+	}
 
 	for(i=0; i<db.bridge_count; i++){
-		if(!db.bridges[i]) continue;
+		if(!db.bridges[i]){
+			continue;
+		}
 
 		context = db.bridges[i];
 
@@ -1022,7 +1091,9 @@ void bridge_check(void)
 				}
 			}
 		}else{
-			if(reload_if_needed(context)) continue;
+			if(reload_if_needed(context)){
+				continue;
+			}
 
 			/* Want to try to restart the bridge connection */
 			if(!context->bridge->restart_t){

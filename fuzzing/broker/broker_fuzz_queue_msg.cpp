@@ -30,12 +30,21 @@ extern "C" {
 #include "mosquitto_broker_internal.h"
 }
 
+
 //int sub__messages_queue(const char *source_id, const char *topic, uint8_t qos, int retain, struct mosquitto__base_msg **stored)
+
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
 	struct mosquitto__config config = {0};
 	struct mosquitto__base_msg basemsg, *pbasemsg;
+
+	if(mosquitto_pub_topic_check2((const char *)data, size)){
+		/* sub__messages_queue only receives topics that have already been
+		 * checked with mosquitto_pub_topic_check2(), so we give it that benefit
+		 * here. */
+		return 0;
+	}
 
 	memset(&basemsg, 0, sizeof(basemsg));
 	basemsg.ref_count = 1;

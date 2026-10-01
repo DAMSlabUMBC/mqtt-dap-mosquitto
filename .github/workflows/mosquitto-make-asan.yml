@@ -3,16 +3,20 @@ name: Mosquitto - Make ASAN
 on:
   push:
     branches:
+      - master
       - develop
       - fixes
+      - release/*
   pull_request:
     branches:
+      - master
       - develop
       - fixes
+      - release/*
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
 
     steps:
     - name: Install third party dependencies
@@ -27,6 +31,9 @@ jobs:
           libcjson-dev \
           libcjson1 \
           libcunit1-dev \
+          libedit-dev \
+          libgmock-dev \
+          libmicrohttpd-dev \
           libssl-dev \
           libwrap0-dev \
           microsocks \
@@ -36,13 +43,17 @@ jobs:
           uthash-dev \
           xsltproc
     -
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
       with:
         submodules: 'true'
+    -
+      name: DAP test dependencies
+      # test/dap needs paho-mqtt 2.x.
+      run: python3 -m pip install --user --break-system-packages 'paho-mqtt>=2,<3'
     -
       name: make
       run: make WITH_ASAN=yes
     -
       name: make test
       run: |
-        make WITH_ASAN=yes ptest
+        make WITH_ASAN=yes dap-test

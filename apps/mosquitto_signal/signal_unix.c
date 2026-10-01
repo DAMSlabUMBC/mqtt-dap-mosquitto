@@ -24,7 +24,12 @@ Contributors:
 
 #include "mosquitto_signal.h"
 
-void signal_all(enum mosq_signal sig)
+#ifndef PATH_MAX
+#  define PATH_MAX 4096
+#endif
+
+
+void signal_all(int sig)
 {
 	DIR *dir;
 	struct dirent *d;
@@ -41,7 +46,10 @@ void signal_all(enum mosq_signal sig)
 	}
 
 	while((d = readdir(dir))){
-		if(d->d_type == DT_DIR){
+#ifdef DT_DIR
+		if(d->d_type == DT_DIR)
+#endif
+		{
 			pid = atoi(d->d_name);
 			if(pid > 0){
 				snprintf(pathbuf, sizeof(pathbuf), "/proc/%s/cmdline", d->d_name);
@@ -87,9 +95,11 @@ void send_signal(int pid, enum mosq_signal msig)
 		case MSIG_TREE_PRINT:
 			sig = SIGUSR2;
 			break;
+#ifdef SIGRTMIN
 		case MSIG_XTREPORT:
 			sig = SIGRTMIN;
 			break;
+#endif
 		default:
 			return;
 	}

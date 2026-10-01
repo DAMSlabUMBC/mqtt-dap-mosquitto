@@ -48,11 +48,13 @@ static cJSON *add_group_to_json(struct dynsec__group *group);
  * #
  * ################################################################ */
 
+
 /* ################################################################
  * #
  * # Utility functions
  * #
  * ################################################################ */
+
 
 static void group__kick_all(struct dynsec__data *data, struct dynsec__group *group)
 {
@@ -82,11 +84,14 @@ struct dynsec__group *dynsec_groups__find(struct dynsec__data *data, const char 
 	return group;
 }
 
+
 static void group__free_item(struct dynsec__data *data, struct dynsec__group *group)
 {
 	struct dynsec__group *found_group = NULL;
 
-	if(group == NULL) return;
+	if(group == NULL){
+		return;
+	}
 
 	found_group = dynsec_groups__find(data, group->groupname);
 	if(found_group){
@@ -98,6 +103,7 @@ static void group__free_item(struct dynsec__data *data, struct dynsec__group *gr
 	dynsec_rolelist__cleanup(&group->rolelist);
 	mosquitto_free(group);
 }
+
 
 int dynsec_groups__process_add_role(struct dynsec__data *data, struct mosquitto_control_cmd *cmd)
 {
@@ -126,8 +132,12 @@ int dynsec_groups__process_add_role(struct dynsec__data *data, struct mosquitto_
 		return MOSQ_ERR_INVAL;
 	}
 	json_get_int(cmd->j_command, "priority", &priority, true, -1);
-	if(priority > PRIORITY_MAX) priority = PRIORITY_MAX;
-	if(priority < -PRIORITY_MAX) priority = -PRIORITY_MAX;
+	if(priority > PRIORITY_MAX){
+		priority = PRIORITY_MAX;
+	}
+	if(priority < -PRIORITY_MAX){
+		priority = -PRIORITY_MAX;
+	}
 
 	group = dynsec_groups__find(data, groupname);
 	if(group == NULL){
@@ -184,6 +194,7 @@ void dynsec_groups__cleanup(struct dynsec__data *data)
  * # Config file load
  * #
  * ################################################################ */
+
 
 int dynsec_groups__config_load(struct dynsec__data *data, cJSON *tree)
 {
@@ -261,8 +272,12 @@ int dynsec_groups__config_load(struct dynsec__data *data, cJSON *tree)
 						const char *rolename;
 						if(json_get_string(j_role, "rolename", &rolename, false) == MOSQ_ERR_SUCCESS){
 							json_get_int(j_role, "priority", &priority, true, -1);
-							if(priority > PRIORITY_MAX) priority = PRIORITY_MAX;
-							if(priority < -PRIORITY_MAX) priority = -PRIORITY_MAX;
+							if(priority > PRIORITY_MAX){
+								priority = PRIORITY_MAX;
+							}
+							if(priority < -PRIORITY_MAX){
+								priority = -PRIORITY_MAX;
+							}
 							role = dynsec_roles__find(data, rolename);
 							dynsec_rolelist__group_add(group, role, priority);
 						}
@@ -282,8 +297,12 @@ int dynsec_groups__config_load(struct dynsec__data *data, cJSON *tree)
 						const char *username;
 						if(json_get_string(j_client, "username", &username, false) == MOSQ_ERR_SUCCESS){
 							json_get_int(j_client, "priority", &priority, true, -1);
-							if(priority > PRIORITY_MAX) priority = PRIORITY_MAX;
-							if(priority < -PRIORITY_MAX) priority = -PRIORITY_MAX;
+							if(priority > PRIORITY_MAX){
+								priority = PRIORITY_MAX;
+							}
+							if(priority < -PRIORITY_MAX){
+								priority = -PRIORITY_MAX;
+							}
 							dynsec_groups__add_client(data, username, group->groupname, priority, false);
 						}
 					}
@@ -315,7 +334,9 @@ static int dynsec__config_add_groups(struct dynsec__data *data, cJSON *j_groups)
 
 	HASH_ITER(hh, data->groups, group, group_tmp){
 		j_group = cJSON_CreateObject();
-		if(j_group == NULL) return 1;
+		if(j_group == NULL){
+			return 1;
+		}
 		cJSON_AddItemToArray(j_groups, j_group);
 
 		if(cJSON_AddStringToObject(j_group, "groupname", group->groupname) == NULL
@@ -562,8 +583,12 @@ int dynsec_groups__process_add_client(struct dynsec__data *data, struct mosquitt
 	}
 
 	json_get_int(cmd->j_command, "priority", &priority, true, -1);
-	if(priority > PRIORITY_MAX) priority = PRIORITY_MAX;
-	if(priority < -PRIORITY_MAX) priority = -PRIORITY_MAX;
+	if(priority > PRIORITY_MAX){
+		priority = PRIORITY_MAX;
+	}
+	if(priority < -PRIORITY_MAX){
+		priority = -PRIORITY_MAX;
+	}
 
 	rc = dynsec_groups__add_client(data, username, groupname, priority, true);
 	if(rc == MOSQ_ERR_SUCCESS){
@@ -605,6 +630,7 @@ static int dynsec__remove_all_clients_from_group(struct dynsec__group *group)
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 static int dynsec__remove_all_roles_from_group(struct dynsec__group *group)
 {
 	struct dynsec__rolelist *rolelist, *rolelist_tmp = NULL;
@@ -615,6 +641,7 @@ static int dynsec__remove_all_roles_from_group(struct dynsec__group *group)
 
 	return MOSQ_ERR_SUCCESS;
 }
+
 
 int dynsec_groups__remove_client(struct dynsec__data *data, const char *username, const char *groupname, bool update_config)
 {
@@ -639,6 +666,7 @@ int dynsec_groups__remove_client(struct dynsec__data *data, const char *username
 	}
 	return MOSQ_ERR_SUCCESS;
 }
+
 
 int dynsec_groups__process_remove_client(struct dynsec__data *data, struct mosquitto_control_cmd *cmd)
 {
@@ -1020,8 +1048,12 @@ int dynsec_groups__process_modify(struct dynsec__data *data, struct mosquitto_co
 				const char *username;
 				if(json_get_string(j_client, "username", &username, false) == MOSQ_ERR_SUCCESS){
 					json_get_int(j_client, "priority", &priority, true, -1);
-					if(priority > PRIORITY_MAX) priority = PRIORITY_MAX;
-					if(priority < -PRIORITY_MAX) priority = -PRIORITY_MAX;
+					if(priority > PRIORITY_MAX){
+						priority = PRIORITY_MAX;
+					}
+					if(priority < -PRIORITY_MAX){
+						priority = -PRIORITY_MAX;
+					}
 					dynsec_groups__add_client(data, username, groupname, priority, false);
 				}
 			}
@@ -1108,6 +1140,7 @@ int dynsec_groups__process_set_anonymous_group(struct dynsec__data *data, struct
 
 	return MOSQ_ERR_SUCCESS;
 }
+
 
 int dynsec_groups__process_get_anonymous_group(struct dynsec__data *data, struct mosquitto_control_cmd *cmd)
 {

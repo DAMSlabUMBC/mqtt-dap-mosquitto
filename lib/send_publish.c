@@ -38,7 +38,11 @@ Contributors:
 #include "property_mosq.h"
 #include "property_common.h"
 #include "send_mosq.h"
+#ifdef WITH_BROKER
+#  include "dap/dap_topics.h"
+#endif
 #include "utlist.h"
+
 
 int send__publish(struct mosquitto *mosq, uint16_t mid, const char *topic, uint32_t payloadlen, const void *payload, uint8_t qos, bool retain, bool dup, uint32_t subscription_identifier, const mosquitto_property *store_props, uint32_t expiry_interval)
 {
@@ -54,7 +58,9 @@ int send__publish(struct mosquitto *mosq, uint16_t mid, const char *topic, uint3
 #endif
 	assert(mosq);
 
-	if(!net__is_connected(mosq)) return MOSQ_ERR_NO_CONN;
+	if(!net__is_connected(mosq)){
+		return MOSQ_ERR_NO_CONN;
+	}
 
 #ifdef WITH_BROKER
 	bool payload_changed = false;
@@ -63,18 +69,24 @@ int send__publish(struct mosquitto *mosq, uint16_t mid, const char *topic, uint3
 
 	{
 		struct mosquitto_base_msg tmp_msg;
-		tmp_msg.topic = (char *) topic;
+		tmp_msg.topic = (char *)topic;
 		tmp_msg.payloadlen = payloadlen;
-		tmp_msg.payload = (void *) payload;
+		tmp_msg.payload = (void *)payload;
 		tmp_msg.qos = qos;
 		tmp_msg.retain = retain;
-		tmp_msg.properties = (mosquitto_property *) store_props;
+		tmp_msg.properties = (mosquitto_property *)store_props;
 
 		rc = plugin__handle_message_out(mosq, &tmp_msg);
 
-		if(tmp_msg.payload != payload) payload_changed = true;
-		if(tmp_msg.topic != topic) topic_changed = true;
-		if(tmp_msg.properties != store_props) properties_changed = true;
+		if(tmp_msg.payload != payload){
+			payload_changed = true;
+		}
+		if(tmp_msg.topic != topic){
+			topic_changed = true;
+		}
+		if(tmp_msg.properties != store_props){
+			properties_changed = true;
+		}
 
 		topic = tmp_msg.topic;
 		payloadlen = tmp_msg.payloadlen;
@@ -94,9 +106,15 @@ int send__publish(struct mosquitto *mosq, uint16_t mid, const char *topic, uint3
 						"Rejected PUBLISH to %s, quota exceeded.", mosq->id);
 			}
 
-			if(payload_changed) mosquitto_free((void *) payload);
-			if(topic_changed) mosquitto_free((char *) topic);
-			if(properties_changed) mosquitto_property_free_all((mosquitto_property **) &store_props);
+			if(payload_changed){
+				mosquitto_free((void *)payload);
+			}
+			if(topic_changed){
+				mosquitto_free((void *)topic);
+			}
+			if(properties_changed){
+				mosquitto_property_free_all((mosquitto_property **)&store_props);
+			}
 
 			return MOSQ_ERR_SUCCESS;
 		}
@@ -130,7 +148,9 @@ int send__publish(struct mosquitto *mosq, uint16_t mid, const char *topic, uint3
 				}
 				if(match){
 					mapped_topic = mosquitto_strdup(topic);
-					if(!mapped_topic) return MOSQ_ERR_NOMEM;
+					if(!mapped_topic){
+						return MOSQ_ERR_NOMEM;
+					}
 					if(cur_topic->local_prefix){
 						/* This prefix needs removing. */
 						if(!strncmp(cur_topic->local_prefix, mapped_topic, strlen(cur_topic->local_prefix))){
@@ -174,9 +194,15 @@ int send__publish(struct mosquitto *mosq, uint16_t mid, const char *topic, uint3
 
 #ifdef WITH_BROKER
 	rc = send__real_publish(mosq, mid, topic, payloadlen, payload, qos, retain, dup, subscription_identifier, store_props, expiry_interval);
-	if(payload_changed) mosquitto_free((void *) payload);
-	if(topic_changed) mosquitto_free((char *) topic);
-	if(properties_changed) mosquitto_property_free_all((mosquitto_property **) &store_props);
+	if(payload_changed){
+		mosquitto_free((void *)payload);
+	}
+	if(topic_changed){
+		mosquitto_free((void *)topic);
+	}
+	if(properties_changed){
+		mosquitto_property_free_all((mosquitto_property **)&store_props);
+	}
 	return rc;
 #else
 	return send__real_publish(mosq, mid, topic, payloadlen, payload, qos, retain, dup, subscription_identifier, store_props, expiry_interval);
@@ -195,6 +221,7 @@ int send__real_publish(struct mosquitto *mosq, uint16_t mid, const char *topic, 
 	mosquitto_property topic_alias_prop;
 	uint16_t topic_alias = 0;
 	mosquitto_property subscription_id_prop;
+	bool dap_priority;
 #endif
 
 #ifndef WITH_BROKER
@@ -202,6 +229,11 @@ int send__real_publish(struct mosquitto *mosq, uint16_t mid, const char *topic, 
 #endif
 
 	assert(mosq);
+
+#ifdef WITH_BROKER
+	/* Before topic is replaced by an alias below. */
+	dap_priority = topic && dap_is_op_system_topic(topic);
+#endif
 
 #ifdef WITH_BROKER
 	if(mosq->protocol == mosq_p_mqtt5){
@@ -222,7 +254,9 @@ int send__real_publish(struct mosquitto *mosq, uint16_t mid, const char *topic, 
 	}else{
 		packetlen = 2 + payloadlen;
 	}
-	if(qos > 0) packetlen += 2; /* For message id */
+	if(qos > 0){
+		packetlen += 2;         /* For message id */
+	}
 	if(mosq->protocol == mosq_p_mqtt5){
 		proplen = 0;
 		proplen += mosquitto_property_get_length_all(store_props);
@@ -279,6 +313,9 @@ int send__real_publish(struct mosquitto *mosq, uint16_t mid, const char *topic, 
 		return rc;
 	}
 	packet->mid = mid;
+#ifdef WITH_BROKER
+	packet->dap_priority = dap_priority;
+#endif
 	/* Variable header (topic string) */
 	if(topic){
 		packet__write_string(packet, topic, (uint16_t)strlen(topic));

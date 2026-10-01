@@ -46,7 +46,7 @@ Contributors:
 #define PLUGIN_NAME "payload-ban"
 #define PLUGIN_VERSION "1.0"
 
-struct banlist{
+struct banlist {
 	UT_hash_handle hh_by_address;
 	UT_hash_handle hh_by_id;
 	char ip_address[50];
@@ -58,6 +58,7 @@ MOSQUITTO_PLUGIN_DECLARE_VERSION(5);
 static mosquitto_plugin_id_t *mosq_pid = NULL;
 static struct banlist *banlist_by_address = NULL;
 static struct banlist *banlist_by_id = NULL;
+
 
 static int basic_auth_callback(int event, void *event_data, void *userdata)
 {

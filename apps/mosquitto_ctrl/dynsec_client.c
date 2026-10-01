@@ -26,6 +26,7 @@ Contributors:
 #include "json_help.h"
 #include "dynamic_security.h"
 
+
 int dynsec_client__create(int argc, char *argv[], cJSON *j_command)
 {
 	char *username = NULL, *password = NULL, *clientid = NULL;
@@ -41,9 +42,9 @@ int dynsec_client__create(int argc, char *argv[], cJSON *j_command)
 	username = argv[0];
 
 	for(i=1; i<argc; i++){
-		if(!strcmp(argv[i], "-c")){
+		if(!strcmp(argv[i], "-c") || !strcmp(argv[i], "-i")){
 			if(i+1 == argc){
-				fprintf(stderr, "Error: -c argument given, but no clientid provided.\n");
+				fprintf(stderr, "Error: -i argument given, but no clientid provided.\n");
 				return MOSQ_ERR_INVAL;
 			}
 			clientid = argv[i+1];
@@ -86,6 +87,7 @@ int dynsec_client__create(int argc, char *argv[], cJSON *j_command)
 	}
 }
 
+
 int dynsec_client__delete(int argc, char *argv[], cJSON *j_command)
 {
 	char *username = NULL;
@@ -106,6 +108,7 @@ int dynsec_client__delete(int argc, char *argv[], cJSON *j_command)
 	}
 }
 
+
 int dynsec_client__enable_disable(int argc, char *argv[], cJSON *j_command, const char *command)
 {
 	char *username = NULL;
@@ -125,6 +128,7 @@ int dynsec_client__enable_disable(int argc, char *argv[], cJSON *j_command, cons
 		return MOSQ_ERR_SUCCESS;
 	}
 }
+
 
 int dynsec_client__set_id(int argc, char *argv[], cJSON *j_command)
 {
@@ -149,6 +153,7 @@ int dynsec_client__set_id(int argc, char *argv[], cJSON *j_command)
 		return MOSQ_ERR_SUCCESS;
 	}
 }
+
 
 int dynsec_client__file_set_password(int argc, char *argv[], const char *file)
 {
@@ -232,9 +237,17 @@ int dynsec_client__file_set_password(int argc, char *argv[], const char *file)
 			if(json_get_string(j_client, "username", &username_json, false) == MOSQ_ERR_SUCCESS){
 				if(!strcmp(username_json, username)){
 					if(iterations == -1){
-						mosquitto_pw_new(&client.pw, MOSQ_PW_DEFAULT);
+						if(mosquitto_pw_new(&client.pw, MOSQ_PW_DEFAULT)){
+							cJSON_Delete(j_tree);
+							fprintf(stderr, "Error: Problem generating password hash.\n");
+							return MOSQ_ERR_NOMEM;
+						}
 					}else{
-						mosquitto_pw_new(&client.pw, MOSQ_PW_SHA512_PBKDF2);
+						if(mosquitto_pw_new(&client.pw, MOSQ_PW_SHA512_PBKDF2)){
+							cJSON_Delete(j_tree);
+							fprintf(stderr, "Error: Problem generating password hash.\n");
+							return MOSQ_ERR_NOMEM;
+						}
 						mosquitto_pw_set_param(client.pw, MOSQ_PW_PARAM_ITERATIONS, iterations);
 					}
 					if(!client.pw || mosquitto_pw_hash_encoded(client.pw, password)){
@@ -260,7 +273,7 @@ int dynsec_client__file_set_password(int argc, char *argv[], const char *file)
 					cJSON_DeleteItemFromObject(j_client, "encoded_password");
 					cJSON_AddItemToObject(j_client, "encoded_password", j_encoded_password);
 
-					json_str = cJSON_Print(j_tree);
+					json_str = cJSON_PrintUnformatted(j_tree);
 					cJSON_Delete(j_tree);
 					if(json_str == NULL){
 						fprintf(stderr, "Error: Out of memory.\n");
@@ -284,6 +297,7 @@ int dynsec_client__file_set_password(int argc, char *argv[], const char *file)
 	fprintf(stderr, "Error: Client %s not found.\n", username);
 	return MOSQ_ERR_SUCCESS;
 }
+
 
 int dynsec_client__set_password(int argc, char *argv[], cJSON *j_command)
 {
@@ -320,6 +334,7 @@ int dynsec_client__set_password(int argc, char *argv[], cJSON *j_command)
 	}
 }
 
+
 int dynsec_client__get(int argc, char *argv[], cJSON *j_command)
 {
 	char *username = NULL;
@@ -339,6 +354,7 @@ int dynsec_client__get(int argc, char *argv[], cJSON *j_command)
 		return MOSQ_ERR_SUCCESS;
 	}
 }
+
 
 int dynsec_client__add_remove_role(int argc, char *argv[], cJSON *j_command, const char *command)
 {
@@ -367,6 +383,7 @@ int dynsec_client__add_remove_role(int argc, char *argv[], cJSON *j_command, con
 		return MOSQ_ERR_SUCCESS;
 	}
 }
+
 
 int dynsec_client__list_all(int argc, char *argv[], cJSON *j_command)
 {

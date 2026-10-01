@@ -27,6 +27,7 @@ Contributors:
 #include "lib_load.h"
 #include "utlist.h"
 
+
 static int plugin__psk_key_get(struct mosquitto__security_options *opts, struct mosquitto *context, const char *hint, const char *identity, char *key, int max_key_len)
 {
 	struct mosquitto_evt_psk_key event_data;
@@ -74,10 +75,7 @@ int mosquitto_psk_key_get(struct mosquitto *context, const char *hint, const cha
 	}
 
 	/* Per listener plugins */
-	if(db.config->per_listener_settings){
-		if(context->listener == NULL){
-			return MOSQ_ERR_AUTH;
-		}
+	if(context->listener){
 		if(context->listener->security_options->plugin_callbacks.psk_key){
 			rc = plugin__psk_key_get(context->listener->security_options, context,
 					hint, identity, key, max_key_len);
@@ -89,6 +87,10 @@ int mosquitto_psk_key_get(struct mosquitto *context, const char *hint, const cha
 			}else{
 				return rc;
 			}
+		}
+	}else{
+		if(db.config->per_listener_settings){
+			return MOSQ_ERR_AUTH;
 		}
 	}
 

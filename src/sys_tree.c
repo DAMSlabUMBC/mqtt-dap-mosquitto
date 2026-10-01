@@ -37,14 +37,14 @@ Contributors:
 #define METRIC_LOAD_5MIN 2
 #define METRIC_LOAD_15MIN 3
 
-struct metric{
+struct metric {
 	int64_t current;
 	int64_t next;
 	const char *topic, *topic_alias;
 	bool is_max;
 };
 
-struct metric_load{
+struct metric_load {
 	double current;
 	const char *topic;
 	int load_ref;
@@ -144,9 +144,32 @@ struct metric_load metric_loads[mosq_metric_load_max] = {
 static time_t start_time = 0;
 static time_t last_update = 0;
 
+
+time_t broker_uptime(void)
+{
+	return db.now_s - start_time;
+}
+
+
+static void calc_load(char *buf, double exponent, double i_mult, struct metric_load *m, bool force)
+{
+	double new_value;
+	uint32_t len;
+	double interval;
+
+	interval = (double)(metrics[m->load_ref].next - metrics[m->load_ref].current)*i_mult;
+	new_value = interval + exponent*(m->current - interval);
+	if(fabs(new_value - (m->current)) >= 0.01 || force){
+		len = (uint32_t)snprintf(buf, BUFLEN, "%.2f", new_value);
+		db__messages_easy_queue(NULL, m->topic, SYS_TREE_QOS, len, buf, 1, MSG_EXPIRY_INFINITE, NULL);
+	}
+	m->current = new_value;
+}
+
+
 void sys_tree__init(void)
 {
-	char buf[64];
+	char buf[BUFLEN];
 	uint32_t len;
 
 	if(db.config->sys_interval == 0){
@@ -161,7 +184,19 @@ void sys_tree__init(void)
 	last_update = start_time;
 
 	sys_tree__update(true);
+
+	/* Force published load values to 0 */
+	for(int i=0; i<mosq_metric_load_max; i++){
+		if(metric_loads[i].interval == METRIC_LOAD_1MIN){
+			calc_load(buf, 0.0, 0.0, &metric_loads[i], true);
+		}else if(metric_loads[i].interval == METRIC_LOAD_5MIN){
+			calc_load(buf, 0.0, 0.0, &metric_loads[i], true);
+		}else{
+			calc_load(buf, 0.0, 0.0, &metric_loads[i], true);
+		}
+	}
 }
+
 
 void metrics__int_inc(enum mosq_metric_type m, int64_t value)
 {
@@ -170,26 +205,12 @@ void metrics__int_inc(enum mosq_metric_type m, int64_t value)
 	}
 }
 
+
 void metrics__int_dec(enum mosq_metric_type m, int64_t value)
 {
 	if(m < mosq_metric_max){
 		metrics[m].next -= value;
 	}
-}
-
-static void calc_load(char *buf, double exponent, double i_mult, struct metric_load *m)
-{
-	double new_value;
-	uint32_t len;
-	double interval;
-
-	interval = (double)(metrics[m->load_ref].next - metrics[m->load_ref].current)*i_mult;
-	new_value = interval + exponent*(m->current - interval);
-	if(fabs(new_value - (m->current)) >= 0.01){
-		len = (uint32_t)snprintf(buf, BUFLEN, "%.2f", new_value);
-		db__messages_easy_queue(NULL, m->topic, SYS_TREE_QOS, len, buf, 1, MSG_EXPIRY_INFINITE, NULL);
-	}
-	m->current = new_value;
 }
 
 
@@ -247,18 +268,18 @@ void sys_tree__update(bool force)
 
 			for(int i=0; i<mosq_metric_load_max; i++){
 				if(metric_loads[i].interval == METRIC_LOAD_1MIN){
-					calc_load(buf, exponent_1min, i_mult, &metric_loads[i]);
+					calc_load(buf, exponent_1min, i_mult, &metric_loads[i], false);
 				}else if(metric_loads[i].interval == METRIC_LOAD_5MIN){
-					calc_load(buf, exponent_5min, i_mult, &metric_loads[i]);
+					calc_load(buf, exponent_5min, i_mult, &metric_loads[i], false);
 				}else{
-					calc_load(buf, exponent_15min, i_mult, &metric_loads[i]);
+					calc_load(buf, exponent_15min, i_mult, &metric_loads[i], false);
 				}
 			}
 		}
 
 		for(int i=0; i<mosq_metric_max; i++){
 			if((metrics[i].is_max && metrics[i].next > metrics[i].current) ||
-						(!metrics[i].is_max && metrics[i].next != metrics[i].current)){
+					(!metrics[i].is_max && metrics[i].next != metrics[i].current)){
 
 				metrics[i].current = metrics[i].next;
 				len = (uint32_t)snprintf(buf, BUFLEN, "%lu", metrics[i].current);

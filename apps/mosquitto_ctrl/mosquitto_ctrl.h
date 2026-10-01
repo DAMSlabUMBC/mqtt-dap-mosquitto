@@ -45,7 +45,6 @@ struct mosq_config {
 	char *username;
 	char *password;
 	char *options_file;
-#ifdef WITH_TLS
 	char *cafile;
 	char *capath;
 	char *certfile;
@@ -56,21 +55,18 @@ struct mosq_config {
 	char *tls_version;
 	char *tls_engine;
 	char *tls_engine_kpass_sha1;
+	bool tls_use_os_certs;
 	char *keyform;
-#  ifdef FINAL_WITH_TLS_PSK
 	char *psk;
 	char *psk_identity;
-#  endif
-#endif
 	bool verbose; /* sub */
 	unsigned int timeout; /* sub */
-#ifdef WITH_SOCKS
 	char *socks5_host;
 	int socks5_port;
 	char *socks5_username;
 	char *socks5_password;
-#endif
 	char *data_file;
+	bool no_colour;
 };
 
 struct mosq_ctrl {
@@ -78,7 +74,7 @@ struct mosq_ctrl {
 	char *request_topic;
 	char *response_topic;
 	char *payload;
-	void (*payload_callback)(struct mosq_ctrl *, long , const void *);
+	void (*payload_callback)(struct mosq_ctrl *, long, const void *);
 	void *userdata;
 };
 

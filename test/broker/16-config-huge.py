@@ -5,6 +5,7 @@
 # options being set.
 
 from mosq_test_helper import *
+import platform
 import signal
 
 def write_acl(filename):
@@ -123,7 +124,10 @@ def write_config(filename, ports, per_listener_settings, plugver, acl_file):
         f.write("listener %d\n" % (ports[2]))
         f.write("plugin_use auth\n")
         f.write("accept_protocol_versions 3,4,5\n")
-        f.write("bind_interface lo\n")
+        if platform.system() == "Darwin":
+            f.write("bind_interface lo0\n")
+        else:
+            f.write("bind_interface lo\n")
         f.write(f"cafile {ssl_dir}/all-ca.crt\n")
         f.write(f"certfile {ssl_dir}/server.crt\n")
         f.write(f"keyfile {ssl_dir}/server.key\n")
@@ -134,7 +138,7 @@ def write_config(filename, ports, per_listener_settings, plugver, acl_file):
         f.write(f"crlfile {ssl_dir}/crl.pem\n")
         #f.write("dhparamfile file\n")
         f.write("disable_client_cert_date_checks true\n")
-        f.write("http_dir dir\n")
+        f.write("http_dir .\n")
         f.write("max_connections 10\n")
         f.write("max_qos 1\n")
         f.write("mount_point mount/\n")

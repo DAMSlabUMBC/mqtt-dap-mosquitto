@@ -6,6 +6,7 @@
 
 static int run = -1;
 
+
 static void on_connect(struct mosquitto *mosq, void *obj, int rc, int flags, const mosquitto_property *properties)
 {
 	(void)obj;
@@ -19,6 +20,7 @@ static void on_connect(struct mosquitto *mosq, void *obj, int rc, int flags, con
 	mosquitto_publish_v5(mosq, NULL, "topic", strlen("accepted"), "accepted", 2, false, NULL);
 }
 
+
 static void on_publish(struct mosquitto *mosq, void *obj, int mid, int reason_code, const mosquitto_property *properties)
 {
 	(void)mosq;
@@ -30,6 +32,7 @@ static void on_publish(struct mosquitto *mosq, void *obj, int mid, int reason_co
 		run = 0;
 	}
 }
+
 
 int main(int argc, char *argv[])
 {
@@ -54,7 +57,9 @@ int main(int argc, char *argv[])
 	mosquitto_publish_v5_callback_set(mosq, on_publish);
 
 	rc = mosquitto_connect_bind_v5(mosq, "localhost", port, 60, NULL, NULL);
-	if(rc != MOSQ_ERR_SUCCESS) return rc;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return rc;
+	}
 
 	while(run == -1){
 		mosquitto_loop(mosq, 100, 1);

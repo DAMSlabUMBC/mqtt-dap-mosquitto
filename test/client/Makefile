@@ -32,6 +32,7 @@ endif
 ifeq ($(WITH_WEBSOCKETS),yes)
 	./02-subscribe-qos1-ws.py
 endif
+	./02-subscribe-retain-handling.py
 	./02-subscribe-format.py
 	./02-subscribe-null.py
 	./02-subscribe-verbose.py
@@ -57,8 +58,11 @@ ifeq ($(WITH_WEBSOCKETS),yes)
 endif
 	./03-publish-repeat.py
 	./03-publish-socks.py
+	./03-publish-socks-auth-failed.py
+	./03-publish-socks-no-auth.py
 	./03-publish-stdin-file.py
 	./03-publish-stdin-line.py
+	./03-publish-tls.py
 	./03-publish-url.py
 
 04 :
@@ -74,6 +78,7 @@ endif
 ifeq ($(WITH_WEBSOCKETS),yes)
 	./04-rr-qos1-ws.py
 endif
+	./04-rr-retain-handling.py
 
 ptest :
 	./test.sh

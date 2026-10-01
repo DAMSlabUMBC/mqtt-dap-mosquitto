@@ -38,7 +38,7 @@ Contributors:
 
 uint32_t db_version;
 
-const unsigned char magic[15] = {0x00, 0xB5, 0x00, 'm','o','s','q','u','i','t','t','o',' ','d','b'};
+const unsigned char magic[15] = {0x00, 0xB5, 0x00, 'm', 'o', 's', 'q', 'u', 'i', 't', 't', 'o', ' ', 'd', 'b'};
 static long base_msg_count = 0;
 static long retained_count = 0;
 static long client_count = 0;
@@ -51,13 +51,17 @@ static struct mosquitto *persist__find_or_add_context(const char *clientid, uint
 {
 	struct mosquitto *context;
 
-	if(!clientid) return NULL;
+	if(!clientid){
+		return NULL;
+	}
 
 	context = NULL;
 	HASH_FIND(hh_id, db.contexts_by_id, clientid, strlen(clientid), context);
 	if(!context){
 		context = context__init();
-		if(!context) return NULL;
+		if(!context){
+			return NULL;
+		}
 		context->id = mosquitto_strdup(clientid);
 		if(!context->id){
 			mosquitto_FREE(context);
@@ -217,7 +221,9 @@ static int persist__client_chunk_restore(FILE *db_fptr)
 
 	mosquitto_FREE(chunk.clientid);
 	mosquitto_FREE(chunk.username);
-	if(rc == 0) client_count++;
+	if(rc == 0){
+		client_count++;
+	}
 	return rc;
 }
 
@@ -241,7 +247,9 @@ static int persist__client_msg_chunk_restore(FILE *db_fptr, uint32_t length)
 	rc = persist__client_msg_restore(&chunk);
 	mosquitto_FREE(chunk.clientid);
 
-	if(rc == 0) client_msg_count++;
+	if(rc == 0){
+		client_msg_count++;
+	}
 	return rc;
 }
 
@@ -262,7 +270,13 @@ static int persist__base_msg_chunk_restore(FILE *db_fptr, uint32_t length)
 	}else{
 		rc = persist__chunk_base_msg_read_v234(db_fptr, &chunk, db_version);
 	}
-	if(rc) return rc;
+	if(rc){
+		return rc;
+	}
+	if(chunk.F.topic_len == 0){
+		rc = MOSQ_ERR_INVAL;
+		goto cleanup;
+	}
 
 	if(chunk.F.source_port){
 		for(int i=0; i<db.config->listener_count; i++){
@@ -322,6 +336,7 @@ cleanup:
 	return rc;
 }
 
+
 static int persist__retain_chunk_restore(FILE *db_fptr)
 {
 	struct mosquitto__base_msg *base_msg;
@@ -343,7 +358,10 @@ static int persist__retain_chunk_restore(FILE *db_fptr)
 
 	HASH_FIND(hh, db.msg_store, &chunk.F.store_id, sizeof(chunk.F.store_id), base_msg);
 	if(base_msg){
-		if(sub__topic_tokenise(base_msg->data.topic, &local_topic, &split_topics, NULL)) return 1;
+		rc = sub__topic_tokenise(base_msg->data.topic, &local_topic, &split_topics, NULL);
+		if(rc){
+			return rc;
+		}
 		retain__store(base_msg->data.topic, base_msg, split_topics, true);
 		mosquitto_FREE(local_topic);
 		mosquitto_FREE(split_topics);
@@ -354,6 +372,7 @@ static int persist__retain_chunk_restore(FILE *db_fptr)
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 static int persist__sub_chunk_restore(FILE *db_fptr)
 {
 	struct P_sub chunk;
@@ -361,6 +380,8 @@ static int persist__sub_chunk_restore(FILE *db_fptr)
 	struct mosquitto_subscription sub;
 
 	memset(&chunk, 0, sizeof(struct P_sub));
+	/* sub__add takes ownership of sub.purpose_filters, so it must start NULL. */
+	memset(&sub, 0, sizeof(sub));
 
 	if(db_version == 6 || db_version == 5){
 		rc = persist__chunk_sub_read_v56(db_fptr, &chunk);
@@ -379,7 +400,9 @@ static int persist__sub_chunk_restore(FILE *db_fptr)
 
 	mosquitto_FREE(chunk.clientid);
 	mosquitto_FREE(chunk.topic);
-	if(rc == 0) subscription_count++;
+	if(rc == 0){
+		subscription_count++;
+	}
 
 	return rc;
 }
@@ -421,7 +444,9 @@ int persist__restore(void)
 	client_msg_count = 0;
 
 	fptr = mosquitto_fopen(db.config->persistence_filepath, "rb", true);
-	if(fptr == NULL) return MOSQ_ERR_SUCCESS;
+	if(fptr == NULL){
+		return MOSQ_ERR_SUCCESS;
+	}
 	rlen = fread(&header, 1, 15, fptr);
 	if(rlen == 0){
 		fclose(fptr);
@@ -449,7 +474,7 @@ int persist__restore(void)
 			}else{
 				fclose(fptr);
 				log__printf(NULL, MOSQ_LOG_ERR, "Error: Unsupported persistent database format version %d (need version %d).", db_version, MOSQ_DB_VERSION);
-				return 1;
+				return MOSQ_ERR_INVAL;
 			}
 		}
 
@@ -457,63 +482,73 @@ int persist__restore(void)
 			switch(chunk){
 				case DB_CHUNK_CFG:
 					if(db_version == 6 || db_version == 5){
-						if(persist__chunk_cfg_read_v56(fptr, &cfg_chunk)){
+						rc = persist__chunk_cfg_read_v56(fptr, &cfg_chunk);
+						if(rc){
 							fclose(fptr);
-							return 1;
+							return rc;
 						}
 					}else{
-						if(persist__chunk_cfg_read_v234(fptr, &cfg_chunk)){
+						rc = persist__chunk_cfg_read_v234(fptr, &cfg_chunk);
+						if(rc){
 							fclose(fptr);
-							return 1;
+							return rc;
 						}
 					}
 					if(cfg_chunk.dbid_size != sizeof(dbid_t)){
 						log__printf(NULL, MOSQ_LOG_ERR, "Error: Incompatible database configuration (dbid size is %d bytes, expected %lu)",
 								cfg_chunk.dbid_size, (unsigned long)sizeof(dbid_t));
 						fclose(fptr);
-						return 1;
+						return MOSQ_ERR_INVAL;
 					}
 					db.last_db_id = cfg_chunk.last_db_id;
 					break;
 
 				case DB_CHUNK_BASE_MSG:
-					if(persist__base_msg_chunk_restore(fptr, length)){
+					rc = persist__base_msg_chunk_restore(fptr, length);
+					if(rc){
 						fclose(fptr);
-						return 1;
+						return rc;
 					}
 					break;
 
 				case DB_CHUNK_CLIENT_MSG:
-					if(persist__client_msg_chunk_restore(fptr, length)){
+					rc = persist__client_msg_chunk_restore(fptr, length);
+					if(rc){
 						fclose(fptr);
-						return 1;
+						return rc;
 					}
 					break;
 
 				case DB_CHUNK_RETAIN:
-					if(persist__retain_chunk_restore(fptr)){
+					rc = persist__retain_chunk_restore(fptr);
+					if(rc){
 						fclose(fptr);
-						return 1;
+						return rc;
 					}
 					break;
 
 				case DB_CHUNK_SUB:
-					if(persist__sub_chunk_restore(fptr)){
+					rc = persist__sub_chunk_restore(fptr);
+					if(rc){
 						fclose(fptr);
-						return 1;
+						return rc;
 					}
 					break;
 
 				case DB_CHUNK_CLIENT:
-					if(persist__client_chunk_restore(fptr)){
+					rc = persist__client_chunk_restore(fptr);
+					if(rc){
 						fclose(fptr);
-						return 1;
+						return rc;
 					}
 					break;
 
 				default:
 					log__printf(NULL, MOSQ_LOG_WARNING, "Warning: Unsupported chunk \"%d\" in persistent database file. Ignoring.", chunk);
-					fseek(fptr, length, SEEK_CUR);
+					if(fseek(fptr, length, SEEK_CUR) < 0){
+						fclose(fptr);
+						return MOSQ_ERR_INVAL;
+					}
 					break;
 			}
 		}
@@ -534,9 +569,12 @@ int persist__restore(void)
 error:
 	err = strerror(errno);
 	log__printf(NULL, MOSQ_LOG_ERR, "Error: %s.", err);
-	if(fptr) fclose(fptr);
-	return 1;
+	if(fptr){
+		fclose(fptr);
+	}
+	return MOSQ_ERR_ERRNO;
 }
+
 
 static int persist__restore_sub(const struct mosquitto_subscription *sub)
 {
@@ -552,7 +590,9 @@ static int persist__restore_sub(const struct mosquitto_subscription *sub)
 	}
 
 	context = persist__find_or_add_context(sub->clientid, 0);
-	if(!context) return 1;
+	if(!context){
+		return MOSQ_ERR_INVAL;
+	}
 	return sub__add(context, sub);
 }
 

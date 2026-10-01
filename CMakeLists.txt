@@ -4,21 +4,20 @@
 # To configure the build options either use the CMake gui, or run the command
 # line utility including the "-i" option.
 
-cmake_minimum_required(VERSION 3.14)
+cmake_minimum_required(VERSION 3.18)
 
-set (VERSION 2.1.0)
+set (VERSION 2.1.2)
 project(mosquitto
 	VERSION ${VERSION}
 	DESCRIPTION "Eclipse Mosquitto"
 	LANGUAGES C CXX
 )
 
-if(DISABLE_ENGINE_CLEANUP)
-    add_compile_definitions(DISABLE_ENGINE_CLEANUP)
-endif()
-
 set(CMAKE_C_STANDARD 99)
 set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 list(APPEND CMAKE_MODULE_PATH "${PROJECT_SOURCE_DIR}/cmake/")
 
@@ -38,13 +37,17 @@ if(NOT WIN32)
 	target_compile_options(common-options INTERFACE -Wall -Wextra -Wconversion)
 endif()
 
-include(GNUInstallDirs)
+include(CMakePushCheckState)
 include(CheckIncludeFiles)
+include(CheckLibraryExists)
+include(CheckSourceCompiles)
+include(GNUInstallDirs)
+include(CMakePushCheckState)
+include(CheckSourceCompiles)
 
 option(WITH_BUNDLED_DEPS "Build with bundled dependencies?" ON)
 option(WITH_TLS "Include SSL/TLS support?" ON)
 option(WITH_TLS_PSK "Include TLS-PSK support (requires WITH_TLS)?" ON)
-option(WITH_EC "Include Elliptic Curve support (requires WITH_TLS)?" ON)
 option(WITH_TESTS "Enable tests" ON)
 option(INC_MEMTRACK "Include memory tracking support?" ON)
 if (WITH_TLS)
@@ -60,10 +63,6 @@ if (WITH_TLS)
 	if (WITH_TLS_PSK)
 		add_definitions("-DWITH_TLS_PSK")
 	endif (WITH_TLS_PSK)
-
-	if (WITH_EC)
-		add_definitions("-DWITH_EC")
-	endif (WITH_EC)
 else()
 	set (OPENSSL_INCLUDE_DIR "")
 endif()
@@ -81,6 +80,9 @@ endif()
 option(WITH_WEBSOCKETS "Include websockets support?" ON)
 option(WITH_WEBSOCKETS_BUILTIN "Websockets support uses builtin library? Set OFF to use libwebsockets" ON)
 
+if(WITH_WEBSOCKETS AND NOT WITH_TLS)
+	message(FATAL_ERROR "WITH_WEBSOCKETS support requires WITH_TLS.")
+endif()
 option(WITH_SRV "Include SRV lookup support?" OFF)
 option(WITH_STATIC_LIBRARIES "Build static versions of the libmosquitto/pp libraries?" OFF)
 option(WITH_PIC "Build the static library with PIC (Position Independent Code) enabled archives?" OFF)
@@ -89,7 +91,7 @@ option(WITH_THREADING "Include threading support?" ON)
 if(WITH_THREADING)
 	add_definitions("-DWITH_THREADING")
 	if(WIN32)
-		find_package(Pthreads4W REQUIRED)
+		find_package(PThreads4W REQUIRED)
 	endif()
 endif()
 
@@ -102,8 +104,14 @@ endif()
 
 find_package(cJSON REQUIRED)
 find_package(argon2)
+
+option(WITH_CTRL_SHELL "Include mosquitto_ctrl interactive shell support?" ON)
+if(WITH_CTRL_SHELL)
+	find_package(LineEditing)
+endif()
 if(ARGON2_FOUND)
-	add_definitions("-DWITH_ARGON2")
+	# Disable until separate password handling thread is implemented
+	#add_definitions("-DWITH_ARGON2")
 endif()
 
 option(WITH_LTO "Build with link time optimizations (IPO) / interprocedural optimization (IPO) enabled." ON)
@@ -125,7 +133,7 @@ option(WITH_CLIENTS "Build clients?" ON)
 option(WITH_BROKER "Build broker?" ON)
 option(WITH_APPS "Build apps?" ON)
 option(WITH_PLUGINS "Build plugins?" ON)
-option(DOCUMENTATION "Build documentation?" ON)
+option(WITH_DOCS "Build documentation?" ON)
 
 add_library(config-header INTERFACE)
 target_sources(config-header INTERFACE config.h)
@@ -160,7 +168,7 @@ if(WITH_PLUGINS)
 	add_subdirectory(plugins)
 endif()
 
-if(DOCUMENTATION)
+if(WITH_DOCS)
 	add_subdirectory(man)
 endif()
 
@@ -199,6 +207,34 @@ install(
 	${mosquitto_SOURCE_DIR}/include/mosquitto/broker.h
 	${mosquitto_SOURCE_DIR}/include/mosquitto/broker_control.h
 	${mosquitto_SOURCE_DIR}/include/mosquitto/broker_plugin.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/defs.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libcommon.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libcommon_base64.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libcommon_cjson.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libcommon_file.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libcommon_memory.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libcommon_password.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libcommon_properties.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libcommon_random.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libcommon_string.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libcommon_time.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libcommon_topic.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libcommon_utf8.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libmosquitto.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libmosquitto_auth.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libmosquitto_callbacks.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libmosquitto_connect.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libmosquitto_create_delete.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libmosquitto_helpers.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libmosquitto_loop.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libmosquitto_message.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libmosquitto_options.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libmosquitto_publish.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libmosquitto_socks.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libmosquitto_subscribe.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libmosquitto_tls.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libmosquitto_unsubscribe.h
+	${mosquitto_SOURCE_DIR}/include/mosquitto/libmosquitto_will.h
 	${mosquitto_SOURCE_DIR}/include/mosquitto/libmosquittopp.h
 	${mosquitto_SOURCE_DIR}/include/mosquitto/mqtt_protocol.h
 	DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/mosquitto"
@@ -208,6 +244,8 @@ install(
 # Testing
 # ========================================
 if(WITH_TESTS)
+	find_package(GTest REQUIRED)
+	include(GoogleTest)
 	enable_testing()
 	add_subdirectory(test)
 endif()

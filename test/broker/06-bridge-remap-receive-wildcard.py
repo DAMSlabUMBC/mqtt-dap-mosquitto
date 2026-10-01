@@ -26,8 +26,8 @@ def do_test(proto_ver):
     rc = 1
     keepalive = 600
     client_id = "mosquitto"
-    properties = mqtt5_props.gen_uint16_prop(mqtt5_props.PROP_TOPIC_ALIAS_MAXIMUM, 10)
-    properties += mqtt5_props.gen_uint16_prop(mqtt5_props.PROP_RECEIVE_MAXIMUM, 20)
+    properties = mqtt5_props.gen_uint16_prop(mqtt5_props.TOPIC_ALIAS_MAXIMUM, 10)
+    properties += mqtt5_props.gen_uint16_prop(mqtt5_props.RECEIVE_MAXIMUM, 20)
     connect_packet = mosq_test.gen_connect(client_id, keepalive=keepalive, clean_session=False, proto_ver=proto_ver, properties=properties)
     connack_packet = mosq_test.gen_connack(rc=0, proto_ver=proto_ver)
 
@@ -76,8 +76,11 @@ def do_test(proto_ver):
             bridge.send(bytes.fromhex("320c00062b2b2b2b2b2b00040033"))
             #bridge.send(bytes.fromhex("320c00062b2b2b2b2b2b00040033"))
             #bridge.send(bytes.fromhex("320c00062b2b2b2b2b2b00040033"))
-            mosq_test.do_ping(bridge)
-        except (ConnectionResetError, BrokenPipeError):
+            bridge.send(bytes.fromhex("C000")) # PING
+            d = bridge.recv(1)
+            if len(d) == 0:
+                rc = 0
+        except (ConnectionResetError, BrokenPipeError, mosq_test.TestError):
             #expected behaviour
             rc = 0
 

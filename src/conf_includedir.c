@@ -59,7 +59,7 @@ static int scmp_p(const void *p1, const void *p2)
 
 	while(s1[0] && s2[0]){
 		/* Sort by case insensitive part first */
-		result = toupper(s1[0]) - toupper(s2[0]);
+		result = toupper((unsigned char)s1[0]) - toupper((unsigned char)s2[0]);
 		if(result == 0){
 			/* Case insensitive part matched, now distinguish between case */
 			result = s1[0] - s2[0];
@@ -78,6 +78,8 @@ static int scmp_p(const void *p1, const void *p2)
 }
 
 #ifdef WIN32
+
+
 int config__get_dir_files(const char *include_dir, char ***files, int *file_count)
 {
 	size_t len;
@@ -139,6 +141,7 @@ int config__get_dir_files(const char *include_dir, char ***files, int *file_coun
 
 #ifndef WIN32
 
+
 int config__get_dir_files(const char *include_dir, char ***files, int *file_count)
 {
 	char **l_files = NULL;
@@ -161,11 +164,15 @@ int config__get_dir_files(const char *include_dir, char ***files, int *file_coun
 
 				l_file_count++;
 				files_tmp = mosquitto_realloc(l_files, (size_t)l_file_count*sizeof(char *));
-				if(!files_tmp) goto error;
+				if(!files_tmp){
+					goto error;
+				}
 				l_files = files_tmp;
 
 				l_files[l_file_count-1] = mosquitto_malloc(len+1);
-				if(!l_files[l_file_count-1]) goto error;
+				if(!l_files[l_file_count-1]){
+					goto error;
+				}
 				snprintf(l_files[l_file_count-1], len, "%s/%s", include_dir, de->d_name);
 				l_files[l_file_count-1][len] = '\0';
 			}

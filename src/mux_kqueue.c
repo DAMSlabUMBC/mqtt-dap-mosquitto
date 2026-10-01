@@ -22,6 +22,7 @@ Contributors:
 
 #define MAX_EVENTS 1000
 
+#include <errno.h>
 #include <signal.h>
 #include <sys/event.h>
 #include <sys/socket.h>
@@ -34,18 +35,20 @@ static void loop_handle_reads_writes(struct mosquitto *context, short events);
 
 static struct kevent event_list[MAX_EVENTS];
 
+
 int mux_kqueue__init(void)
 {
 	memset(&event_list, 0, sizeof(struct kevent)*MAX_EVENTS);
 
 	db.kqueuefd = 0;
-	if ((db.kqueuefd = kqueue()) == -1) {
+	if((db.kqueuefd = kqueue()) == -1){
 		log__printf(NULL, MOSQ_LOG_ERR, "Error in kqueue creating: %s", strerror(errno));
 		return MOSQ_ERR_UNKNOWN;
 	}
 
 	return MOSQ_ERR_SUCCESS;
 }
+
 
 int mux_kqueue__add_listeners(struct mosquitto__listener_sock *listensock, int listensock_count)
 {
@@ -64,6 +67,7 @@ int mux_kqueue__add_listeners(struct mosquitto__listener_sock *listensock, int l
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 int mux_kqueue__delete_listeners(struct mosquitto__listener_sock *listensock, int listensock_count)
 {
 	struct kevent ev;
@@ -77,6 +81,7 @@ int mux_kqueue__delete_listeners(struct mosquitto__listener_sock *listensock, in
 
 	return MOSQ_ERR_SUCCESS;
 }
+
 
 int mux_kqueue__loop_setup(void)
 {
@@ -157,10 +162,9 @@ int mux_kqueue__handle(void)
 	timeout.tv_nsec = 100000000; /* 100 ms */
 #else
 	timeout.tv_sec = db.next_event_ms/1000;
-	timeout.tv_nsec = (db.next_event_ms - timeout.tv_sec*100) * 1000000;
+	timeout.tv_nsec = (db.next_event_ms - timeout.tv_sec*1000) * 1000000;
 #endif
 
-	memset(&event_list, 0, sizeof(event_list));
 	event_count = kevent(db.kqueuefd,
 			NULL, 0,
 			event_list, MAX_EVENTS,
@@ -170,32 +174,35 @@ int mux_kqueue__handle(void)
 	db.now_real_s = time(NULL);
 
 	switch(event_count){
-	case -1:
-		if(errno != EINTR){
-			log__printf(NULL, MOSQ_LOG_ERR, "Error in kqueue waiting: %s.", strerror(errno));
-		}
-		break;
-	case 0:
-		break;
-	default:
-		for(int i=0; i<event_count; i++){
-			context = event_list[i].udata;
-			if(context->ident == id_client){
-				loop_handle_reads_writes(context, event_list[i].filter);
-			}else if(context->ident == id_listener){
-				listensock = event_list[i].udata;
-
-				if(event_list[i].filter == EVFILT_READ){
-					while((context = net__socket_accept(listensock)) != NULL){
-					}
-				}
-#ifdef WITH_WEBSOCKETS
-			}else if(context->ident == id_listener_ws){
-				/* Nothing needs to happen here, because we always call lws_service in the loop.
-				 * The important point is we've been woken up for this listener. */
-#endif
+		case -1:
+			if(errno != EINTR){
+				log__printf(NULL, MOSQ_LOG_ERR, "Error in kqueue waiting: %s.", strerror(errno));
 			}
-		}
+			break;
+		case 0:
+			break;
+		default:
+			for(int i=0; i<event_count; i++){
+				context = event_list[i].udata;
+				if(context->ident == id_client){
+					loop_handle_reads_writes(context, event_list[i].filter);
+					if(event_list[i].flags & (EV_EOF | EV_ERROR)){
+						do_disconnect(context, MOSQ_ERR_CONN_LOST);
+					}
+				}else if(context->ident == id_listener){
+					listensock = event_list[i].udata;
+
+					if(event_list[i].filter == EVFILT_READ){
+						while((context = net__socket_accept(listensock)) != NULL){
+						}
+					}
+#ifdef WITH_WEBSOCKETS
+				}else if(context->ident == id_listener_ws){
+					/* Nothing needs to happen here, because we always call lws_service in the loop.
+					 * The important point is we've been woken up for this listener. */
+#endif
+				}
+			}
 	}
 	return MOSQ_ERR_SUCCESS;
 }
@@ -223,8 +230,20 @@ static void loop_handle_reads_writes(struct mosquitto *context, short event)
 	if(context->wsi){
 		struct lws_pollfd wspoll;
 		wspoll.fd = context->sock;
-		wspoll.events = (int16_t)context->events;
-		wspoll.revents = (int16_t)events;
+		int16_t lws_events;
+		switch(event){
+			case EVFILT_READ:
+				lws_events = LWS_POLLIN;
+				break;
+			case EVFILT_WRITE:
+				lws_events = LWS_POLLOUT;
+				break;
+			default:
+				lws_events = LWS_POLLHUP;
+				break;
+		}
+		wspoll.events = lws_events;
+		wspoll.revents = lws_events;
 		lws_service_fd(lws_get_context(context->wsi), &wspoll);
 		return;
 	}
@@ -278,7 +297,7 @@ static void loop_handle_reads_writes(struct mosquitto *context, short event)
 					break;
 #endif
 #if !defined(WITH_WEBSOCKETS) || WITH_WEBSOCKETS == WS_IS_BUILTIN
-			/* Not supported with LWS */
+				/* Not supported with LWS */
 				case mosq_t_proxy_v2:
 					rc = proxy_v2__read(context);
 					break;

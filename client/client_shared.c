@@ -54,6 +54,7 @@ const char hexseplist[32] = {
 	'^', '_', '`', '{', '|', '}', '~', ' ',
 };
 
+
 static int check_format(const char *str)
 {
 	size_t i;
@@ -229,6 +230,7 @@ static void init_config(struct mosq_config *cfg, int pub_or_sub)
 	cfg->transport = MOSQ_T_TCP;
 }
 
+
 void client_config_cleanup(struct mosq_config *cfg)
 {
 	int i;
@@ -236,7 +238,7 @@ void client_config_cleanup(struct mosq_config *cfg)
 	free(cfg->id_prefix);
 	free(cfg->host);
 	free(cfg->file_input);
-	free(cfg->message);
+	mosquitto_FREE(cfg->message);
 	free(cfg->topic);
 	free(cfg->bind_address);
 	free(cfg->username);
@@ -293,6 +295,7 @@ void client_config_cleanup(struct mosq_config *cfg)
 	free(cfg->options_file);
 }
 
+
 /* Find if there is "-o" in the options */
 static int client_config_options_file(struct mosq_config *cfg, int argc, char *argv[])
 {
@@ -340,7 +343,7 @@ int client_config_load(struct mosq_config *cfg, int pub_or_sub, int argc, char *
 	}
 
 	if(cfg->options_file == NULL){
-	/* Default config file */
+		/* Default config file */
 #ifndef WIN32
 		env = getenv("XDG_CONFIG_HOME");
 		if(env){
@@ -394,7 +397,7 @@ int client_config_load(struct mosq_config *cfg, int pub_or_sub, int argc, char *
 			}else{
 				snprintf(loc, len, "%s\\mosquitto_rr.conf", env);
 			}
-		loc[len-1] = '\0';
+			loc[len-1] = '\0';
 		}
 #endif
 	}
@@ -406,12 +409,14 @@ int client_config_load(struct mosq_config *cfg, int pub_or_sub, int argc, char *
 		free(loc);
 		loc = NULL;
 	}else{
-		return 1;
+		fptr = NULL;
 	}
 	if(fptr){
 		while(fgets(line, 1024, fptr)){
-			if(line[0] == '#') continue; /* Comments */
-
+			if(line[0] == '#'){
+				/* Comments */
+				continue;
+			}
 			while(line[strlen(line)-1] == 10 || line[strlen(line)-1] == 13){
 				line[strlen(line)-1] = 0;
 			}
@@ -438,7 +443,9 @@ int client_config_load(struct mosq_config *cfg, int pub_or_sub, int argc, char *
 
 	/* Deal with real argc/argv */
 	rc = client_config_line_proc(cfg, pub_or_sub, argc, argv);
-	if(rc) return rc;
+	if(rc){
+		return rc;
+	}
 
 	if(cfg->will_payload && !cfg->will_topic){
 		fprintf(stderr, "Error: Will payload given, but no will topic given.\n");
@@ -513,6 +520,7 @@ int client_config_load(struct mosq_config *cfg, int pub_or_sub, int argc, char *
 
 	return MOSQ_ERR_SUCCESS;
 }
+
 
 static int cfg_add_topic(struct mosq_config *cfg, int type, char *topic, const char *arg)
 {
@@ -753,15 +761,15 @@ int client_config_line_proc(struct mosq_config *cfg, int pub_or_sub, int argc, c
 			if(i==argc-1){
 				fprintf(stderr, "Error: -L argument given but no URL specified.\n\n");
 				return 1;
-			} else {
+			}else{
 				char *url = argv[i+1];
 				char *topic;
 				char *tmp;
 
-				if(!strncasecmp(url, "mqtt://", 7)) {
+				if(!strncasecmp(url, "mqtt://", 7)){
 					url += 7;
 					cfg->port = 1883;
-				} else if(!strncasecmp(url, "mqtts://", 8)) {
+				}else if(!strncasecmp(url, "mqtts://", 8)){
 #ifdef WITH_TLS
 					url += 8;
 					cfg->port = 8883;
@@ -770,11 +778,11 @@ int client_config_line_proc(struct mosq_config *cfg, int pub_or_sub, int argc, c
 					fprintf(stderr, "Error: TLS support not available.\n\n");
 					return 1;
 #endif
-				} else if(!strncasecmp(url, "ws://", 5)) {
+				}else if(!strncasecmp(url, "ws://", 5)){
 					url += 5;
 					cfg->port = 1883;
 					cfg->transport = MOSQ_T_WEBSOCKETS;
-				} else if(!strncasecmp(url, "wss://", 6)) {
+				}else if(!strncasecmp(url, "wss://", 6)){
 #ifdef WITH_TLS
 					url += 6;
 					cfg->port = 8883;
@@ -784,7 +792,7 @@ int client_config_line_proc(struct mosq_config *cfg, int pub_or_sub, int argc, c
 					fprintf(stderr, "Error: TLS support not available.\n\n");
 					return 1;
 #endif
-				} else {
+				}else{
 					fprintf(stderr, "Error: Unsupported URL scheme.\n\n");
 					return 1;
 				}
@@ -795,15 +803,16 @@ int client_config_line_proc(struct mosq_config *cfg, int pub_or_sub, int argc, c
 				}
 				*topic++ = 0;
 
-				if(cfg_add_topic(cfg, pub_or_sub, topic, "-L topic"))
+				if(cfg_add_topic(cfg, pub_or_sub, topic, "-L topic")){
 					return 1;
+				}
 
 				tmp = strchr(url, '@');
-				if(tmp) {
+				if(tmp){
 					char *colon;
 					*tmp++ = 0;
 					colon = strchr(url, ':');
-					if(colon) {
+					if(colon){
 						*colon = 0;
 						cfg->password = strdup(colon + 1);
 					}
@@ -813,7 +822,7 @@ int client_config_line_proc(struct mosq_config *cfg, int pub_or_sub, int argc, c
 				cfg->host = url;
 
 				tmp = strchr(url, ':');
-				if(tmp) {
+				if(tmp){
 					*tmp++ = 0;
 					cfg->port = atoi(tmp);
 				}
@@ -831,6 +840,12 @@ int client_config_line_proc(struct mosq_config *cfg, int pub_or_sub, int argc, c
 			}else{
 				cfg->pub_mode = MSGMODE_STDIN_LINE;
 			}
+		}else if(!strcmp(argv[i], "--latency")){
+			if(pub_or_sub != CLIENT_RR){
+				goto unknown_option;
+			}
+			cfg->measure_latency = true;
+			cfg->tcp_nodelay = true; /* Remove influence of nagle */
 		}else if(!strcmp(argv[i], "-m") || !strcmp(argv[i], "--message")){
 			if(pub_or_sub == CLIENT_SUB){
 				goto unknown_option;
@@ -842,7 +857,7 @@ int client_config_line_proc(struct mosq_config *cfg, int pub_or_sub, int argc, c
 				fprintf(stderr, "Error: -m argument given but no message specified.\n\n");
 				return 1;
 			}else{
-				cfg->message = strdup(argv[i+1]);
+				cfg->message = mosquitto_strdup(argv[i+1]);
 				if(cfg->message == NULL){
 					fprintf(stderr, "Error: Out of memory.\n\n");
 					return 1;
@@ -869,6 +884,11 @@ int client_config_line_proc(struct mosq_config *cfg, int pub_or_sub, int argc, c
 				cfg->max_inflight = (unsigned int )tmpi;
 			}
 			i++;
+		}else if(!strcmp(argv[i], "--message-rate")){
+			if(pub_or_sub != CLIENT_SUB){
+				goto unknown_option;
+			}
+			cfg->message_rate = true;
 		}else if(!strcmp(argv[i], "--nodelay")){
 			cfg->tcp_nodelay = true;
 		}else if(!strcmp(argv[i], "--no-tls")){
@@ -1029,6 +1049,26 @@ int client_config_line_proc(struct mosq_config *cfg, int pub_or_sub, int argc, c
 				goto unknown_option;
 			}
 			cfg->sub_opts |= MQTT_SUB_OPT_RETAIN_AS_PUBLISHED;
+		}else if(!strcmp(argv[i], "--retain-handling")){
+			if(pub_or_sub == CLIENT_PUB){
+				goto unknown_option;
+			}
+			if(i==argc-1){
+				fprintf(stderr, "Error: --retain-handling argument given but no option specified.\n\n");
+				return 1;
+			}else{
+				if(!strcmp(argv[i+1], "always")){
+					MQTT_SUB_OPT_SET_RETAIN_HANDLING(cfg->sub_opts, MQTT_SUB_OPT_SEND_RETAIN_ALWAYS);
+				}else if(!strcmp(argv[i+1], "new")){
+					MQTT_SUB_OPT_SET_RETAIN_HANDLING(cfg->sub_opts, MQTT_SUB_OPT_SEND_RETAIN_NEW);
+				}else if(!strcmp(argv[i+1], "never")){
+					MQTT_SUB_OPT_SET_RETAIN_HANDLING(cfg->sub_opts, MQTT_SUB_OPT_SEND_RETAIN_NEVER);
+				}else{
+					fprintf(stderr, "Error: Unknown value '%s' for --retain-handling.\n\n", argv[i+1]);
+					return 1;
+				}
+			}
+			i++;
 		}else if(!strcmp(argv[i], "--retained-only")){
 			if(pub_or_sub != CLIENT_SUB){
 				goto unknown_option;
@@ -1053,8 +1093,9 @@ int client_config_line_proc(struct mosq_config *cfg, int pub_or_sub, int argc, c
 				fprintf(stderr, "Error: -t argument given but no topic specified.\n\n");
 				return 1;
 			}else{
-				if(cfg_add_topic(cfg, pub_or_sub, argv[i + 1], "-t"))
+				if(cfg_add_topic(cfg, pub_or_sub, argv[i + 1], "-t")){
 					return 1;
+				}
 				i++;
 			}
 		}else if(!strcmp(argv[i], "-T") || !strcmp(argv[i], "--filter-out")){
@@ -1295,12 +1336,14 @@ int client_config_line_proc(struct mosq_config *cfg, int pub_or_sub, int argc, c
 	return MOSQ_ERR_SUCCESS;
 
 unknown_option:
-	fprintf(stderr, "Error: Unknown option '%s'.\n",argv[i]);
+	fprintf(stderr, "Error: Unknown option '%s'.\n", argv[i]);
 	return 1;
 }
 
 
 #ifdef WITH_TLS
+
+
 static int client_tls_opts_set(struct mosquitto *mosq, struct mosq_config *cfg)
 {
 	int rc;
@@ -1318,7 +1361,10 @@ static int client_tls_opts_set(struct mosquitto *mosq, struct mosq_config *cfg)
 			err_printf(cfg, "Error: Unable to create SSL_CTX.\n");
 			return 1;
 		}
-		SSL_CTX_set_ex_data(cfg->ssl_ctx, tls_ex_index_cfg, cfg);
+		if(!SSL_CTX_set_ex_data(cfg->ssl_ctx, tls_ex_index_cfg, cfg)){
+			err_printf(cfg, "Error: Unable to set SSL_CTX ex data.\n");
+			return 1;
+		}
 		mosquitto_void_option(mosq, MOSQ_OPT_SSL_CTX, cfg->ssl_ctx);
 		mosquitto_int_option(mosq, MOSQ_OPT_SSL_CTX_WITH_DEFAULTS, 1);
 		SSL_CTX_set_keylog_callback(cfg->ssl_ctx, tls_keylog_callback);
@@ -1387,8 +1433,8 @@ int client_opts_set(struct mosquitto *mosq, struct mosq_config *cfg)
 	mosquitto_int_option(mosq, MOSQ_OPT_TRANSPORT, cfg->transport);
 
 	if(cfg->will_topic && mosquitto_will_set_v5(mosq, cfg->will_topic,
-				cfg->will_payloadlen, cfg->will_payload, cfg->will_qos,
-				cfg->will_retain, cfg->will_props)){
+			cfg->will_payloadlen, cfg->will_payload, cfg->will_qos,
+			cfg->will_retain, cfg->will_props)){
 
 		err_printf(cfg, "Error: Problem setting will.\n");
 		return 1;
@@ -1426,6 +1472,7 @@ int client_opts_set(struct mosquitto *mosq, struct mosq_config *cfg)
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 int clientid_generate(struct mosq_config *cfg)
 {
 	if(cfg->id_prefix){
@@ -1438,6 +1485,7 @@ int clientid_generate(struct mosq_config *cfg)
 	}
 	return MOSQ_ERR_SUCCESS;
 }
+
 
 int client_connect(struct mosquitto *mosq, struct mosq_config *cfg)
 {
@@ -1497,14 +1545,20 @@ int client_connect(struct mosquitto *mosq, struct mosq_config *cfg)
 }
 
 #ifdef WITH_SOCKS
+
+
 /* Convert %25 -> %, %3a, %3A -> :, %40 -> @ */
 static int mosquitto__urldecode(char *str)
 {
 	size_t i, j;
 	size_t len;
-	if(!str) return 0;
+	if(!str){
+		return 0;
+	}
 
-	if(!strchr(str, '%')) return 0;
+	if(!strchr(str, '%')){
+		return 0;
+	}
 
 	len = strlen(str);
 	for(i=0; i<len; i++){
@@ -1540,6 +1594,7 @@ static int mosquitto__urldecode(char *str)
 	}
 	return 0;
 }
+
 
 static int mosquitto__parse_socks_url(struct mosq_config *cfg, char *url)
 {
@@ -1727,11 +1782,14 @@ cleanup:
 }
 #endif
 
+
 void err_printf(const struct mosq_config *cfg, const char *fmt, ...)
 {
 	va_list va;
 
-	if(cfg->quiet) return;
+	if(cfg->quiet){
+		return;
+	}
 
 	va_start(va, fmt);
 	vfprintf(stderr, fmt, va);
@@ -1739,6 +1797,8 @@ void err_printf(const struct mosq_config *cfg, const char *fmt, ...)
 }
 
 #ifdef WITH_TLS
+
+
 static void tls_keylog_callback(const SSL *ssl, const char *line)
 {
 	struct mosq_config *cfg;

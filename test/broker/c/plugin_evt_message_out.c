@@ -9,6 +9,7 @@ MOSQUITTO_PLUGIN_DECLARE_VERSION(5);
 
 static mosquitto_plugin_id_t *plg_id;
 
+
 int callback_message_out(int event, void *event_data, void *user_data)
 {
 	struct mosquitto_evt_message *ed = event_data;
@@ -25,10 +26,13 @@ int callback_message_out(int event, void *event_data, void *user_data)
 	ed->payload = mosquitto_strdup("new-message");
 	ed->payloadlen = (uint32_t)strlen(ed->payload);
 	ed->properties = NULL;
-	if(mosquitto_property_add_string_pair(&ed->properties, MQTT_PROP_USER_PROPERTY, "key", "value")) abort();
+	if(mosquitto_property_add_string_pair(&ed->properties, MQTT_PROP_USER_PROPERTY, "key", "value")){
+		abort();
+	}
 
 	return MOSQ_ERR_SUCCESS;
 }
+
 
 int mosquitto_plugin_init(mosquitto_plugin_id_t *identifier, void **user_data, struct mosquitto_opt *opts, int opt_count)
 {
@@ -42,6 +46,7 @@ int mosquitto_plugin_init(mosquitto_plugin_id_t *identifier, void **user_data, s
 
 	return MOSQ_ERR_SUCCESS;
 }
+
 
 int mosquitto_plugin_cleanup(void *user_data, struct mosquitto_opt *opts, int opt_count)
 {

@@ -3,9 +3,11 @@
 
 #include "mosquitto.h"
 
+
 /* Test data taken from
  * http://www.cl.cam.ac.uk/~mgk25/ucs/examples/UTF-8-test.txt but modified for
  * updated standard (no 5, 6 byte lengths) */
+
 
 static void utf8_helper_len(const char *text, int len, int expected)
 {
@@ -14,6 +16,7 @@ static void utf8_helper_len(const char *text, int len, int expected)
 	result = mosquitto_validate_utf8(text, len);
 	CU_ASSERT_EQUAL(result, expected);
 }
+
 
 static void utf8_helper(const char *text, int expected)
 {
@@ -31,7 +34,7 @@ static void TEST_utf8_valid(void)
 {
 	/* 1  Some correct UTF-8 text */
 	utf8_helper("", MOSQ_ERR_SUCCESS);
-	utf8_helper("You should see the Greek word 'kosme':       \"Œ∫·ΩπœÉŒºŒµ\"", MOSQ_ERR_SUCCESS);
+	utf8_helper("You should see the Greek word 'kosme':       \"\xCE\xBA\xE1\xBD\xB9\xCF\x83\xCE\xBC\xCE\xB5\"", MOSQ_ERR_SUCCESS);
 }
 
 
@@ -55,29 +58,29 @@ static void TEST_utf8_boundary_conditions(void)
 {
 	/* 2  Boundary condition test cases */
 	/* 2.1  First possible sequence of a certain length */
-	utf8_helper_len("2.1.1  1 byte  (U-00000000):        \"\0\"", 39, MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("2.1.2  2 bytes (U-00000080):        \"¬Ä\"", MOSQ_ERR_MALFORMED_UTF8); /* control char */
-	utf8_helper("2.1.3  3 bytes (U-00000800):        \"‡†Ä\"", MOSQ_ERR_SUCCESS);
-	utf8_helper("2.1.4  4 bytes (U-00010000):        \"êÄÄ\"", MOSQ_ERR_SUCCESS);
+	utf8_helper_len("2.1.1  1 byte  (U-00000000):        \"\x00\"", 39, MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("2.1.2  2 bytes (U-00000080):        \"\xC2\x80\"", MOSQ_ERR_MALFORMED_UTF8); /* control char */
+	utf8_helper("2.1.3  3 bytes (U-00000800):        \"\xE0\xA0\x80\"", MOSQ_ERR_SUCCESS);
+	utf8_helper("2.1.4  4 bytes (U-00010000):        \"\xF0\x90\x80\x80\"", MOSQ_ERR_SUCCESS);
 
 	/* 2.2  Last possible sequence of a certain length */
 
-	utf8_helper("2.2.1  1 byte  (U-0000007F):        \"\"", MOSQ_ERR_MALFORMED_UTF8); /* control char */
-	utf8_helper("2.2.2  2 bytes (U-000007FF):        \"ﬂø\"", MOSQ_ERR_SUCCESS);
+	utf8_helper("2.2.1  1 byte  (U-0000007F):        \"\x7F\"", MOSQ_ERR_MALFORMED_UTF8); /* control char */
+	utf8_helper("2.2.2  2 bytes (U-000007FF):        \"\xDF\xBF\"", MOSQ_ERR_SUCCESS);
 	/* Non character */
-	utf8_helper("2.2.3  3 bytes (U-0000FFFF):        \"Ôøø\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("2.2.3  3 bytes (U-0000FFFF):        \"\xEF\xBF\xBF\"", MOSQ_ERR_MALFORMED_UTF8);
 	/* Non character */
-	utf8_helper("2.2.4  4 bytes (U-0010FFFF):        \"˜øøø\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("2.2.4  4 bytes (U-0010FFFF):        \"\xF7\xBF\xBF\xBF\"", MOSQ_ERR_MALFORMED_UTF8);
 
 	/* 2.3  Other boundary conditions */
 
-	utf8_helper("2.3.1  U-0000D7FF = ed 9f bf = \"Ìüø\"", MOSQ_ERR_SUCCESS);
-	utf8_helper("2.3.2  U-0000E000 = ee 80 80 = \"ÓÄÄ\"", MOSQ_ERR_SUCCESS);
-	utf8_helper("2.3.3  U-0000FFFD = ef bf bd = \"ÔøΩ\"", MOSQ_ERR_SUCCESS);
+	utf8_helper("2.3.1  U-0000D7FF = ed 9f bf = \"\xED\x9F\xBF\"", MOSQ_ERR_SUCCESS);
+	utf8_helper("2.3.2  U-0000E000 = ee 80 80 = \"\xEE\x80\x80\"", MOSQ_ERR_SUCCESS);
+	utf8_helper("2.3.3  U-0000FFFD = ef bf bd = \"\xEF\xBF\xBD\"", MOSQ_ERR_SUCCESS);
 	/* Non character */
-	utf8_helper("2.3.4  U-0010FFFF = f4 8f bf bf = \"Ùèøø\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("2.3.4  U-0010FFFF = f4 8f bf bf = \"\xF4\x8F\xBF\xBF\"", MOSQ_ERR_MALFORMED_UTF8);
 	/* This used to be valid in pre-2003 utf-8 */
-	utf8_helper("2.3.5  U-00110000 = f4 90 80 80 = \"ÙêÄÄ\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("2.3.5  U-00110000 = f4 90 80 80 = \"\xF4\x90\x80\x80\"", MOSQ_ERR_MALFORMED_UTF8);
 }
 
 
@@ -87,14 +90,14 @@ static void TEST_utf8_malformed_sequences(void)
 	int i;
 	/* 3  Malformed sequences */
 	/* 3.1  Unexpected continuation bytes */
-	utf8_helper("3.1.1  First continuation byte 0x80: \"Ä\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("3.1.2  Last  continuation byte 0xbf: \"ø\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("3.1.3  2 continuation bytes: \"Äø\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("3.1.4  3 continuation bytes: \"ÄøÄ\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("3.1.5  4 continuation bytes: \"ÄøÄø\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("3.1.6  5 continuation bytes: \"ÄøÄøÄ\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("3.1.7  6 continuation bytes: \"ÄøÄøÄø\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("3.1.8  7 continuation bytes: \"ÄøÄøÄøÄ\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("3.1.1  First continuation byte 0x80: \"\x80\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("3.1.2  Last  continuation byte 0xbf: \"\xBF\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("3.1.3  2 continuation bytes: \"\x80\xBF\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("3.1.4  3 continuation bytes: \"\x80\xBF\x80\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("3.1.5  4 continuation bytes: \"\x80\xBF\x80\xBF\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("3.1.6  5 continuation bytes: \"\x80\xBF\x80\xBF\x80\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("3.1.7  6 continuation bytes: \"\x80\xBF\x80\xBF\x80\xBF\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("3.1.8  7 continuation bytes: \"\x80\xBF\x80\xBF\x80\xBF\x80\"", MOSQ_ERR_MALFORMED_UTF8);
 
 	/* 3.1.9  Sequence of all 64 possible continuation bytes (0x80-0xbf): */
 	memset(buf, 0, sizeof(buf));
@@ -123,8 +126,7 @@ static void TEST_utf8_malformed_sequences(void)
 	/* 3.2  Lonely start characters */
 
 	/* 3.2.1  All 32 first bytes of 2-byte sequences (0xc0-0xdf),
-       each followed by a space character: */
-	utf8_helper("¿ ¡ ¬ √ ƒ ≈ ∆ « » …   À Ã Õ Œ œ – — “ ” ‘ ’ ÷ ◊ ÿ Ÿ ⁄ € ‹ › ﬁ ﬂ ", MOSQ_ERR_MALFORMED_UTF8);
+	   each followed by a space character: */
 	for(i=0xC0; i<0xE0; i++){
 		buf[0] = (uint8_t)i;
 		buf[1] = ' ';
@@ -133,8 +135,7 @@ static void TEST_utf8_malformed_sequences(void)
 	}
 
 	/* 3.2.2  All 16 first bytes of 3-byte sequences (0xe0-0xef),
-       each followed by a space character: */
-	utf8_helper("\"‡ · ‚ „ ‰ Â Ê Á Ë È Í Î Ï Ì Ó Ô \"", MOSQ_ERR_MALFORMED_UTF8);
+	   each followed by a space character: */
 	for(i=0xe0; i<0xf0; i++){
 		buf[0] = (uint8_t)i;
 		buf[1] = ' ';
@@ -143,8 +144,7 @@ static void TEST_utf8_malformed_sequences(void)
 	}
 
 	/* 3.2.3  All 8 first bytes of 4-byte sequences (0xf0-0xf7),
-       each followed by a space character: */
-	utf8_helper("\" Ò Ú Û Ù ı ˆ ˜ \"", MOSQ_ERR_MALFORMED_UTF8);
+	   each followed by a space character: */
 	for(i=0xF0; i<0xF8; i++){
 		buf[0] = (uint8_t)i;
 		buf[1] = ' ';
@@ -153,8 +153,7 @@ static void TEST_utf8_malformed_sequences(void)
 	}
 
 	/* 3.2.4  All 4 first bytes of 5-byte sequences (0xf8-0xfb),
-       each followed by a space character: */
-	utf8_helper("\"¯ ˘ ˙ ˚ \"", MOSQ_ERR_MALFORMED_UTF8);
+	   each followed by a space character: */
 	for(i=0xF8; i<0xFC; i++){
 		buf[0] = (uint8_t)i;
 		buf[1] = ' ';
@@ -163,10 +162,7 @@ static void TEST_utf8_malformed_sequences(void)
 	}
 
 	/* 3.2.5  All 2 first bytes of 6-byte sequences (0xfc-0xfd),
-       each followed by a space character: */
-	utf8_helper("\"¸ ˝ \"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("¸ ", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("˝ ", MOSQ_ERR_MALFORMED_UTF8);
+	   each followed by a space character: */
 	for(i=0xFC; i<0xFE; i++){
 		buf[0] = (uint8_t)i;
 		buf[1] = ' ';
@@ -180,32 +176,33 @@ static void TEST_utf8_malformed_sequences(void)
 	malformed sequence, i.e., you should see only a single replacement
 	character in each of the next 10 tests. (Characters as in section 2) */
 
-	utf8_helper("3.3.1  2-byte sequence with last byte missing (U+0000):     \"¿\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("3.3.2  3-byte sequence with last byte missing (U+0000):     \"‡Ä\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("3.3.3  4-byte sequence with last byte missing (U+0000):     \"ÄÄ\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("3.3.4  5-byte sequence with last byte missing (U+0000):     \"¯ÄÄÄ\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("3.3.5  6-byte sequence with last byte missing (U+0000):     \"¸ÄÄÄÄ\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("3.3.6  2-byte sequence with last byte missing (U-000007FF): \"ﬂ\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("3.3.7  3-byte sequence with last byte missing (U-0000FFFF): \"Ôø\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("3.3.8  4-byte sequence with last byte missing (U-001FFFFF): \"˜øø\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("3.3.9  5-byte sequence with last byte missing (U-03FFFFFF): \"˚øøø\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("3.3.10 6-byte sequence with last byte missing (U-7FFFFFFF): \"˝øøøø\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("3.3.1  2-byte sequence with last byte missing (U+0000):     \"\xC0\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("3.3.2  3-byte sequence with last byte missing (U+0000):     \"\xE0\x80\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("3.3.3  4-byte sequence with last byte missing (U+0000):     \"\xF0\x80\x80\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("3.3.4  5-byte sequence with last byte missing (U+0000):     \"\xF8\x80\x80\x80\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("3.3.5  6-byte sequence with last byte missing (U+0000):     \"\xFC\x80\x80\x80\x80\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("3.3.6  2-byte sequence with last byte missing (U-000007FF): \"\xDF\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("3.3.7  3-byte sequence with last byte missing (U-0000FFFF): \"\xEF\xBF\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("3.3.8  4-byte sequence with last byte missing (U-001FFFFF): \"\xF7\xBF\xBF\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("3.3.9  5-byte sequence with last byte missing (U-03FFFFFF): \"\xFB\xBF\xBF\xBF\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("3.3.10 6-byte sequence with last byte missing (U-7FFFFFFF): \"\xFD\xBF\xBF\xBF\xBF\"", MOSQ_ERR_MALFORMED_UTF8);
 
 	/* 3.4  Concatenation of incomplete sequences
 
 		All the 10 sequences of 3.3 concatenated, you should see 10 malformed
 		sequences being signalled:*/
 
-	utf8_helper("\"¿‡ÄÄÄ¯ÄÄÄ¸ÄÄÄÄﬂÔø˜øø˚øøø˝øøøø\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\"\xC0\xE0\x80\xF0\x80\x80\xF8\x80\x80\x80\xFC\x80\x80\x80\x80\xDF\xEF\xBF\xF7\xBF\xBF\xFB\xBF\xBF\xBF\xFD\xBF\xBF\xBF\xBF\"", MOSQ_ERR_MALFORMED_UTF8);
 
 	/* 3.5  Impossible bytes
 
 		The following two bytes cannot appear in a correct UTF-8 string */
 
-	utf8_helper("3.5.1  fe = \"˛\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("3.5.2  ff = \"ˇ\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("3.5.3  fe fe ff ff = \"˛˛ˇˇ\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("3.5.1  fe = \"\xFE\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("3.5.2  ff = \"\xFF\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("3.5.3  fe fe ff ff = \"\xFE\xFE\xFF\xFF\"", MOSQ_ERR_MALFORMED_UTF8);
 }
+
 
 static void TEST_utf8_overlong_encoding(void)
 {
@@ -237,11 +234,11 @@ static void TEST_utf8_overlong_encoding(void)
 		a replacement character. If you see a slash below, you do not have a
 		safe UTF-8 decoder! */
 
-	utf8_helper("4.1.1 U+002F = c0 af             = \"¿Ø\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("4.1.2 U+002F = e0 80 af          = \"‡ÄØ\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("4.1.3 U+002F = f0 80 80 af       = \"ÄÄØ\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("4.1.4 U+002F = f8 80 80 80 af    = \"¯ÄÄÄØ\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("4.1.5 U+002F = fc 80 80 80 80 af = \"¸ÄÄÄÄØ\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("4.1.1 U+002F = c0 af             = \"\xC0\xAF\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("4.1.2 U+002F = e0 80 af          = \"\xE0\x80\xAF\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("4.1.3 U+002F = f0 80 80 af       = \"\xF0\x80\x80\xAF\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("4.1.4 U+002F = f8 80 80 80 af    = \"\xF8\x80\x80\x80\xAF\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("4.1.5 U+002F = fc 80 80 80 80 af = \"\xFC\x80\x80\x80\x80\xAF\"", MOSQ_ERR_MALFORMED_UTF8);
 
 	/* 4.2  Maximum overlong sequences
 
@@ -250,11 +247,11 @@ static void TEST_utf8_overlong_encoding(void)
 		is a boundary test for safe UTF-8 decoders. All five characters should
 		be rejected like malformed UTF-8 sequences. */
 
-	utf8_helper("4.2.1  U-0000007F = c1 bf             = \"¡ø\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("4.2.2  U-000007FF = e0 9f bf          = \"‡üø\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("4.2.3  U-0000FFFF = f0 8f bf bf       = \"èøø\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("4.2.4  U-001FFFFF = f8 87 bf bf bf    = \"¯áøøø\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("4.2.5  U-03FFFFFF = fc 83 bf bf bf bf = \"¸Éøøøø\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("4.2.1  U-0000007F = c1 bf             = \"\xC1\xBF\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("4.2.2  U-000007FF = e0 9f bf          = \"\xE0\x9F\xBF\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("4.2.3  U-0000FFFF = f0 8f bf bf       = \"\xF0\x8F\xBF\xBF\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("4.2.4  U-001FFFFF = f8 87 bf bf bf    = \"\xF8\x87\xBF\xBF\xBF\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("4.2.5  U-03FFFFFF = fc 83 bf bf bf bf = \"\xFC\x83\xBF\xBF\xBF\xBF\"", MOSQ_ERR_MALFORMED_UTF8);
 
 	/* 4.3  Overlong representation of the NUL character
 
@@ -262,11 +259,11 @@ static void TEST_utf8_overlong_encoding(void)
 		UTF-8 sequences and should not be treated like the ASCII NUL
 		character. */
 
-	utf8_helper("4.3.1  U+0000 = c0 80             = \"¿Ä\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("4.3.2  U+0000 = e0 80 80          = \"‡ÄÄ\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("4.3.3  U+0000 = f0 80 80 80       = \"ÄÄÄ\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("4.3.4  U+0000 = f8 80 80 80 80    = \"¯ÄÄÄÄ\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("4.3.5  U+0000 = fc 80 80 80 80 80 = \"¸ÄÄÄÄÄ\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("4.3.1  U+0000 = c0 80             = \"\xC0\x80\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("4.3.2  U+0000 = e0 80 80          = \"\xE0\x80\x80\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("4.3.3  U+0000 = f0 80 80 80       = \"\xF0\x80\x80\x80\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("4.3.4  U+0000 = f8 80 80 80 80    = \"\xF8\x80\x80\x80\x80\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("4.3.5  U+0000 = fc 80 80 80 80 80 = \"\xFC\x80\x80\x80\x80\x80\"", MOSQ_ERR_MALFORMED_UTF8);
 }
 
 
@@ -281,24 +278,24 @@ static void TEST_utf8_illegal_code_positions(void)
 
 	/* 5.1 Single UTF-16 surrogates */
 
-	utf8_helper("5.1.1  U+D800 = ed a0 80 = \"Ì†Ä\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("5.1.2  U+DB7F = ed ad bf = \"Ì≠ø\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("5.1.3  U+DB80 = ed ae 80 = \"ÌÆÄ\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("5.1.4  U+DBFF = ed af bf = \"ÌØø\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("5.1.5  U+DC00 = ed b0 80 = \"Ì∞Ä\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("5.1.6  U+DF80 = ed be 80 = \"ÌæÄ\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("5.1.7  U+DFFF = ed bf bf = \"Ìøø\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("5.1.1  U+D800 = ed a0 80 = \"\xED\xA0\x80\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("5.1.2  U+DB7F = ed ad bf = \"\xED\xAD\xBF\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("5.1.3  U+DB80 = ed ae 80 = \"\xED\xAE\x80\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("5.1.4  U+DBFF = ed af bf = \"\xED\xAF\xBF\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("5.1.5  U+DC00 = ed b0 80 = \"\xED\xB0\x80\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("5.1.6  U+DF80 = ed be 80 = \"\xED\xBE\x80\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("5.1.7  U+DFFF = ed bf bf = \"\xED\xBF\xBF\"", MOSQ_ERR_MALFORMED_UTF8);
 
 	/* 5.2 Paired UTF-16 surrogates */
 
-	utf8_helper("5.2.1  U+D800 U+DC00 = ed a0 80 ed b0 80 = \"Ì†ÄÌ∞Ä\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("5.2.2  U+D800 U+DFFF = ed a0 80 ed bf bf = \"Ì†ÄÌøø\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("5.2.3  U+DB7F U+DC00 = ed ad bf ed b0 80 = \"Ì≠øÌ∞Ä\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("5.2.4  U+DB7F U+DFFF = ed ad bf ed bf bf = \"Ì≠øÌøø\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("5.2.5  U+DB80 U+DC00 = ed ae 80 ed b0 80 = \"ÌÆÄÌ∞Ä\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("5.2.6  U+DB80 U+DFFF = ed ae 80 ed bf bf = \"ÌÆÄÌøø\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("5.2.7  U+DBFF U+DC00 = ed af bf ed b0 80 = \"ÌØøÌ∞Ä\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("5.2.8  U+DBFF U+DFFF = ed af bf ed bf bf = \"ÌØøÌøø\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("5.2.1  U+D800 U+DC00 = ed a0 80 ed b0 80 = \"\xED\xA0\x80\xED\xB0\x80\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("5.2.2  U+D800 U+DFFF = ed a0 80 ed bf bf = \"\xED\xA0\x80\xED\xBF\xBF\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("5.2.3  U+DB7F U+DC00 = ed ad bf ed b0 80 = \"\xED\xAD\xBF\xED\xB0\x80\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("5.2.4  U+DB7F U+DFFF = ed ad bf ed bf bf = \"\xED\xAD\xBF\xED\xBF\xBF\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("5.2.5  U+DB80 U+DC00 = ed ae 80 ed b0 80 = \"\xED\xAE\x80\xED\xB0\x80\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("5.2.6  U+DB80 U+DFFF = ed ae 80 ed bf bf = \"\xED\xAE\x80\xED\xBF\xBF\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("5.2.7  U+DBFF U+DC00 = ed af bf ed b0 80 = \"\xED\xAF\xBF\xED\xB0\x80\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("5.2.8  U+DBFF U+DFFF = ed af bf ed bf bf = \"\xED\xAF\xBF\xED\xBF\xBF\"", MOSQ_ERR_MALFORMED_UTF8);
 
 	/* 5.3 Noncharacter code positions
 
@@ -321,80 +318,79 @@ static void TEST_utf8_illegal_code_positions(void)
 		behaviour in subsequent processing.
 
 		Particularly problematic noncharacters in 16-bit applications: */
-	utf8_helper("5.3.1  U+FFFE = ef bf be = \"Ôøæ\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("5.3.2  U+FFFF = ef bf bf = \"Ôøø\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("5.3.1  U+FFFE = ef bf be = \"\xEF\xBF\xBE\"", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("5.3.2  U+FFFF = ef bf bf = \"\xEF\xBF\xBF\"", MOSQ_ERR_MALFORMED_UTF8);
 
 	/* Other noncharacters: */
 
 	/* FIXME - these need splitting up into separate tests. */
-	utf8_helper("5.3.3  U+FDD0 .. U+FDEF = \"Ô∑êÔ∑ëÔ∑íÔ∑ìÔ∑îÔ∑ïÔ∑ñÔ∑óÔ∑òÔ∑ôÔ∑öÔ∑õÔ∑úÔ∑ùÔ∑ûÔ∑üÔ∑†Ô∑°Ô∑¢Ô∑£Ô∑§Ô∑•Ô∑¶Ô∑ßÔ∑®Ô∑©Ô∑™Ô∑´Ô∑¨Ô∑≠Ô∑ÆÔ∑Ø\"", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑ê", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑ë", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑í", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑ì", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑î", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑ï", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑ñ", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑ó", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑ò", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑ô", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑ö", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑õ", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑ú", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑ù", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑û", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑ü", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑†", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑°", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑¢", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑£", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑§", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑•", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑¶", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑ß", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑®", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑©", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑™", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑´", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑¨", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑≠", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑Æ", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ô∑Ø", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\x90", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\x91", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\x92", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\x93", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\x94", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\x95", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\x96", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\x97", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\x98", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\x99", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\x9A", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\x9B", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\x9C", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\x9D", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\x9E", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\x9F", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\xA0", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\xA1", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\xA2", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\xA3", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\xA4", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\xA5", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\xA6", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\xA7", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\xA8", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\xA9", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\xAA", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\xAB", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\xAC", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\xAD", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\xAE", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xEF\xB7\xAF", MOSQ_ERR_MALFORMED_UTF8);
 
 	/* 5.3.4  U+nFFFE U+nFFFF (for n = 1..10) */
 
-	utf8_helper("üøæ", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("üøø", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Øøæ", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Øøø", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("øøæ", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("øøø", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Òèøæ", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Òèøø", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Òüøæ", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Òüøø", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("ÒØøæ", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("ÒØøø", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Òøøæ", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Òøøø", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Úèøæ", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Úèøø", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Úüøæ", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Úüøø", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("ÚØøæ", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("ÚØøø", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Úøøæ", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Úøøø", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ûèøæ", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ûèøø", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ûüøæ", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ûüøø", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("ÛØøæ", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("ÛØøø", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ûøøæ", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ûøøø", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ùèøæ", MOSQ_ERR_MALFORMED_UTF8);
-	utf8_helper("Ùèøø", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF0\x9F\xBF\xBE", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF0\x9F\xBF\xBF", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF0\xAF\xBF\xBE", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF0\xAF\xBF\xBF", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF0\xBF\xBF\xBE", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF0\xBF\xBF\xBF", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF1\x8F\xBF\xBE", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF1\x8F\xBF\xBF", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF1\x9F\xBF\xBE", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF1\x9F\xBF\xBF", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF1\xAF\xBF\xBE", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF1\xAF\xBF\xBF", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF1\xBF\xBF\xBE", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF1\xBF\xBF\xBF", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF2\x8F\xBF\xBE", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF2\x8F\xBF\xBF", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF2\x9F\xBF\xBE", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF2\x9F\xBF\xBF", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF2\xAF\xBF\xBE", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF2\xAF\xBF\xBF", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF2\xBF\xBF\xBE", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF2\xBF\xBF\xBF", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF3\x8F\xBF\xBE", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF3\x8F\xBF\xBF", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF3\x9F\xBF\xBE", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF3\x9F\xBF\xBF", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF3\xAF\xBF\xBE", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF3\xAF\xBF\xBF", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF3\xBF\xBF\xBE", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF3\xBF\xBF\xBF", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF4\x8F\xBF\xBE", MOSQ_ERR_MALFORMED_UTF8);
+	utf8_helper("\xF4\x8F\xBF\xBF", MOSQ_ERR_MALFORMED_UTF8);
 }
 
 
@@ -449,6 +445,7 @@ static void TEST_utf8_mqtt_1_5_4_3(void)
  * TEST SUITE SETUP
  * ======================================================================== */
 
+
 int init_utf8_tests(void)
 {
 	CU_pSuite test_suite = NULL;
@@ -478,5 +475,3 @@ int init_utf8_tests(void)
 
 	return 0;
 }
-
-

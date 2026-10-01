@@ -28,11 +28,12 @@ SERVICE_STATUS_HANDLE service_handle = 0;
 static SERVICE_STATUS service_status;
 int main(int argc, char *argv[]);
 
-static char* fix_name(char* name)
+
+static char *fix_name(char *name)
 {
 	size_t len;
 
-	if (strrchr(name, '\\')) {
+	if(strrchr(name, '\\')){
 		name = strrchr(name, '\\') + 1;
 	}
 	len = strlen(name);
@@ -43,12 +44,13 @@ static char* fix_name(char* name)
 	return name;
 }
 
+
 static void print_error(void)
 {
 	char *buf = NULL;
 
 	FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM,
-		NULL, GetLastError(), LANG_NEUTRAL, (LPTSTR)&buf, 0, NULL);
+			NULL, GetLastError(), LANG_NEUTRAL, (LPTSTR)&buf, 0, NULL);
 
 	fprintf(stderr, "Error: %s\n", buf);
 	LocalFree(buf);
@@ -66,7 +68,7 @@ void __stdcall service_handler(DWORD fdwControl)
 			/* Pause service. */
 			break;
 		case SERVICE_CONTROL_SHUTDOWN:
-			/* System is shutting down. */
+		/* System is shutting down. */
 		case SERVICE_CONTROL_STOP:
 			/* Service should stop. */
 			service_status.dwCurrentState = SERVICE_STOP_PENDING;
@@ -75,6 +77,7 @@ void __stdcall service_handler(DWORD fdwControl)
 			break;
 	}
 }
+
 
 /* Function called when started as a service. */
 void __stdcall service_main(DWORD dwArgc, LPTSTR *lpszArgv)
@@ -90,8 +93,8 @@ void __stdcall service_main(DWORD dwArgc, LPTSTR *lpszArgv)
 
 	name = fix_name(lpszArgv[0]);
 	snprintf(env_name, sizeof(env_name), "%s_DIR", name);
-	for(int i=0; i<strlen(env_name); i++) {
-		if(env_name[i]>='A' && env_name[i]<='Z') {
+	for(int i=0; i<strlen(env_name); i++){
+		if(env_name[i]>='A' && env_name[i]<='Z'){
 			/* Keep upper case letter */
 		}else if(env_name[i]>='0' && env_name[i]<='9'){
 			/* Keep number */
@@ -135,7 +138,8 @@ void __stdcall service_main(DWORD dwArgc, LPTSTR *lpszArgv)
 	}
 }
 
-void service_install(char* name)
+
+void service_install(char *name)
 {
 	SC_HANDLE sc_manager, svc_handle;
 	char service_string[MAX_PATH + 20];
@@ -154,7 +158,7 @@ void service_install(char* name)
 
 	sc_manager = OpenSCManager(NULL, NULL, SC_MANAGER_CREATE_SERVICE);
 	if(sc_manager){
-		if (!strcmp(name, "mosquitto")) {
+		if(!strcmp(name, "mosquitto")){
 			snprintf(display_name, sizeof(display_name), "Mosquitto Broker");
 		}else{
 			snprintf(display_name, sizeof(display_name), "Mosquitto Broker (%s.exe)", name);
@@ -174,10 +178,11 @@ void service_install(char* name)
 			print_error();
 		}
 		CloseServiceHandle(sc_manager);
-	} else {
+	}else{
 		print_error();
 	}
 }
+
 
 void service_uninstall(char *name)
 {
@@ -204,6 +209,7 @@ void service_uninstall(char *name)
 		print_error();
 	}
 }
+
 
 void service_run(char *name)
 {

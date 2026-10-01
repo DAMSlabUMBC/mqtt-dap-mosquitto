@@ -6,21 +6,14 @@
 
 #ifdef __APPLE__
 #  define __DARWIN_C_SOURCE
-#elif defined(__FreeBSD__) || defined(__NetBSD__) || defined(__SYMBIAN32__)
+#elif defined(__FreeBSD__) || defined(__NetBSD__)
 #  define HAVE_NETINET_IN_H
 #elif defined(__QNX__)
 #  define _XOPEN_SOURCE 600
 #  define __BSD_VISIBLE 1
 #  define HAVE_NETINET_IN_H
-#else
-#  define _XOPEN_SOURCE 700
-#  define _DEFAULT_SOURCE 1
-#  define _POSIX_C_SOURCE 200809L
-#endif
-
-
-#ifndef _GNU_SOURCE
-#  define _GNU_SOURCE
+#elif defined(_AIX)
+#  define HAVE_NETINET_IN_H
 #endif
 
 #define OPENSSL_LOAD_CONF
@@ -56,7 +49,7 @@ typedef SSIZE_T ssize_t;
 
 
 #define uthash_malloc(sz) mosquitto_malloc(sz)
-#define uthash_free(ptr,sz) mosquitto_free(ptr)
+#define uthash_free(ptr, sz) mosquitto_free(ptr)
 
 
 #ifdef WITH_TLS
@@ -99,4 +92,7 @@ typedef SSIZE_T ssize_t;
 
 #define TOPIC_HIERARCHY_LIMIT 200
 
+#ifdef WITH_ADNS
+#  define _GNU_SOURCE
+#endif
 #endif

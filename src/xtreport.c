@@ -64,6 +64,7 @@ static void client_cost(FILE *fptr, struct mosquitto *context, int fn_index)
 			);
 }
 
+
 static void report_subscriptions(FILE *fptr, struct mosquitto *context, int *fn_index_max)
 {
 	for(int i=0; i<context->subs_count; i++){
@@ -118,7 +119,9 @@ void xtreport(void)
 	snprintf(filename, 40, "/tmp/xtmosquitto.kcg.%d.%d", pid, iter);
 	iter++;
 	fptr = fopen(filename, "wt");
-	if(fptr == NULL) return;
+	if(fptr == NULL){
+		return;
+	}
 
 	fprintf(fptr, "# callgrind format\n");
 	fprintf(fptr, "version: 1\n");

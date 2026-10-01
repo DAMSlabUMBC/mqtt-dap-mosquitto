@@ -33,18 +33,18 @@ Contributors:
 #ifdef WIN32
 #  include <windows.h>
 #  include <process.h>
-#	ifndef __cplusplus
-#		if defined(_MSC_VER) && _MSC_VER < 1900
-#			define bool char
-#			define true 1
-#			define false 0
-#		else
-#			include <stdbool.h>
-#		endif
-#	endif
+#   ifndef __cplusplus
+#       if defined(_MSC_VER) && _MSC_VER < 1900
+#           define bool char
+#           define true 1
+#           define false 0
+#       else
+#           include <stdbool.h>
+#       endif
+#   endif
 #   define snprintf sprintf_s
-#	include <io.h>
-#	include <windows.h>
+#   include <io.h>
+#   include <windows.h>
 #else
 #  include <stdbool.h>
 #  include <unistd.h>
@@ -62,9 +62,11 @@ struct cb_helper {
 	bool found;
 };
 
-static enum mosquitto_pwhash_type hashtype = MOSQ_PW_ARGON2ID;
+static enum mosquitto_pwhash_type hashtype = MOSQ_PW_SHA512_PBKDF2;
 
 #ifdef WIN32
+
+
 static FILE *mpw_tmpfile(void)
 {
 	return tmpfile();
@@ -74,6 +76,8 @@ static FILE *mpw_tmpfile(void)
 static char unsigned alphanum[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
 
 static unsigned char tmpfile_path[36];
+
+
 static FILE *mpw_tmpfile(void)
 {
 	int fd;
@@ -96,28 +100,32 @@ static FILE *mpw_tmpfile(void)
 
 	umask(077);
 	fd = mkstemp((char *)tmpfile_path);
-	if(fd < 0) return NULL;
+	if(fd < 0){
+		return NULL;
+	}
 	unlink((char *)tmpfile_path);
 
 	return fdopen(fd, "w+");
 }
 #endif
 
+
 static void print_usage(void)
 {
 	printf("mosquitto_passwd is a tool for managing password files for mosquitto.\n\n");
-	printf("Usage: mosquitto_passwd [-H argon2 | -H sha512-pbkdf2] [-c | -D] passwordfile username\n");
-	printf("       mosquitto_passwd [-H argon2 | -H sha512-pbkdf2] [-c] -b passwordfile username password\n");
+	printf("Usage: mosquitto_passwd [-H argon2id | -H sha512-pbkdf2] [-c | -D] passwordfile username\n");
+	printf("       mosquitto_passwd [-H argon2id | -H sha512-pbkdf2] [-c] -b passwordfile username password\n");
 	printf("       mosquitto_passwd -U passwordfile\n");
 	printf(" -b : run in batch mode to allow passing passwords on the command line.\n");
 	printf(" -c : create a new password file. This will overwrite existing files.\n");
 	printf(" -D : delete the username rather than adding/updating its password.\n");
-	printf(" -H : specify the hashing algorithm. Defaults to argon2, which is recommended.\n");
+	printf(" -H : specify the hashing algorithm. Defaults to argon2id, which is recommended.\n");
 	printf("      Mosquitto 2.0 and earlier defaulted to sha512-pbkdf2.\n");
 	printf("      Mosquitto 1.6 and earlier defaulted to sha512.\n");
 	printf(" -U : update a plain text password file to use hashed passwords.\n");
 	printf("\nSee https://mosquitto.org/ for more information.\n\n");
 }
+
 
 static int output_new_password(FILE *fptr, const char *username, const char *password, int iterations)
 {
@@ -236,6 +244,7 @@ static int delete_pwuser_cb(FILE *fptr, FILE *ftmp, const char *username, const 
 	return 0;
 }
 
+
 static int delete_pwuser(FILE *fptr, FILE *ftmp, const char *username)
 {
 	struct cb_helper helper;
@@ -253,7 +262,6 @@ static int delete_pwuser(FILE *fptr, FILE *ftmp, const char *username)
 }
 
 
-
 /* ======================================================================
  * Update a plain text password file to use hashes
  * ====================================================================== */
@@ -268,6 +276,7 @@ static int update_file_cb(FILE *fptr, FILE *ftmp, const char *username, const ch
 		return output_new_password(ftmp, username, password, -1);
 	}
 }
+
 
 static int update_file(FILE *fptr, FILE *ftmp)
 {
@@ -285,7 +294,7 @@ static int update_pwuser_cb(FILE *fptr, FILE *ftmp, const char *username, const 
 	UNUSED(fptr);
 	UNUSED(password);
 
-	if(strcmp(username, helper->username)){
+	if(helper->found || strcmp(username, helper->username)){
 		/* If this isn't the matching user, then writing out the exiting line */
 		fprintf(ftmp, "%s", line);
 	}else{
@@ -295,6 +304,7 @@ static int update_pwuser_cb(FILE *fptr, FILE *ftmp, const char *username, const 
 	}
 	return rc;
 }
+
 
 static int update_pwuser(FILE *fptr, FILE *ftmp, const char *username, const char *password, int iterations)
 {
@@ -328,7 +338,9 @@ static int copy_contents(FILE *src, FILE *dest)
 #ifdef WIN32
 	_chsize(fileno(dest), 0);
 #else
-	if(ftruncate(fileno(dest), 0)) return 1;
+	if(ftruncate(fileno(dest), 0)){
+		return 1;
+	}
 #endif
 
 	while(!feof(src)){
@@ -344,6 +356,7 @@ static int copy_contents(FILE *src, FILE *dest)
 	return 0;
 }
 
+
 static int create_backup(char *backup_file, FILE *fptr)
 {
 	FILE *fbackup;
@@ -354,6 +367,10 @@ static int create_backup(char *backup_file, FILE *fptr)
 	int fd;
 	umask(077);
 	fd = mkstemp(backup_file);
+	if(fd < 0){
+		fprintf(stderr, "Error creating backup password file \"%s\", not continuing.\n", backup_file);
+		return 1;
+	}
 	fbackup = fdopen(fd, "wt");
 #endif
 	if(!fbackup){
@@ -370,6 +387,7 @@ static int create_backup(char *backup_file, FILE *fptr)
 	rewind(fptr);
 	return 0;
 }
+
 
 static void handle_sigint(int signal)
 {
@@ -395,7 +413,7 @@ static bool is_username_valid(const char *username)
 			return false;
 		}
 		for(i=0; i<slen; i++){
-			if(iscntrl(username[i])){
+			if(iscntrl((unsigned char)username[i])){
 				fprintf(stderr, "Error: Username must not contain control characters.\n");
 				return false;
 			}
@@ -409,8 +427,12 @@ static bool is_username_valid(const char *username)
 }
 
 #ifdef WITH_FUZZING
+
+
 int mosquitto_passwd_fuzz_main(int argc, char *argv[])
 #else
+
+
 int main(int argc, char *argv[])
 #endif
 {
@@ -421,6 +443,7 @@ int main(int argc, char *argv[])
 	bool batch_mode = false;
 	bool create_new = false;
 	bool delete_user = false;
+	bool use_stdout = false;
 	FILE *fptr, *ftmp;
 	char password[MAX_BUFFER_LEN];
 	int rc;
@@ -510,7 +533,11 @@ int main(int argc, char *argv[])
 				fprintf(stderr, "Error: -c argument given but password file, username, or password missing.\n");
 				return 1;
 			}else{
-				password_file_tmp = argv[idx];
+				if(!strcmp(argv[idx], "-")){
+					use_stdout = true;
+				}else{
+					password_file_tmp = argv[idx];
+				}
 				username = argv[idx+1];
 				password_cmd = argv[idx+2];
 			}
@@ -519,7 +546,11 @@ int main(int argc, char *argv[])
 				fprintf(stderr, "Error: -c argument given but password file or username missing.\n");
 				return 1;
 			}else{
-				password_file_tmp = argv[idx];
+				if(!strcmp(argv[idx], "-")){
+					use_stdout = true;
+				}else{
+					password_file_tmp = argv[idx];
+				}
 				username = argv[idx+1];
 			}
 		}
@@ -558,27 +589,29 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
+	if(!use_stdout){
 #ifdef WIN32
-	password_file = _fullpath(NULL, password_file_tmp, 0);
-	if(!password_file){
-		fprintf(stderr, "Error getting full path for password file.\n");
-		return 1;
-	}
-#else
-	password_file = realpath(password_file_tmp, NULL);
-	if(!password_file){
-		if(errno == ENOENT){
-			password_file = strdup(password_file_tmp);
-			if(!password_file){
-				fprintf(stderr, "Error: Out of memory.\n");
-				return 1;
-			}
-		}else{
-			fprintf(stderr, "Error reading password file: %s\n", strerror(errno));
+		password_file = _fullpath(NULL, password_file_tmp, 0);
+		if(!password_file){
+			fprintf(stderr, "Error getting full path for password file.\n");
 			return 1;
 		}
-	}
+#else
+		password_file = realpath(password_file_tmp, NULL);
+		if(!password_file){
+			if(errno == ENOENT){
+				password_file = strdup(password_file_tmp);
+				if(!password_file){
+					fprintf(stderr, "Error: Out of memory.\n");
+					return 1;
+				}
+			}else{
+				fprintf(stderr, "Error reading password file: %s\n", strerror(errno));
+				return 1;
+			}
+		}
 #endif
+	}
 
 	if(create_new){
 		if(batch_mode == false){
@@ -589,14 +622,20 @@ int main(int argc, char *argv[])
 			}
 			password_cmd = password;
 		}
-		fptr = mosquitto_fopen(password_file, "wt", true);
-		if(!fptr){
-			fprintf(stderr, "Error: Unable to open file %s for writing. %s.\n", password_file, strerror(errno));
+		if(use_stdout){
+			fptr = stdout;
+		}else{
+			fptr = mosquitto_fopen(password_file, "wt", true);
+			if(!fptr){
+				fprintf(stderr, "Error: Unable to open file %s for writing. %s.\n", password_file, strerror(errno));
+				free(password_file);
+				return 1;
+			}
 			free(password_file);
-			return 1;
 		}
-		free(password_file);
-		printf("Adding password for user %s\n", username);
+		if(!use_stdout){
+			printf("Adding password for user %s\n", username);
+		}
 		rc = output_new_password(fptr, username, password_cmd, iterations);
 		fclose(fptr);
 		return rc;

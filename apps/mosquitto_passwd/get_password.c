@@ -27,8 +27,8 @@ Contributors:
 #  include <windows.h>
 #  include <process.h>
 #   define snprintf sprintf_s
-#	include <io.h>
-#	include <windows.h>
+#   include <io.h>
+#   include <windows.h>
 #else
 #  include <unistd.h>
 #  include <termios.h>
@@ -38,6 +38,7 @@ Contributors:
 #include "get_password.h"
 
 #define MAX_BUFFER_LEN 65500
+
 
 void get_password__reset_term(void)
 {
@@ -103,6 +104,7 @@ static int gets_quiet(char *s, int len)
 	return 0;
 #endif
 }
+
 
 int get_password(const char *prompt, const char *verify_prompt, bool quiet, char *password, size_t len)
 {

@@ -63,19 +63,21 @@ int http_c__context_init(struct mosquitto *context)
 	}
 
 	packet = mosquitto_calloc(1, sizeof(struct mosquitto__packet) + 1024 + WS_PACKET_OFFSET);
-	if(!packet) return MOSQ_ERR_NOMEM;
+	if(!packet){
+		return MOSQ_ERR_NOMEM;
+	}
 
 	path = context->wsd.http_path?context->wsd.http_path:"/mqtt";
 
 	packet->packet_length = (uint32_t )snprintf((char *)&packet->payload[WS_PACKET_OFFSET], 1024,
-        "GET %s HTTP/1.1\r\n"
-        "Host: %s\r\n"
-        "Upgrade: websocket\r\n"
-        "Connection: Upgrade\r\n"
-        "Sec-WebSocket-Key: %s\r\n"
-        "Sec-WebSocket-Protocol: mqtt\r\n"
-        "Sec-WebSocket-Version: 13\r\n"
-		"\r\n", path, context->host, key);
+			"GET %s HTTP/1.1\r\n"
+			"Host: %s\r\n"
+			"Upgrade: websocket\r\n"
+			"Connection: Upgrade\r\n"
+			"Sec-WebSocket-Key: %s\r\n"
+			"Sec-WebSocket-Protocol: mqtt\r\n"
+			"Sec-WebSocket-Version: 13\r\n"
+			"\r\n", path, context->host, key);
 	mosquitto_FREE(key);
 	packet->packet_length += WS_PACKET_OFFSET;
 	packet->to_process = packet->packet_length;
@@ -129,9 +131,7 @@ int http_c__read(struct mosquitto *mosq)
 		if(read_length == 0){
 			return MOSQ_ERR_CONN_LOST; /* EOF */
 		}
-#ifdef WIN32
-		errno = WSAGetLastError();
-#endif
+		WINDOWS_SET_ERRNO_RW();
 		if(errno == EAGAIN || errno == COMPAT_EWOULDBLOCK){
 			return MOSQ_ERR_SUCCESS;
 		}else{

@@ -27,6 +27,7 @@ Contributors:
 #include "lib_load.h"
 #include "utlist.h"
 
+
 static int plugin__basic_auth(struct mosquitto__security_options *opts, struct mosquitto *context)
 {
 	struct mosquitto_evt_basic_auth event_data;
@@ -88,7 +89,7 @@ int mosquitto_basic_auth(struct mosquitto *context)
 	if(plugin_used == false){
 		if((context->listener && context->listener->security_options->allow_anonymous == true)
 				|| (!db.config->per_listener_settings && db.config->security_options.allow_anonymous == true
-					&& context->listener && context->listener->security_options->allow_anonymous != false)){
+				&& context->listener && context->listener->security_options->allow_anonymous != false)){
 
 			return MOSQ_ERR_SUCCESS;
 		}else{
@@ -100,7 +101,7 @@ int mosquitto_basic_auth(struct mosquitto *context)
 		if(context->username == NULL &&
 				((context->listener && context->listener->security_options->allow_anonymous == true)
 				|| (!db.config->per_listener_settings && db.config->security_options.allow_anonymous == true
-					&& context->listener && context->listener->security_options->allow_anonymous != false))){
+				&& context->listener && context->listener->security_options->allow_anonymous != false))){
 
 			return MOSQ_ERR_SUCCESS;
 		}else{

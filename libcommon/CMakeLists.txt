@@ -39,6 +39,7 @@ target_include_directories(libmosquitto_common
 	PUBLIC
 		"${mosquitto_SOURCE_DIR}/"
 		"${mosquitto_SOURCE_DIR}/include"
+		"${CJSON_INCLUDE_DIRS}"
 )
 
 target_link_libraries(libmosquitto_common
@@ -77,4 +78,10 @@ set_target_properties(libmosquitto_common PROPERTIES
 	VERSION ${VERSION}
 	SOVERSION 1
 	POSITION_INDEPENDENT_CODE 1
+)
+
+install(TARGETS libmosquitto_common
+	RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+	ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+	LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
 )

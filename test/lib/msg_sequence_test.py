@@ -54,7 +54,7 @@ class MsgSequence(object):
         if default_connect:
             self.add_recv(mosq_test.gen_connect("fuzzish", proto_ver=proto_ver), "default connect")
         if default_connack:
-            properties = mqtt5_props.gen_uint16_prop(mqtt5_props.PROP_RECEIVE_MAXIMUM, 20)
+            properties = mqtt5_props.gen_uint16_prop(mqtt5_props.RECEIVE_MAXIMUM, 20)
             self.add_send(mosq_test.gen_connack(rc=0, proto_ver=proto_ver, properties=properties, property_helper=False), "default connack")
 
     def add_msg(self, message):
@@ -63,9 +63,9 @@ class MsgSequence(object):
         except KeyError:
             c = ""
         if message["type"] == "send":
-            self.add_send(bytes.fromhex(message["payload"].replace(" ", "")), c)
+            self.add_send(parse_message(message["payload"]), c)
         elif message["type"] == "recv":
-            self.add_recv(bytes.fromhex(message["payload"].replace(" ", "")), c)
+            self.add_recv(parse_message(message["payload"]), c)
         elif message["type"] == "publish":
             self.add_publish(message, c)
 
@@ -187,6 +187,57 @@ class MsgSequence(object):
             self._disconnected_check()
         else:
             self._connected_check()
+
+
+def parse_message(message):
+    b = bytes()
+    parts = message.split(" ")
+    for i in range(0, len(parts)):
+        if len(parts[i]) == 0:
+            continue
+        elif parts[i][0] in ['i']:
+            # General 8-bit unsigned decimal
+            b += int(parts[i][1:]).to_bytes(length=1, byteorder='big', signed=False)
+        elif parts[i][0] in ['H', 'k', 'm', 's']:
+            # General 16-bit unsigned decimal
+            # Or 'k' keepalive specific
+            # Or 'm' mid specific
+            # Or 's' string specific
+            b += int(parts[i][1:]).to_bytes(length=2, byteorder='big', signed=False)
+        elif parts[i][0] == "L":
+            # 32-bit unsigned decimal
+            b += int(parts[i][1:]).to_bytes(length=4, byteorder='big', signed=False)
+        elif parts[i][0] == "'":
+            s = parts[i][1:]
+            while s[-1] != "'" and i < len(parts)-1:
+                i += 1
+                s += " " + parts[i]
+            if s[-1] != "'":
+                raise ValueError(f"message {message} has incomplete string type")
+            b += bytes(s[0:-1].encode('utf-8'))
+        elif parts[i][0] in ['v', 'r']:
+            # General variable length integer
+            # Or 'r' remaining length
+            v = int(parts[i][1:])
+
+            # This allows non-compliant values >=2^28
+            while True:
+                byte = v % 128
+                v = v // 128
+
+                if v > 0:
+                    byte = byte | 0x80
+                b += byte.to_bytes(length=1, byteorder='big', signed=False)
+                if v == 0:
+                    break
+        else:
+            # hex
+            try:
+                b += bytes.fromhex(parts[i])
+            except ValueError:
+                raise ValueError(f"message {message} has invalid hex bytes")
+
+    return b
 
 
 def do_test(hostname, port):

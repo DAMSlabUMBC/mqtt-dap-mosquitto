@@ -5,6 +5,7 @@
 
 static int run = -1;
 
+
 static void on_connect(struct mosquitto *mosq, void *obj, int rc)
 {
 	int rc2;
@@ -22,6 +23,7 @@ static void on_connect(struct mosquitto *mosq, void *obj, int rc)
 	}
 }
 
+
 static void on_disconnect(struct mosquitto *mosq, void *obj, int rc)
 {
 	(void)mosq;
@@ -29,6 +31,7 @@ static void on_disconnect(struct mosquitto *mosq, void *obj, int rc)
 
 	run = rc;
 }
+
 
 static void on_unsubscribe(struct mosquitto *mosq, void *obj, int mid, const mosquitto_property *props)
 {
@@ -38,6 +41,7 @@ static void on_unsubscribe(struct mosquitto *mosq, void *obj, int mid, const mos
 
 	mosquitto_disconnect(mosq);
 }
+
 
 int main(int argc, char *argv[])
 {
@@ -62,7 +66,9 @@ int main(int argc, char *argv[])
 	mosquitto_unsubscribe_v5_callback_set(mosq, on_unsubscribe);
 
 	rc = mosquitto_connect(mosq, "localhost", port, 60);
-	if(rc != MOSQ_ERR_SUCCESS) return rc;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return rc;
+	}
 
 	while(run == -1){
 		mosquitto_loop(mosq, -1, 1);

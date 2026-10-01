@@ -35,6 +35,7 @@ Contributors:
 #include "persist.h"
 #include "util_mosq.h"
 
+
 static int persist__client_messages_save(FILE *db_fptr, struct mosquitto *context, struct mosquitto__client_msg *queue)
 {
 	struct P_client_msg chunk;
@@ -150,6 +151,7 @@ static int persist__message_store_save(FILE *db_fptr)
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 static int persist__client_save(FILE *db_fptr)
 {
 	struct mosquitto *context, *ctxt_tmp;
@@ -162,6 +164,7 @@ static int persist__client_save(FILE *db_fptr)
 		memset(&chunk, 0, sizeof(struct P_client));
 
 		if(context &&
+				context->session_expiry_interval != MQTT_SESSION_EXPIRY_IMMEDIATE &&
 #ifdef WITH_BRIDGE
 				((!context->bridge && context->clean_start == false)
 				|| (context->bridge && context->bridge->clean_start_local == false))
@@ -170,7 +173,9 @@ static int persist__client_save(FILE *db_fptr)
 #endif
 				){
 			chunk.F.session_expiry_time = context->session_expiry_time;
-			if(context->session_expiry_interval != 0 && context->session_expiry_interval != UINT32_MAX && context->session_expiry_time == 0){
+			if(context->session_expiry_interval != MQTT_SESSION_EXPIRY_NEVER
+					&& context->session_expiry_time == 0){
+
 				chunk.F.session_expiry_time = context->session_expiry_interval + db.now_real_s;
 			}else{
 				chunk.F.session_expiry_time = context->session_expiry_time;
@@ -198,10 +203,18 @@ static int persist__client_save(FILE *db_fptr)
 				return rc;
 			}
 
-			if(persist__client_messages_save(db_fptr, context, context->msgs_in.inflight)) return 1;
-			if(persist__client_messages_save(db_fptr, context, context->msgs_in.queued)) return 1;
-			if(persist__client_messages_save(db_fptr, context, context->msgs_out.inflight)) return 1;
-			if(persist__client_messages_save(db_fptr, context, context->msgs_out.queued)) return 1;
+			if(persist__client_messages_save(db_fptr, context, context->msgs_in.inflight)){
+				return 1;
+			}
+			if(persist__client_messages_save(db_fptr, context, context->msgs_in.queued)){
+				return 1;
+			}
+			if(persist__client_messages_save(db_fptr, context, context->msgs_out.inflight)){
+				return 1;
+			}
+			if(persist__client_messages_save(db_fptr, context, context->msgs_out.queued)){
+				return 1;
+			}
 		}
 	}
 
@@ -220,7 +233,9 @@ static int persist__subs_save(FILE *db_fptr, struct mosquitto__subhier *node, co
 
 	slen = strlen(topic) + node->topic_len + 2;
 	thistopic = mosquitto_malloc(sizeof(char)*slen);
-	if(!thistopic) return MOSQ_ERR_NOMEM;
+	if(!thistopic){
+		return MOSQ_ERR_NOMEM;
+	}
 	if(level > 1 || strlen(topic)){
 		snprintf(thistopic, slen, "%s/%s", topic, node->topic);
 	}else{
@@ -229,7 +244,10 @@ static int persist__subs_save(FILE *db_fptr, struct mosquitto__subhier *node, co
 
 	sub = node->subs;
 	while(sub){
-		if(sub->context->clean_start == false && sub->context->id){
+		if(sub->context->session_expiry_interval != MQTT_SESSION_EXPIRY_IMMEDIATE
+				&& sub->context->clean_start == false
+				&& sub->context->id){
+
 			memset(&sub_chunk, 0, sizeof(struct P_sub));
 
 			sub_chunk.F.identifier = sub->identifier;
@@ -256,6 +274,7 @@ static int persist__subs_save(FILE *db_fptr, struct mosquitto__subhier *node, co
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 static int persist__subs_save_all(FILE *db_fptr)
 {
 	struct mosquitto__subhier *subhier, *subhier_tmp;
@@ -274,6 +293,7 @@ static int persist__subs_save_all(FILE *db_fptr)
 
 	return MOSQ_ERR_SUCCESS;
 }
+
 
 static int persist__retain_save(FILE *db_fptr, struct mosquitto__retainhier *node, int level)
 {
@@ -298,6 +318,7 @@ static int persist__retain_save(FILE *db_fptr, struct mosquitto__retainhier *nod
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 static int persist__retain_save_all(FILE *db_fptr)
 {
 	struct mosquitto__retainhier *retainhier, *retainhier_tmp;
@@ -311,30 +332,39 @@ static int persist__retain_save_all(FILE *db_fptr)
 	return MOSQ_ERR_SUCCESS;
 }
 
-static int persist__write_data(FILE* db_fptr, void* user_data);
+static int persist__write_data(FILE *db_fptr, void *user_data);
 
-static void persist__log_write_error(const char* msg)
+
+static void persist__log_write_error(const char *msg)
 {
 	log__printf(NULL, MOSQ_LOG_ERR, "Error saving in-memory database, %s", msg);
 }
 
+
 int persist__backup(bool shutdown)
 {
-	if(db.config == NULL) return MOSQ_ERR_INVAL;
-	if(db.config->persistence == false) return MOSQ_ERR_SUCCESS;
-	if(db.config->persistence_filepath == NULL) return MOSQ_ERR_INVAL;
+	if(db.config == NULL){
+		return MOSQ_ERR_INVAL;
+	}
+	if(db.config->persistence == false){
+		return MOSQ_ERR_SUCCESS;
+	}
+	if(db.config->persistence_filepath == NULL){
+		return MOSQ_ERR_INVAL;
+	}
 
 	log__printf(NULL, MOSQ_LOG_INFO, "Saving in-memory database to %s.", db.config->persistence_filepath);
 
 	return mosquitto_write_file(db.config->persistence_filepath, true, &persist__write_data, &shutdown, &persist__log_write_error);
 }
 
-static int persist__write_data(FILE* db_fptr, void* user_data)
+
+static int persist__write_data(FILE *db_fptr, void *user_data)
 {
-	bool shutdown = *(bool*)(user_data);
+	bool shutdown = *(bool *)(user_data);
 	uint32_t db_version_w = htonl(MOSQ_DB_VERSION);
 	uint32_t crc = 0;
-	const char* err;
+	const char *err;
 	struct PF_cfg cfg_chunk;
 	int rc = MOSQ_ERR_UNKNOWN;
 
@@ -355,7 +385,7 @@ static int persist__write_data(FILE* db_fptr, void* user_data)
 		goto error;
 	}
 
-	if (persist__client_save(db_fptr)
+	if(persist__client_save(db_fptr)
 			|| persist__subs_save_all(db_fptr)
 			|| persist__retain_save_all(db_fptr)){
 		goto error;
@@ -365,7 +395,9 @@ static int persist__write_data(FILE* db_fptr, void* user_data)
 error:
 	err = strerror(errno);
 	log__printf(NULL, MOSQ_LOG_ERR, "Error during saving in-memory database %s: %s.", db.config->persistence_filepath, err);
-	if(db_fptr) fclose(db_fptr);
+	if(db_fptr){
+		fclose(db_fptr);
+	}
 	return rc;
 }
 

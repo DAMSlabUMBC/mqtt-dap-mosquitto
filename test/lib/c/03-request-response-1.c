@@ -9,6 +9,7 @@
 
 static int run = -1;
 
+
 static void on_connect(struct mosquitto *mosq, void *obj, int rc)
 {
 	(void)obj;
@@ -19,6 +20,7 @@ static void on_connect(struct mosquitto *mosq, void *obj, int rc)
 		mosquitto_subscribe(mosq, NULL, "response/topic", QOS);
 	}
 }
+
 
 static void on_subscribe(struct mosquitto *mosq, void *obj, int mid, int qos_count, const int *granted_qos)
 {
@@ -37,6 +39,7 @@ static void on_subscribe(struct mosquitto *mosq, void *obj, int mid, int qos_cou
 	mosquitto_property_free_all(&props);
 }
 
+
 static void on_message(struct mosquitto *mosq, void *obj, const struct mosquitto_message *msg)
 {
 	(void)mosq;
@@ -48,6 +51,7 @@ static void on_message(struct mosquitto *mosq, void *obj, const struct mosquitto
 		run = 1;
 	}
 }
+
 
 int main(int argc, char *argv[])
 {
@@ -73,7 +77,9 @@ int main(int argc, char *argv[])
 	mosquitto_message_callback_set(mosq, on_message);
 
 	rc = mosquitto_connect(mosq, "localhost", port, 60);
-	if(rc != MOSQ_ERR_SUCCESS) return rc;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return rc;
+	}
 
 	while(run == -1){
 		rc = mosquitto_loop(mosq, -1, 1);

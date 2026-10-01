@@ -45,9 +45,10 @@ Contributors:
 #  define metrics__int_dec(stat, val)
 #endif
 
+
 int packet__alloc(struct mosquitto__packet **packet, uint8_t command, uint32_t remaining_length)
 {
-	uint8_t remaining_bytes[5], byte;
+	uint8_t remaining_bytes[5] = {0}, byte;
 	int8_t remaining_count;
 	uint32_t packet_length;
 	uint32_t remaining_length_stored;
@@ -67,11 +68,15 @@ int packet__alloc(struct mosquitto__packet **packet, uint8_t command, uint32_t r
 		remaining_bytes[remaining_count] = byte;
 		remaining_count++;
 	}while(remaining_length > 0 && remaining_count < 5);
-	if(remaining_count == 5) return MOSQ_ERR_PAYLOAD_SIZE;
+	if(remaining_count == 5){
+		return MOSQ_ERR_PAYLOAD_SIZE;
+	}
 
 	packet_length = remaining_length_stored + 1 + (uint8_t)remaining_count;
 	(*packet) = mosquitto_malloc(sizeof(struct mosquitto__packet) + packet_length + WS_PACKET_OFFSET);
-	if((*packet) == NULL) return MOSQ_ERR_NOMEM;
+	if((*packet) == NULL){
+		return MOSQ_ERR_NOMEM;
+	}
 
 	/* Clear memory for everything but the payload - that will be set to valid
 	 * values when the actual payload is copied in. */
@@ -90,9 +95,12 @@ int packet__alloc(struct mosquitto__packet **packet, uint8_t command, uint32_t r
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 void packet__cleanup(struct mosquitto__packet_in *packet)
 {
-	if(!packet) return;
+	if(!packet){
+		return;
+	}
 
 	/* Free data and reset values */
 	packet->command = 0;
@@ -126,12 +134,33 @@ void packet__cleanup_all_no_locks(struct mosquitto *mosq)
 	packet__cleanup(&mosq->in_packet);
 }
 
+
 void packet__cleanup_all(struct mosquitto *mosq)
 {
 	COMPAT_pthread_mutex_lock(&mosq->out_packet_mutex);
 	packet__cleanup_all_no_locks(mosq);
 	COMPAT_pthread_mutex_unlock(&mosq->out_packet_mutex);
 }
+
+
+#ifdef WITH_BROKER
+/* Insert an MQTT-DAP op/PBMR packet ahead of the queued data publishes. It never
+ * overtakes the head, which may be partly written, earlier op/PBMR packets, or
+ * non-PUBLISH packets, so it only moves ahead of data. */
+static void packet__queue_insert_priority(struct mosquitto *mosq, struct mosquitto__packet *packet)
+{
+	struct mosquitto__packet *prev = mosq->out_packet;
+
+	while(prev->next && (prev->next->dap_priority || (prev->next->command & 0xF0) != CMD_PUBLISH)){
+		prev = prev->next;
+	}
+	packet->next = prev->next;
+	prev->next = packet;
+	if(!packet->next){
+		mosq->out_packet_last = packet;
+	}
+}
+#endif
 
 
 static void packet__queue_append(struct mosquitto *mosq, struct mosquitto__packet *packet)
@@ -151,12 +180,17 @@ static void packet__queue_append(struct mosquitto *mosq, struct mosquitto__packe
 #endif
 
 	COMPAT_pthread_mutex_lock(&mosq->out_packet_mutex);
-	if(mosq->out_packet){
-		mosq->out_packet_last->next = packet;
-	}else{
+	if(!mosq->out_packet){
 		mosq->out_packet = packet;
+		mosq->out_packet_last = packet;
+#ifdef WITH_BROKER
+	}else if(packet->dap_priority){
+		packet__queue_insert_priority(mosq, packet);
+#endif
+	}else{
+		mosq->out_packet_last->next = packet;
+		mosq->out_packet_last = packet;
 	}
-	mosq->out_packet_last = packet;
 	mosq->out_packet_count++;
 	mosq->out_packet_bytes += packet->packet_length;
 	metrics__int_inc(mosq_gauge_out_packets, 1);
@@ -225,7 +259,9 @@ int packet__check_oversize(struct mosquitto *mosq, uint32_t remaining_length)
 {
 	uint32_t len;
 
-	if(mosq->maximum_packet_size == 0) return MOSQ_ERR_SUCCESS;
+	if(mosq->maximum_packet_size == 0){
+		return MOSQ_ERR_SUCCESS;
+	}
 
 	len = remaining_length + mosquitto_varint_bytes(remaining_length);
 	if(len > mosq->maximum_packet_size){
@@ -264,7 +300,9 @@ int packet__write(struct mosquitto *mosq)
 	struct mosquitto__packet *packet, *next_packet;
 	enum mosquitto_client_state state;
 
-	if(!mosq) return MOSQ_ERR_INVAL;
+	if(!mosq){
+		return MOSQ_ERR_INVAL;
+	}
 	if(!net__is_connected(mosq)){
 		return MOSQ_ERR_NO_CONN;
 	}
@@ -294,9 +332,7 @@ int packet__write(struct mosquitto *mosq)
 				packet->to_process -= (uint32_t)write_length;
 				packet->pos += (uint32_t)write_length;
 			}else{
-#ifdef WIN32
-				errno = WSAGetLastError();
-#endif
+				WINDOWS_SET_ERRNO_RW();
 				if(errno == EAGAIN || errno == COMPAT_EWOULDBLOCK
 #ifdef WIN32
 						|| errno == WSAENOTCONN
@@ -341,7 +377,7 @@ int packet__write(struct mosquitto *mosq)
 #endif
 	}
 #ifdef WITH_BROKER
-	if (mosq->out_packet == NULL) {
+	if(mosq->out_packet == NULL){
 		mux__remove_out(mosq);
 	}
 #endif
@@ -353,7 +389,9 @@ static int read_header(struct mosquitto *mosq, ssize_t (*func_read)(struct mosqu
 {
 	ssize_t read_length;
 
-	read_length = func_read(mosq, &mosq->in_packet.packet_buffer[mosq->in_packet.packet_buffer_pos], mosq->in_packet.packet_buffer_size-mosq->in_packet.packet_buffer_pos);
+	mosq->in_packet.packet_buffer_pos = 0;
+	mosq->in_packet.packet_buffer_to_process = 0;
+	read_length = func_read(mosq, mosq->in_packet.packet_buffer, mosq->in_packet.packet_buffer_size);
 	if(read_length > 0){
 		mosq->in_packet.packet_buffer_to_process = (uint16_t)read_length;
 #ifdef WITH_BROKER
@@ -363,9 +401,7 @@ static int read_header(struct mosquitto *mosq, ssize_t (*func_read)(struct mosqu
 		if(read_length == 0){
 			return MOSQ_ERR_CONN_LOST; /* EOF */
 		}
-#ifdef WIN32
-		errno = WSAGetLastError();
-#endif
+		WINDOWS_SET_ERRNO_RW();
 		if(errno == EAGAIN || errno == COMPAT_EWOULDBLOCK){
 			return MOSQ_ERR_SUCCESS;
 		}else{
@@ -382,16 +418,92 @@ static int read_header(struct mosquitto *mosq, ssize_t (*func_read)(struct mosqu
 	return MOSQ_ERR_SUCCESS;
 }
 
+
+#ifdef WITH_BROKER
+
+
+static int packet__check_in_packet_oversize(struct mosquitto *mosq)
+{
+	switch(mosq->in_packet.command & 0xF0){
+		case CMD_CONNECT:
+			if(mosq->in_packet.remaining_length > db.config->packet_max_connect){
+				return MOSQ_ERR_OVERSIZE_PACKET;
+			}
+			break;
+
+		case CMD_PUBACK:
+		case CMD_PUBREC:
+		case CMD_PUBREL:
+		case CMD_PUBCOMP:
+		case CMD_UNSUBACK:
+			if(mosq->protocol == mosq_p_mqtt5){
+				if(mosq->in_packet.remaining_length > db.config->packet_max_simple){
+					return MOSQ_ERR_OVERSIZE_PACKET;
+				}
+			}else{
+				if(mosq->in_packet.remaining_length != 2){
+					return MOSQ_ERR_MALFORMED_PACKET;
+				}
+			}
+			break;
+
+		case CMD_PINGREQ:
+		case CMD_PINGRESP:
+			if(mosq->in_packet.remaining_length != 0){
+				return MOSQ_ERR_MALFORMED_PACKET;
+			}
+			break;
+
+		case CMD_DISCONNECT:
+			if(mosq->protocol == mosq_p_mqtt5){
+				if(mosq->in_packet.remaining_length > db.config->packet_max_simple){
+					return MOSQ_ERR_OVERSIZE_PACKET;
+				}
+			}else{
+				if(mosq->in_packet.remaining_length != 0){
+					return MOSQ_ERR_MALFORMED_PACKET;
+				}
+			}
+			break;
+
+		case CMD_SUBSCRIBE:
+		case CMD_UNSUBSCRIBE:
+			if(mosq->protocol == mosq_p_mqtt5 && mosq->in_packet.remaining_length > db.config->packet_max_sub){
+				return MOSQ_ERR_OVERSIZE_PACKET;
+			}
+			break;
+
+		case CMD_AUTH:
+			if(mosq->in_packet.remaining_length > db.config->packet_max_auth){
+				return MOSQ_ERR_OVERSIZE_PACKET;
+			}
+			break;
+
+	}
+
+	if(db.config->max_packet_size > 0 && mosq->in_packet.remaining_length+1 > db.config->max_packet_size){
+		if(mosq->protocol == mosq_p_mqtt5){
+			send__disconnect(mosq, MQTT_RC_PACKET_TOO_LARGE, NULL);
+		}
+		return MOSQ_ERR_OVERSIZE_PACKET;
+	}
+
+	return MOSQ_ERR_SUCCESS;
+}
+#endif
+
+
 static int packet__read_single(struct mosquitto *mosq, enum mosquitto_client_state state, ssize_t (*local__read)(struct mosquitto *, void *, size_t))
 {
-	uint8_t byte;
 	ssize_t read_length;
 	int rc = 0;
 
 	if(!mosq->in_packet.command){
 		if(mosq->in_packet.packet_buffer_to_process == 0){
 			rc = read_header(mosq, local__read);
-			if(rc) return rc;
+			if(rc){
+				return rc;
+			}
 		}
 
 		if(mosq->in_packet.packet_buffer_to_process > 0){
@@ -401,11 +513,22 @@ static int packet__read_single(struct mosquitto *mosq, enum mosquitto_client_sta
 #ifdef WITH_BROKER
 			/* Clients must send CONNECT as their first command. */
 			if(!(mosq->bridge) && state == mosq_cs_new && (mosq->in_packet.command&0xF0) != CMD_CONNECT){
+				log__printf(NULL, MOSQ_LOG_INFO, "Protocol error from %s:%d: First packet not CONNECT (%02X).",
+						mosq->address, mosq->remote_port, mosq->in_packet.command);
+				return MOSQ_ERR_PROTOCOL;
+			}else if((mosq->in_packet.command&0xF0) == CMD_RESERVED){
+				if(mosq->protocol == mosq_p_mqtt5){
+					send__disconnect(mosq, MQTT_RC_PROTOCOL_ERROR, NULL);
+				}
+				log__printf(NULL, MOSQ_LOG_INFO, "Protocol error from %s:%d: RESERVED packet.",
+						mosq->address, mosq->remote_port);
 				return MOSQ_ERR_PROTOCOL;
 			}
 #else
 			UNUSED(state);
 #endif
+		}else{
+			return MOSQ_ERR_SUCCESS;
 		}
 	}
 	/* remaining_count is the number of bytes that the remaining_length
@@ -418,10 +541,13 @@ static int packet__read_single(struct mosquitto *mosq, enum mosquitto_client_sta
 	 *   >0 means we have finished reading the remaining_length bytes.
 	 */
 	if(mosq->in_packet.remaining_count <= 0){
+		uint8_t byte;
 		do{
 			if(mosq->in_packet.packet_buffer_to_process == 0){
 				rc = read_header(mosq, local__read);
-				if(rc) return rc;
+				if(rc){
+					return rc;
+				}
 			}
 
 			if(mosq->in_packet.packet_buffer_to_process > 0){
@@ -447,42 +573,9 @@ static int packet__read_single(struct mosquitto *mosq, enum mosquitto_client_sta
 		mosq->in_packet.remaining_count = (int8_t)(mosq->in_packet.remaining_count * -1);
 
 #ifdef WITH_BROKER
-		switch(mosq->in_packet.command & 0xF0){
-			case CMD_CONNECT:
-				if(mosq->in_packet.remaining_length > 100000){ /* Arbitrary limit, make configurable */
-					return MOSQ_ERR_MALFORMED_PACKET;
-				}
-				break;
-
-			case CMD_PUBACK:
-			case CMD_PUBREC:
-			case CMD_PUBREL:
-			case CMD_PUBCOMP:
-			case CMD_UNSUBACK:
-				if(mosq->protocol != mosq_p_mqtt5 && mosq->in_packet.remaining_length != 2){
-					return MOSQ_ERR_MALFORMED_PACKET;
-				}
-				break;
-
-			case CMD_PINGREQ:
-			case CMD_PINGRESP:
-				if(mosq->in_packet.remaining_length != 0){
-					return MOSQ_ERR_MALFORMED_PACKET;
-				}
-				break;
-
-			case CMD_DISCONNECT:
-				if(mosq->protocol != mosq_p_mqtt5 && mosq->in_packet.remaining_length != 0){
-					return MOSQ_ERR_MALFORMED_PACKET;
-				}
-				break;
-		}
-
-		if(db.config->max_packet_size > 0 && mosq->in_packet.remaining_length+1 > db.config->max_packet_size){
-			if(mosq->protocol == mosq_p_mqtt5){
-				send__disconnect(mosq, MQTT_RC_PACKET_TOO_LARGE, NULL);
-			}
-			return MOSQ_ERR_OVERSIZE_PACKET;
+		rc = packet__check_in_packet_oversize(mosq);
+		if(rc){
+			return rc;
 		}
 #else
 		/* FIXME - client case for incoming message received from broker too large */
@@ -505,8 +598,8 @@ static int packet__read_single(struct mosquitto *mosq, enum mosquitto_client_sta
 				}
 				memcpy(mosq->in_packet.payload, &mosq->in_packet.packet_buffer[mosq->in_packet.packet_buffer_pos], len);
 				if(len < mosq->in_packet.packet_buffer_to_process){
-					mosq->in_packet.packet_buffer_pos += (uint16_t)len;
-					mosq->in_packet.packet_buffer_to_process -= (uint16_t)len;
+					mosq->in_packet.packet_buffer_pos = (uint16_t)(mosq->in_packet.packet_buffer_pos + len);
+					mosq->in_packet.packet_buffer_to_process = (uint16_t)(mosq->in_packet.packet_buffer_to_process - len);
 				}else{
 					mosq->in_packet.packet_buffer_pos = 0;
 					mosq->in_packet.packet_buffer_to_process = 0;
@@ -523,9 +616,7 @@ static int packet__read_single(struct mosquitto *mosq, enum mosquitto_client_sta
 			mosq->in_packet.to_process -= (uint32_t)read_length;
 			mosq->in_packet.pos += (uint32_t)read_length;
 		}else{
-#ifdef WIN32
-			errno = WSAGetLastError();
-#endif
+			WINDOWS_SET_ERRNO_RW();
 			if(errno == EAGAIN || errno == COMPAT_EWOULDBLOCK){
 				if(mosq->in_packet.to_process > 1000){
 					/* Update last_msg_in time if more than 1000 bytes left to
@@ -618,7 +709,9 @@ int packet__read(struct mosquitto *mosq)
 			return MOSQ_ERR_SUCCESS;
 		}
 		rc = packet__read_single(mosq, state, local__read);
-		if(rc) return rc;
+		if(rc){
+			return rc;
+		}
 	}while(mosq->in_packet.packet_buffer_to_process > 0);
 
 	return MOSQ_ERR_SUCCESS;

@@ -4,12 +4,12 @@ Copyright (c) 2020-2021 Roger Light <roger@atchoo.org>
 All rights reserved. This program and the accompanying materials
 are made available under the terms of the Eclipse Public License 2.0
 and Eclipse Distribution License v1.0 which accompany this distribution.
- 
+
 The Eclipse Public License is available at
    https://www.eclipse.org/legal/epl-2.0/
 and the Eclipse Distribution License is available at
   http://www.eclipse.org/org/documents/edl-v10.php.
- 
+
 SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 
 Contributors:
@@ -19,7 +19,7 @@ Contributors:
 /*
  * This is an *example* plugin which demonstrates how to modify the topic of
  * a message after it is received by the broker and before it is sent on to
- * other clients. 
+ * other clients.
  *
  * You should be very sure of what you are doing before making use of this feature.
  *
@@ -46,6 +46,7 @@ MOSQUITTO_PLUGIN_DECLARE_VERSION(5);
 
 static mosquitto_plugin_id_t *mosq_pid = NULL;
 
+
 static int callback_message_in(int event, void *event_data, void *userdata)
 {
 	struct mosquitto_evt_message *ed = event_data;
@@ -66,6 +67,7 @@ static int callback_message_in(int event, void *event_data, void *userdata)
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 int mosquitto_plugin_init(mosquitto_plugin_id_t *identifier, void **user_data, struct mosquitto_opt *opts, int opt_count)
 {
 	UNUSED(user_data);
@@ -75,6 +77,7 @@ int mosquitto_plugin_init(mosquitto_plugin_id_t *identifier, void **user_data, s
 	mosq_pid = identifier;
 	return mosquitto_callback_register(mosq_pid, MOSQ_EVT_MESSAGE_IN, callback_message_in, NULL, NULL);
 }
+
 
 /* mosquitto_plugin_cleanup() is optional in 2.1 and later. Use it only if you have your own cleanup to do */
 int mosquitto_plugin_cleanup(void *user_data, struct mosquitto_opt *opts, int opt_count)

@@ -43,7 +43,7 @@ enum rr__state {
 	rr_s_subscribed,
 	rr_s_ready_to_publish,
 	rr_s_wait_for_response,
-	rr_s_disconnect
+	rr_s_disconnect,
 };
 
 static enum rr__state client_state = rr_s_new;
@@ -53,8 +53,12 @@ int msg_count = 0;
 struct mosquitto *g_mosq = NULL;
 static bool timed_out = false;
 static int connack_result = 0;
+static struct timespec publish_send_time;
+static struct timespec publish_recv_time;
 
 #ifndef WIN32
+
+
 static void my_signal_handler(int signum)
 {
 	if(signum == SIGALRM){
@@ -68,6 +72,8 @@ static void my_signal_handler(int signum)
 
 int my_publish(struct mosquitto *mosq, int *mid, const char *topic, int payloadlen, void *payload, int qos, bool retain)
 {
+	mosquitto_time_ns(&publish_send_time.tv_sec, &publish_send_time.tv_nsec);
+
 	if(cfg.protocol_version < MQTT_PROTOCOL_V5){
 		return mosquitto_publish_v5(mosq, mid, topic, payloadlen, payload, qos, retain, NULL);
 	}else{
@@ -82,8 +88,14 @@ static void my_message_callback(struct mosquitto *mosq, void *obj, const struct 
 	UNUSED(obj);
 	UNUSED(properties);
 
-	if(process_messages == false) return;
-	if(message->retain && cfg.no_retain) return;
+	if(process_messages == false){
+		return;
+	}
+	if(message->retain && cfg.no_retain){
+		return;
+	}
+
+	mosquitto_time_ns(&publish_recv_time.tv_sec, &publish_recv_time.tv_nsec);
 
 	print_message(&cfg, message, properties);
 
@@ -94,11 +106,13 @@ static void my_message_callback(struct mosquitto *mosq, void *obj, const struct 
 		case MSGMODE_NULL:
 			client_state = rr_s_disconnect;
 			break;
+
 		case MSGMODE_STDIN_LINE:
 			client_state = rr_s_ready_to_publish;
 			break;
 	}
 }
+
 
 void my_connect_callback(struct mosquitto *mosq, void *obj, int result, int flags, const mosquitto_property *properties)
 {
@@ -109,7 +123,7 @@ void my_connect_callback(struct mosquitto *mosq, void *obj, int result, int flag
 	connack_result = result;
 	if(!result){
 		client_state = rr_s_connected;
-		mosquitto_subscribe_v5(mosq, NULL, cfg.response_topic, cfg.qos, 0, cfg.subscribe_props);
+		mosquitto_subscribe_v5(mosq, NULL, cfg.response_topic, cfg.qos, cfg.sub_opts, cfg.subscribe_props);
 	}else{
 		client_state = rr_s_disconnect;
 		if(result){
@@ -143,6 +157,7 @@ static void print_version(void)
 	mosquitto_lib_version(&major, &minor, &revision);
 	printf("mosquitto_rr version %s running on libmosquitto %d.%d.%d.\n", VERSION, major, minor, revision);
 }
+
 
 static void print_usage(void)
 {
@@ -248,7 +263,7 @@ static void print_usage(void)
 	printf(" --key : client private key for authentication, if required by server.\n");
 	printf(" --ciphers : openssl compatible list of TLS ciphers to support.\n");
 	printf(" --tls-use-os-certs : Load and trust OS provided CA certificates.\n");
-	printf(" --tls-version : TLS protocol version, can be one of tlsv1.3 tlsv1.2 or tlsv1.1.\n");
+	printf(" --tls-version : TLS protocol version, can be one of tlsv1.3 or tlsv1.2.\n");
 	printf("                 Defaults to tlsv1.2 if available.\n");
 	printf(" --insecure : do not verify the the server certificate. Using this option means that\n");
 	printf("              you cannot be sure that the remote host is the server you wish to connect\n");
@@ -267,11 +282,38 @@ static void print_usage(void)
 	printf("\nSee https://mosquitto.org/ for more information.\n\n");
 }
 
+
+static void report_latency(void)
+{
+	if(cfg.measure_latency){
+		time_t s = publish_recv_time.tv_sec - publish_send_time.tv_sec;
+		long ns = publish_recv_time.tv_nsec - publish_send_time.tv_nsec;
+
+		if(ns < 0){
+			s--;
+			ns += 1000000000;
+		}
+
+		if(s > 0){
+			printf("Latency: %ld.%09ld\n", s, ns);
+		}else{
+			if(ns < 1000){
+				printf("Latency: %ldns\n", ns);
+			}else if(ns < 1000000){
+				printf("Latency: %fµs\n", ((double)ns)/1000.0);
+			}else{
+				printf("Latency: %fms\n", ((double)ns)/1000000.0);
+			}
+		}
+	}
+}
+
+
 int main(int argc, char *argv[])
 {
 	int rc;
 #ifndef WIN32
-		struct sigaction sigact;
+	struct sigaction sigact;
 #endif
 
 	mosquitto_lib_init();
@@ -384,6 +426,8 @@ int main(int argc, char *argv[])
 			}
 		}
 	}while(rc == MOSQ_ERR_SUCCESS && client_state != rr_s_disconnect);
+
+	report_latency();
 
 	mosquitto_destroy(g_mosq);
 	mosquitto_lib_cleanup();

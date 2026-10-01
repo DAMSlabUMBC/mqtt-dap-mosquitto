@@ -26,6 +26,7 @@ Contributors:
 #include "packet_mosq.h"
 #include "send_mosq.h"
 
+
 int handle__unsubscribe(struct mosquitto *context)
 {
 	uint16_t mid;
@@ -39,9 +40,12 @@ int handle__unsubscribe(struct mosquitto *context)
 	bool allowed;
 	struct mosquitto_subscription sub;
 
-	if(!context) return MOSQ_ERR_INVAL;
+	if(!context){
+		return MOSQ_ERR_INVAL;
+	}
 
 	if(context->state != mosq_cs_active){
+		log__printf(NULL, MOSQ_LOG_INFO, "Protocol error from %s: UNSUBSCRIBE before session is active.", context->id);
 		return MOSQ_ERR_PROTOCOL;
 	}
 	if(context->in_packet.command != (CMD_UNSUBSCRIBE|2)){
@@ -54,8 +58,12 @@ int handle__unsubscribe(struct mosquitto *context)
 			return MOSQ_ERR_MALFORMED_PACKET;
 		}
 	}
-	if(packet__read_uint16(&context->in_packet, &mid)) return MOSQ_ERR_MALFORMED_PACKET;
-	if(mid == 0) return MOSQ_ERR_MALFORMED_PACKET;
+	if(packet__read_uint16(&context->in_packet, &mid)){
+		return MOSQ_ERR_MALFORMED_PACKET;
+	}
+	if(mid == 0){
+		return MOSQ_ERR_MALFORMED_PACKET;
+	}
 
 	if(context->protocol == mosq_p_mqtt5){
 		rc = property__read_all(CMD_UNSUBSCRIBE, &context->in_packet, &properties);
@@ -64,6 +72,7 @@ int handle__unsubscribe(struct mosquitto *context)
 			 * MOSQ_ERR_MALFORMED_PACKET, but this is would change the library
 			 * return codes so needs doc changes as well. */
 			if(rc == MOSQ_ERR_PROTOCOL){
+				log__printf(NULL, MOSQ_LOG_INFO, "Protocol error from %s: UNSUBSCRIBE packet with invalid properties.", context->id);
 				return MOSQ_ERR_MALFORMED_PACKET;
 			}else{
 				return rc;
@@ -113,7 +122,7 @@ int handle__unsubscribe(struct mosquitto *context)
 
 		/* ACL check */
 		allowed = true;
-		rc = mosquitto_acl_check(context, sub.topic_filter, 0, NULL, 0, false, MOSQ_ACL_UNSUBSCRIBE);
+		rc = mosquitto_acl_check(context, sub.topic_filter, 0, NULL, 0, false, properties, MOSQ_ACL_UNSUBSCRIBE);
 		switch(rc){
 			case MOSQ_ERR_SUCCESS:
 				break;

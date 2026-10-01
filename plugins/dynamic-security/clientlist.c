@@ -50,6 +50,7 @@ Contributors:
  * #
  * ################################################################ */
 
+
 static int dynsec_clientlist__cmp(void *a, void *b)
 {
 	struct dynsec__clientlist *clientlist_a = a;
@@ -68,13 +69,16 @@ void dynsec_clientlist__kick_all(struct dynsec__data *data, struct dynsec__clien
 	}
 }
 
+
 cJSON *dynsec_clientlist__all_to_json(struct dynsec__clientlist *base_clientlist)
 {
 	struct dynsec__clientlist *clientlist, *clientlist_tmp;
 	cJSON *j_clients, *j_client;
 
 	j_clients = cJSON_CreateArray();
-	if(j_clients == NULL) return NULL;
+	if(j_clients == NULL){
+		return NULL;
+	}
 
 	HASH_ITER(hh, base_clientlist, clientlist, clientlist_tmp){
 		j_client = cJSON_CreateObject();

@@ -1,4 +1,4 @@
-FROM ubuntu:20.04
+FROM ubuntu:22.04
 
 # Need this so apt doesn't ask me questions during install
 ENV DEBIAN_FRONTEND=noninteractive

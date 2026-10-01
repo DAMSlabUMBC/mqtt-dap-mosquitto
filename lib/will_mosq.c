@@ -36,17 +36,28 @@ Contributors:
 #include "util_mosq.h"
 #include "will_mosq.h"
 
+
 int will__set(struct mosquitto *mosq, const char *topic, int payloadlen, const void *payload, int qos, bool retain, mosquitto_property *properties)
 {
 	int rc = MOSQ_ERR_SUCCESS;
 	mosquitto_property *p;
 
-	if(!mosq || !topic) return MOSQ_ERR_INVAL;
-	if(payloadlen < 0 || payloadlen > (int)MQTT_MAX_PAYLOAD) return MOSQ_ERR_PAYLOAD_SIZE;
-	if(payloadlen > 0 && !payload) return MOSQ_ERR_INVAL;
+	if(!mosq || !topic){
+		return MOSQ_ERR_INVAL;
+	}
+	if(payloadlen < 0 || payloadlen > (int)MQTT_MAX_PAYLOAD){
+		return MOSQ_ERR_PAYLOAD_SIZE;
+	}
+	if(payloadlen > 0 && !payload){
+		return MOSQ_ERR_INVAL;
+	}
 
-	if(mosquitto_pub_topic_check(topic)) return MOSQ_ERR_INVAL;
-	if(mosquitto_validate_utf8(topic, (uint16_t)strlen(topic))) return MOSQ_ERR_MALFORMED_UTF8;
+	if(mosquitto_pub_topic_check(topic)){
+		return MOSQ_ERR_INVAL;
+	}
+	if(mosquitto_validate_utf8(topic, (uint16_t)strlen(topic))){
+		return MOSQ_ERR_MALFORMED_UTF8;
+	}
 
 	if(properties){
 		if(mosq->protocol != mosq_p_mqtt5){
@@ -55,7 +66,9 @@ int will__set(struct mosquitto *mosq, const char *topic, int payloadlen, const v
 		p = properties;
 		while(p){
 			rc = mosquitto_property_check_command(CMD_WILL, mosquitto_property_identifier(p));
-			if(rc) return rc;
+			if(rc){
+				return rc;
+			}
 			p = mosquitto_property_next(p);
 		}
 	}
@@ -68,7 +81,9 @@ int will__set(struct mosquitto *mosq, const char *topic, int payloadlen, const v
 	}
 
 	mosq->will = mosquitto_calloc(1, sizeof(struct mosquitto_message_all));
-	if(!mosq->will) return MOSQ_ERR_NOMEM;
+	if(!mosq->will){
+		return MOSQ_ERR_NOMEM;
+	}
 	mosq->will->msg.topic = mosquitto_strdup(topic);
 	if(!mosq->will->msg.topic){
 		rc = MOSQ_ERR_NOMEM;
@@ -105,9 +120,12 @@ cleanup:
 	return rc;
 }
 
+
 int will__clear(struct mosquitto *mosq)
 {
-	if(!mosq->will) return MOSQ_ERR_SUCCESS;
+	if(!mosq->will){
+		return MOSQ_ERR_SUCCESS;
+	}
 
 	mosquitto_FREE(mosq->will->msg.topic);
 	mosquitto_FREE(mosq->will->msg.payload);

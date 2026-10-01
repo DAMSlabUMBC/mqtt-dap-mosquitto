@@ -34,11 +34,13 @@ Contributors:
 static cJSON *add_role_to_json(struct dynsec__role *role, bool verbose);
 static void role__remove_all_clients(struct dynsec__data *data, struct dynsec__role *role);
 
+
 /* ################################################################
  * #
  * # Utility functions
  * #
  * ################################################################ */
+
 
 static int role_cmp(void *a, void *b)
 {
@@ -55,6 +57,7 @@ static void role__free_acl(struct dynsec__acl **acl, struct dynsec__acl *item)
 	mosquitto_free(item);
 }
 
+
 static void role__free_all_acls(struct dynsec__acl **acl)
 {
 	struct dynsec__acl *iter, *tmp = NULL;
@@ -63,6 +66,7 @@ static void role__free_all_acls(struct dynsec__acl **acl)
 		role__free_acl(acl, iter);
 	}
 }
+
 
 static void role__free_item(struct dynsec__data *data, struct dynsec__role *role, bool remove_from_hash)
 {
@@ -151,6 +155,7 @@ static int add_single_acl_to_json(cJSON *j_array, const char *acl_type, struct d
 	return 0;
 }
 
+
 static int add_acls_to_json(cJSON *j_role, struct dynsec__role *role)
 {
 	cJSON *j_acls;
@@ -171,6 +176,7 @@ static int add_acls_to_json(cJSON *j_role, struct dynsec__role *role)
 	}
 	return 0;
 }
+
 
 int dynsec_roles__config_save(struct dynsec__data *data, cJSON *tree)
 {
@@ -236,8 +242,12 @@ static int dynsec_roles__acl_load(cJSON *j_acls, const char *key, struct dynsec_
 		strncpy(acl->topic, topic, topic_len+1);
 
 		json_get_int(j_acl, "priority", &acl->priority, true, 0);
-		if(acl->priority > PRIORITY_MAX) acl->priority = PRIORITY_MAX;
-		if(acl->priority < -PRIORITY_MAX) acl->priority = -PRIORITY_MAX;
+		if(acl->priority > PRIORITY_MAX){
+			acl->priority = PRIORITY_MAX;
+		}
+		if(acl->priority < -PRIORITY_MAX){
+			acl->priority = -PRIORITY_MAX;
+		}
 		json_get_bool(j_acl, "allow", &acl->allow, true, false);
 
 		bool allow;
@@ -323,6 +333,8 @@ int dynsec_roles__config_load(struct dynsec__data *data, cJSON *tree)
 						|| dynsec_roles__acl_load(j_acls, ACL_TYPE_UNSUB_PATTERN, &role->acls.unsubscribe_pattern) != 0
 						){
 
+					mosquitto_free(role->text_name);
+					mosquitto_free(role->text_description);
 					mosquitto_free(role);
 					continue;
 				}
@@ -456,6 +468,7 @@ static void role__remove_all_clients(struct dynsec__data *data, struct dynsec__r
 	}
 }
 
+
 static void role__remove_all_groups(struct dynsec__data *data, struct dynsec__role *role)
 {
 	struct dynsec__grouplist *grouplist, *grouplist_tmp = NULL;
@@ -469,6 +482,7 @@ static void role__remove_all_groups(struct dynsec__data *data, struct dynsec__ro
 		dynsec_rolelist__group_remove(grouplist->group, role);
 	}
 }
+
 
 int dynsec_roles__process_delete(struct dynsec__data *data, struct mosquitto_control_cmd *cmd)
 {
@@ -537,6 +551,7 @@ static cJSON *add_role_to_json(struct dynsec__role *role, bool verbose)
 	}
 	return j_role;
 }
+
 
 int dynsec_roles__process_list(struct dynsec__data *data, struct mosquitto_control_cmd *cmd)
 {
@@ -677,8 +692,12 @@ int dynsec_roles__process_add_acl(struct dynsec__data *data, struct mosquitto_co
 	strncpy(acl->topic, topic, topic_len+1);
 
 	json_get_int(cmd->j_command, "priority", &acl->priority, true, 0);
-	if(acl->priority > PRIORITY_MAX) acl->priority = PRIORITY_MAX;
-	if(acl->priority < -PRIORITY_MAX) acl->priority = -PRIORITY_MAX;
+	if(acl->priority > PRIORITY_MAX){
+		acl->priority = PRIORITY_MAX;
+	}
+	if(acl->priority < -PRIORITY_MAX){
+		acl->priority = -PRIORITY_MAX;
+	}
 	json_get_bool(cmd->j_command, "allow", &acl->allow, true, false);
 
 	HASH_ADD_INORDER(hh, *acllist, topic, topic_len, acl, insert_acl_cmp);

@@ -4,6 +4,7 @@
 #include "mosquitto/mqtt_protocol.h"
 #include "property_common.h"
 
+
 static void TEST_value_byte_success(void)
 {
 	mosquitto_property *property = NULL;
@@ -20,6 +21,7 @@ static void TEST_value_byte_success(void)
 		mosquitto_property_free_all(&property);
 	}
 }
+
 
 static void TEST_value_byte_fail(void)
 {
@@ -38,6 +40,7 @@ static void TEST_value_byte_fail(void)
 	}
 }
 
+
 static void TEST_value_int16_success(void)
 {
 	mosquitto_property *property = NULL;
@@ -54,6 +57,7 @@ static void TEST_value_int16_success(void)
 		mosquitto_property_free_all(&property);
 	}
 }
+
 
 static void TEST_value_int16_fail(void)
 {
@@ -72,6 +76,7 @@ static void TEST_value_int16_fail(void)
 	}
 }
 
+
 static void TEST_value_int32_success(void)
 {
 	mosquitto_property *property = NULL;
@@ -88,6 +93,7 @@ static void TEST_value_int32_success(void)
 		mosquitto_property_free_all(&property);
 	}
 }
+
 
 static void TEST_value_int32_fail(void)
 {
@@ -106,6 +112,7 @@ static void TEST_value_int32_fail(void)
 	}
 }
 
+
 static void TEST_value_varint_success(void)
 {
 	mosquitto_property *property = NULL;
@@ -123,6 +130,7 @@ static void TEST_value_varint_success(void)
 	}
 }
 
+
 static void TEST_value_varint_fail(void)
 {
 	mosquitto_property *property = NULL;
@@ -139,6 +147,7 @@ static void TEST_value_varint_fail(void)
 		mosquitto_property_free_all(&property);
 	}
 }
+
 
 static void TEST_value_binary_success(void)
 {
@@ -161,6 +170,7 @@ static void TEST_value_binary_success(void)
 	}
 }
 
+
 static void TEST_value_binary_fail(void)
 {
 	mosquitto_property *property = NULL;
@@ -180,6 +190,7 @@ static void TEST_value_binary_fail(void)
 		mosquitto_property_free_all(&property);
 	}
 }
+
 
 static void TEST_value_string_success(void)
 {
@@ -202,6 +213,7 @@ static void TEST_value_string_success(void)
 	}
 }
 
+
 static void TEST_value_string_fail(void)
 {
 	mosquitto_property *property = NULL;
@@ -222,17 +234,18 @@ static void TEST_value_string_fail(void)
 	}
 }
 
+
 static void TEST_value_string_pair_success(void)
 {
 	mosquitto_property *property = NULL;
 	char value_set[] = "value";
 	const char *value;
 	uint16_t len;
-	char name_set[] = "value";
+	char name_set[] = "name";
 	const char *name;
 	int rc;
 
-	rc = mosquitto_property_add_string_pair(&property, MQTT_PROP_USER_PROPERTY, value_set, name_set);
+	rc = mosquitto_property_add_string_pair(&property, MQTT_PROP_USER_PROPERTY, name_set, value_set);
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
 	CU_ASSERT_PTR_NOT_NULL(property);
 	if(property){
@@ -249,6 +262,7 @@ static void TEST_value_string_pair_success(void)
 		mosquitto_property_free_all(&property);
 	}
 }
+
 
 static void TEST_value_string_pair_fail(void)
 {
@@ -276,9 +290,11 @@ static void TEST_value_string_pair_fail(void)
 	}
 }
 
+
 /* ========================================================================
  * TEST SUITE SETUP
  * ======================================================================== */
+
 
 int init_property_value_tests(void)
 {

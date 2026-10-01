@@ -15,34 +15,41 @@ SPDX-License-Identifier: EPL-2.0 OR BSD-3-Clause
 Contributors:
    Roger Light - initial implementation and documentation.
 */
+#if defined(__linux__)
+#  define _GNU_SOURCE  /* Exposes pthread_setname_np on Linux */
+#endif
 
 #include "config.h"
 
-#ifndef WIN32
-#include <time.h>
-#endif
-
 #if defined(WITH_THREADING)
-#if defined(__linux__) || defined(__NetBSD__)
+#if defined(__linux__)
+#  include <pthread.h>
+#elif defined(__NetBSD__)
 #  include <pthread.h>
 #elif defined(__FreeBSD__) || defined(__OpenBSD__)
 #  include <pthread_np.h>
 #endif
 #endif
 
+#ifndef WIN32
+#include <time.h>
+#endif
+
 #include "mosquitto_internal.h"
 #include "net_mosq.h"
 #include "util_mosq.h"
-
 void *mosquitto__thread_main(void *obj);
+
 
 int mosquitto_loop_start(struct mosquitto *mosq)
 {
 #if defined(WITH_THREADING)
-	if(!mosq || mosq->threaded != mosq_ts_none) return MOSQ_ERR_INVAL;
+	if(!mosq || mosq->threaded != mosq_ts_none){
+		return MOSQ_ERR_INVAL;
+	}
 
 	mosq->threaded = mosq_ts_self;
-	if(!pthread_create(&mosq->thread_id, NULL, mosquitto__thread_main, mosq)){
+	if(!COMPAT_pthread_create(&mosq->thread_id, NULL, mosquitto__thread_main, mosq)){
 #if defined(__linux__)
 		pthread_setname_np(mosq->thread_id, "mosquitto loop");
 #elif defined(__NetBSD__)
@@ -60,6 +67,7 @@ int mosquitto_loop_start(struct mosquitto *mosq)
 #endif
 }
 
+
 int mosquitto_loop_stop(struct mosquitto *mosq, bool force)
 {
 #if defined(WITH_THREADING)
@@ -67,8 +75,11 @@ int mosquitto_loop_stop(struct mosquitto *mosq, bool force)
 	char sockpair_data = 0;
 #  endif
 
-	if(!mosq || mosq->threaded != mosq_ts_self) return MOSQ_ERR_INVAL;
+	if(!mosq || mosq->threaded != mosq_ts_self){
+		return MOSQ_ERR_INVAL;
+	}
 
+	mosq->run = false;
 
 	/* Write a single byte to sockpairW (connected to sockpairR) to break out
 	 * of select() if in threaded mode. */
@@ -83,10 +94,10 @@ int mosquitto_loop_stop(struct mosquitto *mosq, bool force)
 
 #ifdef HAVE_PTHREAD_CANCEL
 	if(force){
-		pthread_cancel(mosq->thread_id);
+		COMPAT_pthread_cancel(mosq->thread_id);
 	}
 #endif
-	pthread_join(mosq->thread_id, NULL);
+	COMPAT_pthread_join(mosq->thread_id, NULL);
 	mosq->thread_id = pthread_self();
 	mosq->threaded = mosq_ts_none;
 
@@ -99,6 +110,8 @@ int mosquitto_loop_stop(struct mosquitto *mosq, bool force)
 }
 
 #ifdef WITH_THREADING
+
+
 void *mosquitto__thread_main(void *obj)
 {
 	struct mosquitto *mosq = obj;
@@ -108,7 +121,9 @@ void *mosquitto__thread_main(void *obj)
 	ts.tv_nsec = 10000000;
 #endif
 
-	if(!mosq) return NULL;
+	if(!mosq){
+		return NULL;
+	}
 
 	do{
 		if(mosquitto__get_state(mosq) == mosq_cs_new){
@@ -137,9 +152,12 @@ void *mosquitto__thread_main(void *obj)
 }
 #endif
 
+
 int mosquitto_threaded_set(struct mosquitto *mosq, bool threaded)
 {
-	if(!mosq) return MOSQ_ERR_INVAL;
+	if(!mosq){
+		return MOSQ_ERR_INVAL;
+	}
 
 	if(threaded){
 		mosq->threaded = mosq_ts_external;

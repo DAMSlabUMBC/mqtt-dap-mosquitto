@@ -3,6 +3,7 @@
 # This tests the default ACL type access behaviour for when no ACL matches.
 
 from mosq_test_helper import *
+from dynsec_helper import *
 import json
 import shutil
 
@@ -12,16 +13,6 @@ def write_config(filename, port):
         f.write("allow_anonymous false\n")
         f.write(f"plugin {mosq_test.get_build_root()}/plugins/dynamic-security/mosquitto_dynamic_security.so\n")
         f.write("plugin_opt_config_file %d/dynamic-security.json\n" % (port))
-
-def command_check(sock, command_payload, expected_response):
-    command_packet = mosq_test.gen_publish(topic="$CONTROL/dynamic-security/v1", qos=0, payload=json.dumps(command_payload))
-    sock.send(command_packet)
-    response = json.loads(mosq_test.read_publish(sock))
-    if response != expected_response:
-        print("Expected: %s" % (expected_response))
-        print("Received: %s" % (response))
-        raise ValueError(response)
-
 
 
 port = mosq_test.get_port()
@@ -106,17 +97,17 @@ connack_packet = mosq_test.gen_connack(rc=0, proto_ver=5)
 
 mid = 3
 subscribe_packet = mosq_test.gen_subscribe(mid, "topic", 0, proto_ver=5)
-suback_packet_fail = mosq_test.gen_suback(mid, mqtt5_rc.MQTT_RC_NOT_AUTHORIZED, proto_ver=5)
+suback_packet_fail = mosq_test.gen_suback(mid, mqtt5_rc.NOT_AUTHORIZED, proto_ver=5)
 suback_packet_success = mosq_test.gen_suback(mid, 0, proto_ver=5)
 
 mid = 4
 unsubscribe_packet = mosq_test.gen_unsubscribe(mid, "topic", proto_ver=5)
-unsuback_packet_fail = mosq_test.gen_unsuback(mid, mqtt5_rc.MQTT_RC_NOT_AUTHORIZED, proto_ver=5)
+unsuback_packet_fail = mosq_test.gen_unsuback(mid, mqtt5_rc.NOT_AUTHORIZED, proto_ver=5)
 unsuback_packet_success = mosq_test.gen_unsuback(mid, proto_ver=5)
 
 mid = 5
 publish_packet = mosq_test.gen_publish(topic="topic", mid=mid, qos=1, payload="message", proto_ver=5)
-puback_packet_fail = mosq_test.gen_puback(mid, proto_ver=5, reason_code=mqtt5_rc.MQTT_RC_NOT_AUTHORIZED)
+puback_packet_fail = mosq_test.gen_puback(mid, proto_ver=5, reason_code=mqtt5_rc.NOT_AUTHORIZED)
 puback_packet_success = mosq_test.gen_puback(mid, proto_ver=5)
 
 publish_packet_recv = mosq_test.gen_publish(topic="topic", qos=0, payload="message", proto_ver=5)
@@ -180,6 +171,8 @@ try:
     mosq_test.do_send_receive(csock, unsubscribe_packet, unsuback_packet_fail, "unsuback fail")
 
     csock.close()
+
+    check_details(sock, 2, 0, 1, 5)
 
     rc = 0
 

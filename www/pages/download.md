@@ -11,8 +11,8 @@
 
 # Source
 
-* [mosquitto-2.0.20.tar.gz](https://mosquitto.org/files/source/mosquitto-2.0.20.tar.gz) ([GPG signature](https://mosquitto.org/files/source/mosquitto-2.0.20.tar.gz.asc))
-* [Git source code repository](https://github.com/eclipse/mosquitto) (github.com)
+* [mosquitto-2.1.2.tar.gz](https://mosquitto.org/files/source/mosquitto-2.1.2.tar.gz) ([GPG signature](https://mosquitto.org/files/source/mosquitto-2.1.2.tar.gz.asc))
+* [Git source code repository](https://github.com/eclipse-mosquitto/mosquitto) (github.com)
 
 Older downloads are available at [https://mosquitto.org/files/](../files/)
 
@@ -24,7 +24,8 @@ distributions.
 
 ## Windows
 
-* [mosquitto-2.0.20-install-windows-x64.exe](https://mosquitto.org/files/binary/win64/mosquitto-2.0.20-install-windows-x64.exe)
+* [mosquitto-2.1.2-install-windows-x64.exe](https://mosquitto.org/files/binary/win64/mosquitto-2.1.2-install-windows-x64.exe)
+* [mosquitto-2.1.2-install-windows-x86.exe](https://mosquitto.org/files/binary/win32/mosquitto-2.1.2-install-windows-x86.exe)
 
 Older installers can be found at [https://mosquitto.org/files/binary/](https://mosquitto.org/files/binary/).
 
@@ -41,6 +42,7 @@ Mosquitto can be installed from the homebrew project. See
 ## Debian
 * Mosquitto is now in Debian proper. There will be a short delay between a new
   release and it appearing in Debian as part of the normal Debian procedures.
+  The tracker for the package is at <https://tracker.debian.org/pkg/mosquitto>.
 * There are also Debian repositories provided by the mosquitto project, as
   described at <https://mosquitto.org/2013/01/mosquitto-debian-repository>
 

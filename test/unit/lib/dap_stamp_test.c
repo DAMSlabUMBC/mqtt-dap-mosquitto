@@ -29,7 +29,7 @@ static char msg_slots[16];
 
 /* A publish matched to a subscription lands in that subscription's topic queue,
  * stamped with the MP version registered for it, the SP version passed in, and the
- * per-client mid passed in. With no pending-op map the action is NONE and no op ids
+ * cmsg_id passed in. With no pending-op map the action is NONE and no op ids
  * are applied. */
 static void test_stamp_enqueues_with_current_versions(void)
 {
@@ -42,17 +42,17 @@ static void test_stamp_enqueues_with_current_versions(void)
     mp__register_topic("pub/x", "sensors/temp", "billing/electricity");
 
     enum dap_op_action action = DAP_OP_ACTION_DROP; /* poisoned so NONE must be written */
-    /* Subscriber's SP (from the leaf) is at version 1; the message carries mid 0xABCD. */
+    /* Subscriber's SP (from the leaf) is at version 1; the client message is cmsg_id 0xABCD. */
     assert(dap_stamp_and_enqueue(&q, NULL, "pub/x", "sub/y", "sensors/temp",
                                  0xABCD, 1, "research", MSG(0), 4242, &action) == 0);
     assert(action == DAP_OP_ACTION_NONE);
 
-    /* One stamped message, queued under its topic, carrying the versions and mid. */
+    /* One stamped message, queued under its topic, carrying the versions and cmsg_id. */
     assert(dap_subscription_queues_total_size(&q) == 1);
     struct dap_stamped_msg *m = dap_subscription_queues_peek_front(&q, "sensors/temp");
     assert(m != NULL);
     assert(m->base_msg == MSG(0));
-    assert(m->mid == 0xABCD);
+    assert(m->cmsg_id == 0xABCD);
     assert(m->mp_version == 2);
     assert(m->sp_version == 1);
     assert(m->enqueue_time == 4242);
@@ -62,7 +62,7 @@ static void test_stamp_enqueues_with_current_versions(void)
 
     dap_subscription_queues_destroy(&q);
     mp_registry_cleanup();
-    printf("ok - stamp enqueues the message with the current MP version, given SP version and mid\n");
+    printf("ok - stamp enqueues the message with the current MP version, given SP version and cmsg_id\n");
 }
 
 /* With no MP registered and SP version 0, both versions stamp as 0 and the message
@@ -146,7 +146,7 @@ static void test_match_none_when_op_does_not_apply(void)
     printf("ok - non-applicable pending op leaves action NONE and stamps no op ids\n");
 }
 
-/* A matching RESTRICT op stamps the message with that single op id and the mid,
+/* A matching RESTRICT op stamps the message with that single op id and the cmsg_id,
  * and still enqueues. */
 static void test_match_restrict_stamps_op_id(void)
 {
@@ -168,11 +168,11 @@ static void test_match_restrict_stamps_op_id(void)
                                  0x1234, 0, "research", MSG(0), 100, &action) == 0);
     assert(action == DAP_OP_ACTION_RESTRICT);
 
-    /* Still delivered to our topic queue, now carrying the deciding op id and mid. */
+    /* Still delivered to our topic queue, now carrying the deciding op id and cmsg_id. */
     assert(dap_subscription_queues_total_size(&q) == 1);
     struct dap_stamped_msg *m = dap_subscription_queues_peek_front(&q, "sensors/temp");
     assert(m != NULL);
-    assert(m->mid == 0x1234);
+    assert(m->cmsg_id == 0x1234);
     assert(m->num_applied_op_ids == 1);
     assert(m->applied_op_ids != NULL);
     assert(m->applied_op_ids[0] == op_id);
@@ -180,10 +180,10 @@ static void test_match_restrict_stamps_op_id(void)
     dap_pending_ops_destroy(&ops);
     dap_subscription_queues_destroy(&q);
     mp_registry_cleanup();
-    printf("ok - matching RESTRICT stamps the deciding op id and mid and still enqueues\n");
+    printf("ok - matching RESTRICT stamps the deciding op id and cmsg_id and still enqueues\n");
 }
 
-/* A matching DELETE op drops the message: action DROP and nothing is enqueued. */
+/* A matching DELETE reports DROP but still enqueues; the send-path gate drops it. */
 static void test_match_delete_drops_message(void)
 {
     mp_registry_init();
@@ -200,14 +200,15 @@ static void test_match_delete_drops_message(void)
                                  0, 0, "research", MSG(0), 100, &action) == 0);
     assert(action == DAP_OP_ACTION_DROP);
 
-    /* Dropped - never reaches the topic queue. */
-    assert(dap_subscription_queues_total_size(&q) == 0);
-    assert(dap_subscription_queues_peek_front(&q, "sensors/temp") == NULL);
+    assert(dap_subscription_queues_total_size(&q) == 1);
+    struct dap_stamped_msg *m = dap_subscription_queues_peek_front(&q, "sensors/temp");
+    assert(m != NULL);
+    assert(m->num_applied_op_ids == 0);
 
     dap_pending_ops_destroy(&ops);
     dap_subscription_queues_destroy(&q);
     mp_registry_cleanup();
-    printf("ok - matching DELETE drops the message and enqueues nothing\n");
+    printf("ok - matching DELETE reports DROP and leaves the drop to the send-path gate\n");
 }
 
 int main(void)

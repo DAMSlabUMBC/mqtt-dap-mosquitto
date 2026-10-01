@@ -27,6 +27,7 @@ Contributors:
 #include "lib_load.h"
 #include "utlist.h"
 
+
 static int plugin__ext_auth_start(struct mosquitto__security_options *opts, struct mosquitto *context, bool reauth, const void *data_in, uint16_t data_in_len, void **data_out, uint16_t *data_out_len)
 {
 	struct mosquitto_evt_extended_auth event_data;
@@ -63,8 +64,12 @@ int mosquitto_security_auth_start(struct mosquitto *context, bool reauth, const 
 {
 	int rc;
 
-	if(!context || !context->listener || !context->auth_method) return MOSQ_ERR_INVAL;
-	if(!data_out || !data_out_len) return MOSQ_ERR_INVAL;
+	if(!context || !context->listener || !context->auth_method){
+		return MOSQ_ERR_INVAL;
+	}
+	if(!data_out || !data_out_len){
+		return MOSQ_ERR_INVAL;
+	}
 
 	/* Global plugins */
 	if(db.config->security_options.plugin_callbacks.ext_auth_start){
@@ -79,10 +84,7 @@ int mosquitto_security_auth_start(struct mosquitto *context, bool reauth, const 
 	}
 
 	/* Per listener plugins */
-	if(db.config->per_listener_settings){
-		if(context->listener == NULL){
-			return MOSQ_ERR_AUTH;
-		}
+	if(context->listener){
 		if(context->listener->security_options->plugin_callbacks.ext_auth_start){
 			rc = plugin__ext_auth_start(context->listener->security_options, context,
 					reauth, data_in, data_in_len, data_out, data_out_len);
@@ -92,6 +94,10 @@ int mosquitto_security_auth_start(struct mosquitto *context, bool reauth, const 
 			}else{
 				return rc;
 			}
+		}
+	}else{
+		if(db.config->per_listener_settings){
+			return MOSQ_ERR_AUTH;
 		}
 	}
 
@@ -131,8 +137,12 @@ int mosquitto_security_auth_continue(struct mosquitto *context, const void *data
 {
 	int rc;
 
-	if(!context || !context->listener || !context->auth_method) return MOSQ_ERR_INVAL;
-	if(!data_out || !data_out_len) return MOSQ_ERR_INVAL;
+	if(!context || !context->listener || !context->auth_method){
+		return MOSQ_ERR_INVAL;
+	}
+	if(!data_out || !data_out_len){
+		return MOSQ_ERR_INVAL;
+	}
 
 	/* Global plugins */
 	if(db.config->security_options.plugin_callbacks.ext_auth_continue){
@@ -147,10 +157,7 @@ int mosquitto_security_auth_continue(struct mosquitto *context, const void *data
 	}
 
 	/* Per listener plugins */
-	if(db.config->per_listener_settings){
-		if(context->listener == NULL){
-			return MOSQ_ERR_AUTH;
-		}
+	if(context->listener){
 		if(context->listener->security_options->plugin_callbacks.ext_auth_continue){
 			rc = plugin__ext_auth_continue(context->listener->security_options, context,
 					data_in, data_in_len, data_out, data_out_len);
@@ -160,6 +167,10 @@ int mosquitto_security_auth_continue(struct mosquitto *context, const void *data
 			}else{
 				return rc;
 			}
+		}
+	}else{
+		if(db.config->per_listener_settings){
+			return MOSQ_ERR_AUTH;
 		}
 	}
 

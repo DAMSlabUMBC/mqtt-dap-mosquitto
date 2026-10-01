@@ -1,4 +1,7 @@
 add_executable(mosquitto
+	acl_file.c acl_file.h
+	../plugins/acl-file/acl_check.c
+	../plugins/acl-file/acl_parse.c
 	../lib/alias_mosq.c ../lib/alias_mosq.h
 	bridge.c bridge_topic.c
 	broker_control.c
@@ -31,12 +34,16 @@ add_executable(mosquitto
 	mosquitto.c
 	../include/mosquitto_broker.h mosquitto_broker_internal.h
 	mux.c mux.h mux_epoll.c mux_kqueue.c mux_poll.c
-	rights_broker.c rights_broker.h
+	dap/rights_broker.c dap/rights_broker.h
+	dap/dap_persist.c dap/dap_persist.h
 	net.c
 	../lib/net_mosq_ocsp.c ../lib/net_mosq.c ../lib/net_mosq.h
 	../lib/net_ws.c
 	../lib/packet_datatypes.c
 	../lib/packet_mosq.c ../lib/packet_mosq.h
+	password_file.c password_file.h
+	../plugins/password-file/password_check.c
+	../plugins/password-file/password_parse.c
 	persist_read_v234.c persist_read_v5.c persist_read.c
 	persist_write_v5.c persist_write.c
 	persist.h
@@ -45,6 +52,7 @@ add_executable(mosquitto
 	plugin_acl_check.c plugin_basic_auth.c plugin_connect.c plugin_disconnect.c
 	plugin_client_offline.c
 	plugin_extended_auth.c plugin_message.c plugin_psk_key.c plugin_public.c
+	plugin_reload.c
 	plugin_subscribe.c
 	plugin_tick.c
 	plugin_unsubscribe.c
@@ -53,22 +61,22 @@ add_executable(mosquitto
 	proxy_v2.c
 	../lib/property_mosq.c ../lib/property_mosq.h
 	psk_file.c
-	../lib/purpose_filters.c ../lib/purpose_filters.h
-	../lib/mp_registry.c ../lib/mp_registry.h
-	../lib/ri_registry.c ../lib/ri_registry.h
-	../lib/dr_registry.c ../lib/dr_registry.h
-	../lib/rights_registry.c ../lib/rights_registry.h
-	../lib/dap_subscription_queues.c ../lib/dap_subscription_queues.h
-	../lib/dap_pending_ops.c ../lib/dap_pending_ops.h
-	../lib/dap_op_request.c ../lib/dap_op_request.h
-	../lib/dap_deadline_tracker.c ../lib/dap_deadline_tracker.h
-	../lib/dap_op_requester.c ../lib/dap_op_requester.h
-	../lib/dap_timestamp.c ../lib/dap_timestamp.h
-	../lib/dap_topics.c ../lib/dap_topics.h
-	../lib/dap_stamp.c ../lib/dap_stamp.h
-	../lib/dap_metrics.c ../lib/dap_metrics.h
-	../lib/dap_send_verify.c ../lib/dap_send_verify.h
-	../lib/dap_holding_list.c ../lib/dap_holding_list.h
+	../lib/dap/purpose_filters.c ../lib/dap/purpose_filters.h
+	../lib/dap/mp_registry.c ../lib/dap/mp_registry.h
+	../lib/dap/ri_registry.c ../lib/dap/ri_registry.h
+	../lib/dap/dr_registry.c ../lib/dap/dr_registry.h
+	../lib/dap/rights_registry.c ../lib/dap/rights_registry.h
+	../lib/dap/dap_subscription_queues.c ../lib/dap/dap_subscription_queues.h
+	../lib/dap/dap_pending_ops.c ../lib/dap/dap_pending_ops.h
+	../lib/dap/dap_op_request.c ../lib/dap/dap_op_request.h
+	../lib/dap/dap_deadline_tracker.c ../lib/dap/dap_deadline_tracker.h
+	../lib/dap/dap_op_requester.c ../lib/dap/dap_op_requester.h
+	../lib/dap/dap_timestamp.c ../lib/dap/dap_timestamp.h
+	../lib/dap/dap_topics.c ../lib/dap/dap_topics.h
+	../lib/dap/dap_stamp.c ../lib/dap/dap_stamp.h
+	../lib/dap/dap_metrics.c ../lib/dap/dap_metrics.h
+	../lib/dap/dap_send_verify.c ../lib/dap/dap_send_verify.h
+	../lib/dap/dap_holding_list.c ../lib/dap/dap_holding_list.h
 	read_handle.c
 	../lib/read_handle.h
 	retain.c
@@ -90,6 +98,7 @@ add_executable(mosquitto
 	../lib/tls_mosq.c
 	topic_tok.c
 	../lib/util_mosq.c ../lib/util_mosq.h
+	watchdog.c
 	websockets.c
 	will_delay.c
 	../lib/will_mosq.c ../lib/will_mosq.h
@@ -110,6 +119,25 @@ option(INC_BRIDGE_SUPPORT
 if(INC_BRIDGE_SUPPORT)
 	target_sources(mosquitto PRIVATE bridge.c)
 	target_compile_definitions(mosquitto PRIVATE "WITH_BRIDGE")
+endif()
+
+option(WITH_HTTP_API
+	"Include http_api support for listeners?" ON)
+set(HTTP_API_DIR "Default http_api directory" CACHE STRING "")
+if(WITH_HTTP_API)
+	if(WIN32)
+		find_library(MICROHTTPD_LIBRARY NAMES microhttpd-dll)
+	else()
+		find_library(MICROHTTPD_LIBRARY NAMES microhttpd)
+	endif()
+	if(MICROHTTPD_LIBRARY)
+		target_sources(mosquitto PRIVATE http_api.c)
+		target_compile_definitions(mosquitto PRIVATE "WITH_HTTP_API")
+		target_link_libraries(mosquitto PRIVATE ${MICROHTTPD_LIBRARY})
+		if(HTTP_API_DIR)
+			target_compile_definitions(mosquitto PRIVATE "HTTP_API_DIR=\"${HTTP_API_DIR}\"")
+		endif()
+	endif()
 endif()
 
 
@@ -135,6 +163,11 @@ option(WITH_SYS_TREE "Include $SYS tree support?" ON)
 if(WITH_SYS_TREE)
 	target_compile_definitions(mosquitto PRIVATE "WITH_SYS_TREE")
 endif()
+
+option(WITH_OLD_KEEPALIVE "Use legacy keepalive check mechanism?" OFF)
+if (WITH_OLD_KEEPALIVE)
+	add_definitions("-DWITH_OLD_KEEPALIVE")
+endif (WITH_OLD_KEEPALIVE)
 
 option(WITH_ADNS "Include ADNS support?" OFF)
 
@@ -163,13 +196,33 @@ target_compile_definitions(mosquitto PRIVATE "WITH_BROKER")
 if(WITH_TLS)
 	target_link_libraries(mosquitto PRIVATE OpenSSL::SSL)
 endif()
+
 # Check for getaddrinfo_a
-include(CheckLibraryExists)
-check_library_exists(anl getaddrinfo_a  "" HAVE_GETADDRINFO_A)
-if(HAVE_GETADDRINFO_A AND WITH_ADNS)
-	target_compile_definitions(mosquitto PRIVATE "WITH_ADNS")
-	target_compile_definitions(mosquitto PRIVATE "HAVE_GETADDRINFO_A")
-	target_link_libraries(mosquitto PRIVATE anl)
+# Prior to glibc 2.34 this required linking with anl
+if(WITH_ADNS)
+	cmake_push_check_state()
+	set(ANL_CODE "
+		#include <stdlib.h>
+		#include <netdb.h>
+		int main(){
+			return getaddrinfo_a(0, NULL, 0, NULL);
+		}
+	")
+	check_source_compiles(C "${ANL_CODE}" HAVE_GETADDRINFO_A)
+	if(HAVE_GETADDRINFO_A)
+		target_compile_definitions(mosquitto PRIVATE "WITH_ADNS")
+	else()
+		set(CMAKE_REQUIRED_LIBRARIES "anl")
+		check_source_compiles(C "${ANL_CODE}" HAVE_GETADDRINFO_A_LIBANL)
+
+		if(HAVE_GETADDRINFO_A_LIBANL)
+			target_compile_definitions(mosquitto PRIVATE "WITH_ADNS")
+			target_link_libraries(mosquitto PRIVATE anl)
+		else()
+			message(FATAL_ERROR "WITH_ADNS is set, but getaddrinfo_a() is not available.")
+		endif()
+	endif()
+	cmake_pop_check_state()
 endif()
 
 
@@ -186,10 +239,6 @@ if(UNIX)
 		target_link_libraries(mosquitto PRIVATE m socket)
 	else()
 		target_link_libraries(mosquitto PRIVATE dl m)
-		find_library(LIBRT rt)
-		if(LIBRT)
-			target_link_libraries(mosquitto PRIVATE rt)
-		endif()
 	endif()
 endif()
 
@@ -217,12 +266,12 @@ if(WITH_WEBSOCKETS)
 			"${mosquitto_SOURCE_DIR}/deps/picohttpparser")
 	else()
 		if(STATIC_WEBSOCKETS)
-			target_link_libraries(mosquitto PRIVATE websockets_static)
+			target_link_libraries(mosquitto PRIVATE websockets)
 			if(WIN32)
 				target_link_libraries(mosquitto PRIVATE iphlpapi)
 			endif()
 		else(STATIC_WEBSOCKETS)
-			target_link_libraries(mosquitto PRIVATE websockets)
+			target_link_libraries(mosquitto PRIVATE websockets_shared)
 		endif()
 	endif()
 endif()
@@ -244,6 +293,7 @@ target_include_directories(mosquitto
 		"${mosquitto_SOURCE_DIR}/lib"
 		"${mosquitto_SOURCE_DIR}/libcommon"
 		"${mosquitto_SOURCE_DIR}/src"
+		"${CJSON_INCLUDE_DIRS}"
 )
 if(WITH_BUNDLED_DEPS)
 	target_include_directories(mosquitto PRIVATE
@@ -269,6 +319,7 @@ endif()
 
 set_target_properties(mosquitto PROPERTIES
 	ENABLE_EXPORTS 1
+	ARCHIVE_OUTPUT_NAME "mosquitto_broker"
 )
 
 if(UNIX)
@@ -276,6 +327,7 @@ if(UNIX)
 		set_target_properties(mosquitto PROPERTIES
 			LINK_FLAGS "-Wl,-exported_symbols_list -Wl,${mosquitto_SOURCE_DIR}/src/linker-macosx.syms"
 		)
+	elseif (${CMAKE_SYSTEM_NAME} MATCHES "AIX")
 	else()
 		set_target_properties(mosquitto PROPERTIES
 			LINK_FLAGS "-Wl,-dynamic-list=${mosquitto_SOURCE_DIR}/src/linker.syms"

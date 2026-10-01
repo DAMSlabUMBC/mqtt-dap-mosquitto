@@ -29,6 +29,7 @@ Contributors:
 
 static int plugin__security_cleanup_single(mosquitto_plugin_id_t *plugin, bool reload);
 
+
 static void plugin__unload_single(mosquitto_plugin_id_t *plugin)
 {
 	struct control_endpoint *ep, *tmp;
@@ -131,5 +132,5 @@ int mosquitto_security_cleanup(bool reload)
 		plugin__security_cleanup_single(db.plugins[i], reload);
 	}
 
-	return mosquitto_security_cleanup_default(reload);
+	return mosquitto_security_cleanup_default();
 }

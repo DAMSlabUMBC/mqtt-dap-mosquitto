@@ -39,15 +39,19 @@ set(PLUGINS
     bad_v5_1
     bad_v6
     bad_vnone_1
+    kick_last_client
     plugin_control
     plugin_evt_client_offline
     plugin_evt_message_in
     plugin_evt_message_out
     plugin_evt_persist_client_update
     plugin_evt_psk_key
+    plugin_evt_reload
     plugin_evt_subscribe
     plugin_evt_tick
     plugin_evt_unsubscribe
+    plugin_load_acl
+    plugin_load_extended_auth
 )
 
 foreach(PLUGIN ${PLUGINS})

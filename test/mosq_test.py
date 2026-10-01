@@ -65,8 +65,13 @@ def start_broker(filename, cmd=None, port=0, use_conf=False, expect_fail=False, 
     global vg_index
     global vg_logfiles
 
-    if use_conf:
+    if use_conf == True:
         cmd = [get_build_root() + '/src/mosquitto', '-v', '-c', filename.replace('.py', '.conf')]
+
+        if port == 0:
+            port = 1888
+        else:
+            cmd += ['-p', str(port)]
     else:
         if cmd is None and port != 0:
             cmd = [get_build_root() + '/src/mosquitto', '-v', '-p', str(port)]
@@ -82,7 +87,7 @@ def start_broker(filename, cmd=None, port=0, use_conf=False, expect_fail=False, 
         elif os.environ.get('MOSQ_USE_VALGRIND') == 'failgrind':
             cmd = ['fg-helper'] + cmd
         else:
-            cmd = ['valgrind', '-q', '--track-fds=yes', '--trace-children=yes', '--leak-check=full', '--show-leak-kinds=all', '--log-file='+logfile] + cmd
+            cmd = ['valgrind', '-q', '--gen-suppressions=all', '--suppressions=test.supp', '--track-fds=yes', '--trace-children=yes', '--leak-check=full', '--show-leak-kinds=all', '--log-file='+logfile] + cmd
         vg_logfiles.append(logfile)
         vg_index += 1
         timeout = 1
@@ -259,7 +264,7 @@ def receive_unordered(sock, recv1_packet, recv2_packet, error_string):
         raise ValueError(error_string)
 
 
-def do_send_receive(sock, send_packet, receive_packet, error_string="send receive error"):
+def do_send(sock, send_packet):
     size = len(send_packet)
     total_sent = 0
     while total_sent < size:
@@ -267,6 +272,9 @@ def do_send_receive(sock, send_packet, receive_packet, error_string="send receiv
         if sent == 0:
             raise RuntimeError("socket connection broken")
         total_sent += sent
+
+def do_send_receive(sock, send_packet, receive_packet, error_string="send receive error"):
+    do_send(sock, send_packet)
 
     if expect_packet(sock, error_string, receive_packet):
         return sock
@@ -278,13 +286,7 @@ def do_send_receive(sock, send_packet, receive_packet, error_string="send receiv
 # Useful for mocking a client receiving (with ack) a qos1 publish
 def do_receive_send(sock, receive_packet, send_packet, error_string="receive send error"):
     if expect_packet(sock, error_string, receive_packet):
-        size = len(send_packet)
-        total_sent = 0
-        while total_sent < size:
-            sent = sock.send(send_packet[total_sent:])
-            if sent == 0:
-                raise RuntimeError("socket connection broken")
-            total_sent += sent
+        do_send(sock, send_packet)
         return sock
     else:
         sock.close()
@@ -417,12 +419,12 @@ def to_string(packet):
         return s
     elif cmd == 0x20:
         # CONNACK
-        if len(packet) == 4:
-            (cmd, rl, resv, rc) = struct.unpack('!BBBB', packet)
-            return "CONNACK, rl="+str(rl)+", res="+str(resv)+", rc="+str(rc)
-        elif len(packet) == 5:
-            (cmd, rl, flags, reason_code, proplen) = struct.unpack('!BBBBB', packet)
-            return "CONNACK, rl="+str(rl)+", flags="+str(flags)+", rc="+str(reason_code)+", proplen="+str(proplen)
+        if len(packet) >= 4:
+            (cmd, rl, flags, reason_code) = struct.unpack('!BBBB', packet[0:4])
+            s=f"CONNACK, rl={rl}, res/flags={flags}, rc={reason_code}"
+            if len(packet) > 4:
+                s = s+ f", properties={mqtt5_props.print_properties(packet[4:])}"
+            return s
         else:
             return "CONNACK, (not decoded)"
 
@@ -613,10 +615,10 @@ def gen_connect(client_id, clean_session=True, keepalive=60, username=None, pass
 
     if proto_ver == 5:
         if properties == b"":
-            properties += mqtt5_props.gen_uint16_prop(mqtt5_props.PROP_RECEIVE_MAXIMUM, 20)
+            properties += mqtt5_props.gen_uint16_prop(mqtt5_props.RECEIVE_MAXIMUM, 20)
 
         if session_expiry != -1:
-            properties += mqtt5_props.gen_uint32_prop(mqtt5_props.PROP_SESSION_EXPIRY_INTERVAL, session_expiry)
+            properties += mqtt5_props.gen_uint32_prop(mqtt5_props.SESSION_EXPIRY_INTERVAL, session_expiry)
 
         properties = mqtt5_props.prop_finalise(properties)
         remaining_length += len(properties)
@@ -673,8 +675,10 @@ def gen_connack(flags=0, rc=0, proto_ver=4, properties=b"", property_helper=True
     if proto_ver == 5:
         if property_helper == True:
             if properties is not None:
-                properties = mqtt5_props.gen_uint16_prop(mqtt5_props.PROP_TOPIC_ALIAS_MAXIMUM, 10) \
-                    + properties + mqtt5_props.gen_uint16_prop(mqtt5_props.PROP_RECEIVE_MAXIMUM, 20)
+                properties = mqtt5_props.gen_uint16_prop(mqtt5_props.TOPIC_ALIAS_MAXIMUM, 10) \
+                    + properties \
+                    + mqtt5_props.gen_uint32_prop(mqtt5_props.MAXIMUM_PACKET_SIZE, 2000000) \
+                    + mqtt5_props.gen_uint16_prop(mqtt5_props.RECEIVE_MAXIMUM, 20)
             else:
                 properties = b""
         properties = mqtt5_props.prop_finalise(properties)
@@ -932,6 +936,23 @@ def client_test(client_cmd, client_args, callback, cb_data):
             print(e)
             print(f"Fail: {client_cmd} rc={rc}, client_rc={client_rc}")
             exit(rc)
+
+
+def get_non_loopback_ip():
+    # https://stackoverflow.com/questions/166506/finding-local-ip-addresses-using-pythons-stdlib
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    s.settimeout(0)
+    try:
+        # doesn't even have to be reachable
+        s.connect(('10.254.254.254', 1))
+        IP = s.getsockname()[0]
+    except Exception:
+        # Explicitly not 127.0.0.1 - we want something that doesn't match a
+        # certificate SAN
+        IP = '127.0.0.2'
+    finally:
+        s.close()
+    return IP
 
 
 # =============================================

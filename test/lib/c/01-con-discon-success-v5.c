@@ -6,6 +6,7 @@
 
 static int run = -1;
 
+
 static void on_connect(struct mosquitto *mosq, void *obj, int rc, int flags, const mosquitto_property *properties)
 {
 	(void)obj;
@@ -21,6 +22,7 @@ static void on_connect(struct mosquitto *mosq, void *obj, int rc, int flags, con
 	}
 }
 
+
 static void on_disconnect(struct mosquitto *mosq, void *obj, int rc, const mosquitto_property *properties)
 {
 	(void)mosq;
@@ -30,6 +32,7 @@ static void on_disconnect(struct mosquitto *mosq, void *obj, int rc, const mosqu
 	/* FIXME - should verify flags and all properties here. */
 	run = rc;
 }
+
 
 int main(int argc, char *argv[])
 {
@@ -56,7 +59,9 @@ int main(int argc, char *argv[])
 	mosquitto_property_add_int32(&props, MQTT_PROP_MAXIMUM_PACKET_SIZE, 1000);
 	rc = mosquitto_connect_bind_v5(mosq, "localhost", port, 60, NULL, props);
 	mosquitto_property_free_all(&props);
-	if(rc != MOSQ_ERR_SUCCESS) return rc;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return rc;
+	}
 
 	while(run == -1){
 		mosquitto_loop(mosq, -1, 1);

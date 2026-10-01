@@ -28,6 +28,7 @@ Contributors:
 #include <cjson/cJSON.h>
 
 #include "db_dump.h"
+#include "json_help.h"
 #include <mosquitto_broker_internal.h>
 #include <persist.h>
 
@@ -45,6 +46,7 @@ cJSON *j_clients = NULL;
 cJSON *j_client_msgs = NULL;
 cJSON *j_retained_msgs = NULL;
 cJSON *j_subscriptions = NULL;
+
 
 void json_init(void)
 {
@@ -66,6 +68,7 @@ void json_init(void)
 	}
 }
 
+
 void json_print(void)
 {
 	char *jstr = cJSON_Print(j_tree);
@@ -73,10 +76,12 @@ void json_print(void)
 	free(jstr);
 }
 
+
 void json_cleanup(void)
 {
 	cJSON_Delete(j_tree);
 }
+
 
 void json_add_base_msg(struct P_base_msg *chunk)
 {
@@ -85,8 +90,8 @@ void json_add_base_msg(struct P_base_msg *chunk)
 	j_base_msg = cJSON_CreateObject();
 	cJSON_AddItemToArray(j_base_msgs, j_base_msg);
 
-	cJSON_AddNumberToObject(j_base_msg, "storeid", chunk->F.store_id);
-	cJSON_AddNumberToObject(j_base_msg, "expiry-time", chunk->F.expiry_time);
+	cJSON_AddUIntToObject(j_base_msg, "storeid", chunk->F.store_id);
+	cJSON_AddIntToObject(j_base_msg, "expiry-time", chunk->F.expiry_time);
 	cJSON_AddNumberToObject(j_base_msg, "source-mid", chunk->F.source_mid);
 	cJSON_AddNumberToObject(j_base_msg, "source-port", chunk->F.source_port);
 	cJSON_AddNumberToObject(j_base_msg, "qos", chunk->F.qos);
@@ -99,11 +104,15 @@ void json_add_base_msg(struct P_base_msg *chunk)
 		cJSON_AddStringToObject(j_base_msg, "username", chunk->source.username);
 	}
 	if(chunk->F.payloadlen > 0){
+#ifdef WITH_TLS
 		char *payload;
 		if(mosquitto_base64_encode(chunk->payload, chunk->F.payloadlen, &payload) == MOSQ_ERR_SUCCESS){
 			cJSON_AddStringToObject(j_base_msg, "payload", payload);
 			mosquitto_free(payload);
 		}
+#else
+		fprintf(stderr, "Warning: payload not output due to missing base64 support.\n");
+#endif
 	}
 	if(chunk->properties){
 		cJSON *j_props = mosquitto_properties_to_json(chunk->properties);
@@ -112,6 +121,7 @@ void json_add_base_msg(struct P_base_msg *chunk)
 		}
 	}
 }
+
 
 void json_add_client(struct P_client *chunk)
 {
@@ -124,12 +134,13 @@ void json_add_client(struct P_client *chunk)
 	if(chunk->username){
 		cJSON_AddStringToObject(j_client, "username", chunk->username);
 	}
-	cJSON_AddNumberToObject(j_client, "session-expiry-time", chunk->F.session_expiry_time);
+	cJSON_AddIntToObject(j_client, "session-expiry-time", chunk->F.session_expiry_time);
 	cJSON_AddNumberToObject(j_client, "session-expiry-interval", chunk->F.session_expiry_interval);
 	cJSON_AddNumberToObject(j_client, "last-mid", chunk->F.last_mid);
 	cJSON_AddNumberToObject(j_client, "listener-port", chunk->F.listener_port);
 
 }
+
 
 void json_add_client_msg(struct P_client_msg *chunk)
 {
@@ -148,6 +159,7 @@ void json_add_client_msg(struct P_client_msg *chunk)
 	cJSON_AddNumberToObject(j_client_msg, "subscription-identifier", chunk->subscription_identifier);
 }
 
+
 void json_add_subscription(struct P_sub *chunk)
 {
 	cJSON *j_subscription;
@@ -162,11 +174,12 @@ void json_add_subscription(struct P_sub *chunk)
 	cJSON_AddNumberToObject(j_subscription, "identifier", chunk->F.identifier);
 }
 
+
 void json_add_retained_msg(struct P_retain *chunk)
 {
 	cJSON *j_retained_msg;
 
 	j_retained_msg = cJSON_CreateObject();
 	cJSON_AddItemToArray(j_retained_msgs, j_retained_msg);
-	cJSON_AddNumberToObject(j_retained_msg, "storeid", chunk->F.store_id);
+	cJSON_AddUIntToObject(j_retained_msg, "storeid", chunk->F.store_id);
 }

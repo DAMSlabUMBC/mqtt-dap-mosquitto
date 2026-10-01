@@ -49,6 +49,9 @@ int handle__pubackcomp(struct mosquitto *mosq, const char *type)
 	assert(mosq);
 
 	if(mosquitto__get_state(mosq) != mosq_cs_active){
+#ifdef WITH_BROKER
+		log__printf(NULL, MOSQ_LOG_INFO, "Protocol error from %s: %s before session is active.", mosq->id, type);
+#endif
 		return MOSQ_ERR_PROTOCOL;
 	}
 	if(mosq->protocol != mosq_p_mqtt31){
@@ -62,7 +65,9 @@ int handle__pubackcomp(struct mosquitto *mosq, const char *type)
 	COMPAT_pthread_mutex_unlock(&mosq->msgs_out.mutex);
 
 	rc = packet__read_uint16(&mosq->in_packet, &mid);
-	if(rc) return rc;
+	if(rc){
+		return rc;
+	}
 	if(type[3] == 'A'){ /* pubAck or pubComp */
 		if(mosq->in_packet.command != CMD_PUBACK){
 			return MOSQ_ERR_MALFORMED_PACKET;
@@ -75,6 +80,9 @@ int handle__pubackcomp(struct mosquitto *mosq, const char *type)
 		qos = 2;
 	}
 	if(mid == 0){
+#ifdef WITH_BROKER
+		log__printf(NULL, MOSQ_LOG_INFO, "Protocol error from %s: %s with mid = 0.", mosq->id, type);
+#endif
 		return MOSQ_ERR_PROTOCOL;
 	}
 
@@ -86,7 +94,9 @@ int handle__pubackcomp(struct mosquitto *mosq, const char *type)
 
 		if(mosq->in_packet.remaining_length > 3){
 			rc = property__read_all(CMD_PUBACK, &mosq->in_packet, &properties);
-			if(rc) return rc;
+			if(rc){
+				return rc;
+			}
 		}
 		if(type[3] == 'A'){ /* pubAck or pubComp */
 			if(reason_code != MQTT_RC_SUCCESS
@@ -101,6 +111,10 @@ int handle__pubackcomp(struct mosquitto *mosq, const char *type)
 					){
 
 				mosquitto_property_free_all(&properties);
+#ifdef WITH_BROKER
+				log__printf(NULL, MOSQ_LOG_INFO, "Protocol error from %s: %s with reason code = %d.",
+						mosq->id, type, reason_code);
+#endif
 				return MOSQ_ERR_PROTOCOL;
 			}
 		}else{
@@ -109,6 +123,10 @@ int handle__pubackcomp(struct mosquitto *mosq, const char *type)
 					){
 
 				mosquitto_property_free_all(&properties);
+#ifdef WITH_BROKER
+				log__printf(NULL, MOSQ_LOG_INFO, "Protocol error from %s: %s with reason code = %d.",
+						mosq->id, type, reason_code);
+#endif
 				return MOSQ_ERR_PROTOCOL;
 			}
 		}
@@ -147,9 +165,9 @@ int handle__pubackcomp(struct mosquitto *mosq, const char *type)
 		}
 	}
 
-	pthread_mutex_lock(&mosq->msgs_out.mutex);
+	COMPAT_pthread_mutex_lock(&mosq->msgs_out.mutex);
 	message__release_to_inflight(mosq, mosq_md_out);
-	pthread_mutex_unlock(&mosq->msgs_out.mutex);
+	COMPAT_pthread_mutex_unlock(&mosq->msgs_out.mutex);
 
 	return MOSQ_ERR_SUCCESS;
 #endif

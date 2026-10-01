@@ -35,8 +35,8 @@ Contributors:
 #include "mosquitto/mqtt_protocol.h"
 
 static mosquitto_plugin_id_t plg_id;
-
 static int broker__handle_control(struct mosquitto_control_cmd *cmd, void *userdata);
+
 
 static int add_plugin_info(cJSON *j_plugins, mosquitto_plugin_id_t *pid)
 {
@@ -247,6 +247,7 @@ void broker_control__reload(void)
  * #
  * ################################################################ */
 
+
 static int broker__handle_control(struct mosquitto_control_cmd *cmd, void *userdata)
 {
 	int rc = MOSQ_ERR_SUCCESS;
@@ -258,7 +259,7 @@ static int broker__handle_control(struct mosquitto_control_cmd *cmd, void *userd
 	}else if(!strcasecmp(cmd->command_name, "listListeners")){
 		rc = broker__process_list_listeners(cmd);
 
-	/* Unknown */
+		/* Unknown */
 	}else{
 		mosquitto_control_command_reply(cmd, "Unknown command");
 		rc = MOSQ_ERR_INVAL;

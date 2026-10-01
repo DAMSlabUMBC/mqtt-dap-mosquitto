@@ -1,8 +1,8 @@
 R=../..
 include ${R}/config.mk
 
-ifneq ($(UNAME),SunOS)
-	LOCAL_LDFLAGS+=-Wl,-soname,libmosquittopp.so.${SOVERSION}
+ifeq ($(or $(findstring $(UNAME),SunOS), $(findstring $(UNAME),AIX)),)
+LOCAL_LDFLAGS+=-Wl,-soname,libmosquittopp.so.${SOVERSION}
 endif
 LOCAL_CPPFLAGS+=
 LOCAL_CXXFLAGS+=-fPIC
@@ -24,11 +24,13 @@ install : all
 	ln -sf libmosquittopp.so.${SOVERSION} "${DESTDIR}${libdir}/libmosquittopp.so"
 ifeq ($(WITH_STATIC_LIBRARIES),yes)
 	$(INSTALL) libmosquittopp.a "${DESTDIR}${libdir}/libmosquittopp.a"
+ifneq ($(UNAME),AIX)
 	${CROSS_COMPILE}${STRIP} -g --strip-unneeded "${DESTDIR}${libdir}/libmosquittopp.a"
+endif
 endif
 	$(INSTALL) -d "${DESTDIR}${libdir}/pkgconfig/"
 	$(INSTALL) -m644 ${R}/libmosquittopp.pc.in "${DESTDIR}${libdir}/pkgconfig/libmosquittopp.pc"
-	sed ${SEDINPLACE} -e "s#@CMAKE_INSTALL_PREFIX@#${prefix}#" -e "s#@VERSION@#${VERSION}#" "${DESTDIR}${libdir}/pkgconfig/libmosquittopp.pc"
+	sed ${SEDINPLACE} -e "s#@CMAKE_INSTALL_PREFIX@#${prefix}#" -e "s#@CMAKE_INSTALL_LIBDIR@#lib${LIB_SUFFIX}#" -e "s#@VERSION@#${VERSION}#" "${DESTDIR}${libdir}/pkgconfig/libmosquittopp.pc"
 
 uninstall :
 	-rm -f "${DESTDIR}${libdir}/libmosquittopp.so.${SOVERSION}"

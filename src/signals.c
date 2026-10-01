@@ -41,6 +41,7 @@ static bool flag_db_backup = false;
 static bool flag_tree_print = false;
 static bool flag_xtreport = false;
 
+
 static void handle_signal(int signal)
 {
 	UNUSED(signal);
@@ -90,7 +91,8 @@ void signal__setup(void)
 #endif
 }
 
-void signal__flag_check(void)
+
+int signal__flag_check(void)
 {
 #ifdef WITH_PERSISTENCE
 	if(flag_db_backup){
@@ -104,16 +106,30 @@ void signal__flag_check(void)
 		flag_log_rotate = false;
 	}
 	if(flag_reload){
+		int rc;
 		log__printf(NULL, MOSQ_LOG_INFO, "Reloading config.");
 		config__read(db.config, true);
 		listeners__reload_all_certificates();
+		rc = plugin__handle_reload();
+		if(rc){
+			return rc;
+		}
 		mosquitto_security_cleanup(true);
-		mosquitto_security_init(true);
-		mosquitto_security_apply_default();
+		rc = mosquitto_security_init(true);
+		if(rc){
+			return rc;
+		}
+		rc = mosquitto_security_apply_default();
+		if(rc){
+			return rc;
+		}
 		log__close(db.config);
 		log__init(db.config);
 		keepalive__cleanup();
-		keepalive__init();
+		rc = keepalive__init();
+		if(rc){
+			return rc;
+		}
 		broker_control__reload();
 #ifdef WITH_BRIDGE
 		bridge__reload();
@@ -131,6 +147,8 @@ void signal__flag_check(void)
 		flag_xtreport = false;
 	}
 #endif
+
+	return MOSQ_ERR_SUCCESS;
 }
 
 /*
@@ -152,7 +170,9 @@ void signal__flag_check(void)
 #ifdef WIN32
 
 #define MOSQ_MAX_EVTS 6
-DWORD WINAPI SigThreadProc(void* data)
+
+
+DWORD WINAPI SigThreadProc(void *data)
 {
 	TCHAR evt_name[MAX_PATH];
 	static HANDLE evt[MOSQ_MAX_EVTS];
@@ -173,9 +193,9 @@ DWORD WINAPI SigThreadProc(void* data)
 		evt[i] = CreateEvent(NULL, TRUE, FALSE, evt_name);
 	}
 
-	while (g_run) {
+	while(g_run){
 		int wr = WaitForMultipleObjects(MOSQ_MAX_EVTS, evt, FALSE, INFINITE);
-		switch (wr) {
+		switch(wr){
 			case WAIT_OBJECT_0 + 0:
 				handle_signal(SIGINT);
 				break;
@@ -200,7 +220,9 @@ DWORD WINAPI SigThreadProc(void* data)
 		}
 	}
 	for(int i=0; i<MOSQ_MAX_EVTS; i++){
-		if(evt[i]) CloseHandle(evt[i]);
+		if(evt[i]){
+			CloseHandle(evt[i]);
+		}
 	}
 	return 0;
 }

@@ -53,7 +53,7 @@ Contributors:
 
 #include "mosquitto_broker_internal.h"
 #include "util_mosq.h"
-#include "dap_metrics.h"
+#include "dap/dap_metrics.h"
 
 struct mosquitto_db db;
 
@@ -66,6 +66,7 @@ int g_run = 0;
 int allow_severity = LOG_INFO;
 int deny_severity = LOG_INFO;
 #endif
+
 
 static int set_umask(void)
 {
@@ -101,7 +102,10 @@ static int set_umask(void)
 static int check_uid(const char *s, const char *name)
 {
 	char *endptr = NULL;
-	long id = strtol(s, &endptr, 10);
+	long id;
+
+	errno = 0;
+	id = strtol(s, &endptr, 10);
 	if(errno || endptr == s || *endptr != '\0'){
 		log__printf(NULL, MOSQ_LOG_ERR, "Error: %s not a valid ID '%s'", name, s);
 		return -1;
@@ -117,6 +121,23 @@ static int check_uid(const char *s, const char *name)
 	return (int)id;
 }
 
+
+/* Prints the name of the process user from its user id if not found
+ * it simply prints out the user id
+ */
+static void print_pwname(void)
+{
+#ifndef WIN32
+	struct passwd *pwd = getpwuid(geteuid());
+	if(!pwd){
+		log__printf(NULL, MOSQ_LOG_INFO, "Info: running mosquitto as user id: %i.", geteuid());
+	}else{
+		log__printf(NULL, MOSQ_LOG_INFO, "Info: running mosquitto as user: %s.", pwd->pw_name);
+	}
+#endif
+}
+
+
 /* mosquitto shouldn't run as root.
  * This function will attempt to change to an unprivileged user and group if
  * running as root. The user is given in config->user.
@@ -125,6 +146,7 @@ static int check_uid(const char *s, const char *name)
  * Note that setting config->user to "root" does not produce an error, but it
  * strongly discouraged.
  */
+
 
 static int drop_privileges(struct mosquitto__config *config)
 {
@@ -151,26 +173,26 @@ static int drop_privileges(struct mosquitto__config *config)
 			if(pgid_s){
 				pgid = check_uid(pgid_s, "PGID");
 				if(pgid < 0){
-					return 1;
+					return MOSQ_ERR_INVAL;
 				}else if(pgid > 0){
 					rc = setgid((gid_t)pgid);
 					if(rc == -1){
 						err = strerror(errno);
 						log__printf(NULL, MOSQ_LOG_ERR, "Error setting gid whilst dropping privileges: %s.", err);
-						return 1;
+						return MOSQ_ERR_ERRNO;
 					}
 				}
 			}
 			if(puid_s){
 				puid = check_uid(puid_s, "PUID");
 				if(puid < 0){
-					return 1;
+					return MOSQ_ERR_INVAL;
 				}else if(puid > 0){
 					rc = setuid((uid_t)puid);
 					if(rc == -1){
 						err = strerror(errno);
 						log__printf(NULL, MOSQ_LOG_ERR, "Error setting uid whilst dropping privileges: %s.", err);
-						return 1;
+						return MOSQ_ERR_ERRNO;
 					}
 				}
 			}
@@ -179,43 +201,48 @@ static int drop_privileges(struct mosquitto__config *config)
 			if(!pwd){
 				if(strcmp(config->user, "mosquitto")){
 					log__printf(NULL, MOSQ_LOG_ERR, "Error: Unable to drop privileges to '%s' because this user does not exist.", config->user);
-					return 1;
+					return MOSQ_ERR_INVAL;
 				}else{
 					log__printf(NULL, MOSQ_LOG_ERR, "Warning: Unable to drop privileges to '%s' because this user does not exist. Trying 'nobody' instead.", config->user);
 					pwd = getpwnam("nobody");
 					if(!pwd){
 						log__printf(NULL, MOSQ_LOG_ERR, "Error: Unable to drop privileges to 'nobody'.");
-						return 1;
+						return MOSQ_ERR_ERRNO;
 					}
 				}
 			}
 			if(initgroups(config->user, pwd->pw_gid) == -1){
 				err = strerror(errno);
 				log__printf(NULL, MOSQ_LOG_ERR, "Error setting groups whilst dropping privileges: %s.", err);
-				return 1;
+				return MOSQ_ERR_ERRNO;
 			}
 			rc = setgid(pwd->pw_gid);
 			if(rc == -1){
 				err = strerror(errno);
 				log__printf(NULL, MOSQ_LOG_ERR, "Error setting gid whilst dropping privileges: %s.", err);
-				return 1;
+				return MOSQ_ERR_ERRNO;
 			}
 			rc = setuid(pwd->pw_uid);
 			if(rc == -1){
 				err = strerror(errno);
 				log__printf(NULL, MOSQ_LOG_ERR, "Error setting uid whilst dropping privileges: %s.", err);
-				return 1;
+				return MOSQ_ERR_ERRNO;
 			}
 		}
+		print_pwname();
 		if(geteuid() == 0 || getegid() == 0){
 			log__printf(NULL, MOSQ_LOG_WARNING, "Warning: Mosquitto should not be run as root/administrator.");
 		}
+	}else{
+		print_pwname();
 	}
+
 #else
 	UNUSED(config);
 #endif
 	return MOSQ_ERR_SUCCESS;
 }
+
 
 static void mosquitto__daemonise(void)
 {
@@ -267,7 +294,7 @@ static int pid__write(void)
 			fclose(pid);
 		}else{
 			log__printf(NULL, MOSQ_LOG_ERR, "Error: Unable to write pid file.");
-			return 1;
+			return MOSQ_ERR_ERRNO;
 		}
 	}
 	return MOSQ_ERR_SUCCESS;
@@ -301,6 +328,9 @@ static void report_features(void)
 #else
 	log__printf(NULL, MOSQ_LOG_INFO, "Websockets support NOT available.");
 #endif
+	if(getenv("MOSQUITTO_UNSAFE_ALLOW_SYMLINKS")){
+		log__printf(NULL, MOSQ_LOG_NOTICE, "MOSQUITTO_UNSAFE_ALLOW_SYMLINKS is set, loading of sensitive files through symbolic links is allowed.");
+	}
 }
 
 
@@ -361,10 +391,13 @@ static void post_shutdown_cleanup(void)
 		(void)remove(db.config->pid_file);
 	}
 
+	mux__cleanup();
+
 	log__close(db.config);
 	config__cleanup(db.config);
 	net__broker_cleanup();
 }
+
 
 static void cjson_init(void)
 {
@@ -373,20 +406,19 @@ static void cjson_init(void)
 }
 
 #ifdef WITH_FUZZING
+
+
 int mosquitto_fuzz_main(int argc, char *argv[])
 #else
+
+
 int main(int argc, char *argv[])
 #endif
 {
 	struct mosquitto__config config;
 	int rc;
-#ifdef WIN32
-	SYSTEMTIME st;
-#else
-	struct timeval tv;
-#endif
-	struct mosquitto *ctxt, *ctxt_tmp;
 
+	mosquitto_time_init();
 	cjson_init();
 
 #if defined(WIN32) || defined(__CYGWIN__)
@@ -404,14 +436,6 @@ int main(int argc, char *argv[])
 	}
 #endif
 
-
-#ifdef WIN32
-	GetSystemTime(&st);
-	srand(st.wSecond + st.wMilliseconds);
-#else
-	gettimeofday(&tv, NULL);
-	srand((unsigned int)(tv.tv_sec + tv.tv_usec));
-#endif
 
 #ifdef WIN32
 	if(_setmaxstdio(8192) != 8192){
@@ -432,7 +456,10 @@ int main(int argc, char *argv[])
 	db.config = &config;
 	config__init(&config);
 	rc = config__parse_args(&config, argc, argv);
-	if(rc != MOSQ_ERR_SUCCESS){
+	if(rc == MOSQ_ERR_UNKNOWN){
+		post_shutdown_cleanup();
+		return MOSQ_ERR_SUCCESS;
+	}else if(rc != MOSQ_ERR_SUCCESS){
 		post_shutdown_cleanup();
 		return rc;
 	}
@@ -516,19 +543,9 @@ int main(int argc, char *argv[])
 	}
 
 	plugin_persist__handle_restore();
+	session_expiry__check();
+	retain__expire(&db.retains);
 	db__msg_store_compact();
-
-	/* After loading persisted clients and ACLs, try to associate them,
-	 * so persisted subscriptions can start storing messages */
-	HASH_ITER(hh_id, db.contexts_by_id, ctxt, ctxt_tmp){
-		if(ctxt && !ctxt->clean_start && ctxt->username){
-			rc = acl__find_acls(ctxt);
-			if(rc){
-				log__printf(NULL, MOSQ_LOG_WARNING, "Failed to associate persisted user %s with ACLs, "
-					"likely due to changed ports while using a per_listener_settings configuration.", ctxt->username);
-			}
-		}
-	}
 
 #ifdef WITH_SYS_TREE
 	sys_tree__init();
@@ -573,6 +590,8 @@ int main(int argc, char *argv[])
 }
 
 #ifdef WIN32
+
+
 int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance, LPSTR lpCmdLine, int nCmdShow)
 {
 	char **argv;

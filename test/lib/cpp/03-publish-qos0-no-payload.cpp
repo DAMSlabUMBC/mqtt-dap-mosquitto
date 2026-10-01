@@ -1,4 +1,3 @@
-#include <cassert>
 #include <cstring>
 
 #include <mosquitto/libmosquittopp.h>
@@ -8,17 +7,18 @@ static int sent_mid = -1;
 
 class mosquittopp_test : public mosqpp::mosquittopp
 {
-	public:
-		mosquittopp_test(const char *id);
+public:
+	mosquittopp_test(const char *id);
 
-		void on_connect(int rc);
-		void on_disconnect(int rc);
-		void on_publish(int mid);
+	void on_connect(int rc);
+	void on_disconnect(int rc);
+	void on_publish(int mid);
 };
 
 mosquittopp_test::mosquittopp_test(const char *id) : mosqpp::mosquittopp(id)
 {
 }
+
 
 void mosquittopp_test::on_connect(int rc)
 {
@@ -29,6 +29,7 @@ void mosquittopp_test::on_connect(int rc)
 	}
 }
 
+
 void mosquittopp_test::on_publish(int mid)
 {
 	if(sent_mid == mid){
@@ -38,16 +39,20 @@ void mosquittopp_test::on_publish(int mid)
 	}
 }
 
+
 void mosquittopp_test::on_disconnect(int rc)
 {
 	run = rc;
 }
 
+
 int main(int argc, char *argv[])
 {
 	mosquittopp_test *mosq;
 
-	assert(argc == 2);
+	if(argc != 2){
+		return 1;
+	}
 	int port = atoi(argv[1]);
 
 	mosqpp::lib_init();

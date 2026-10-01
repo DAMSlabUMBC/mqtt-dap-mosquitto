@@ -18,6 +18,7 @@
 	mosquitto_client_protocol_version;
 	mosquitto_client_sub_count;
 	mosquitto_client_username;
+	mosquitto_client_will_set;
 	mosquitto_complete_basic_auth;
 	mosquitto_control_command_reply;
 	mosquitto_control_generic_callback;
@@ -37,6 +38,8 @@
 	mosquitto_persist_client_msg_delete;
 	mosquitto_persist_client_msg_update;
 	mosquitto_persist_client_update;
+	mosquitto_persist_dap_op_add;
+	mosquitto_persist_dap_tracked_op_add;
 	mosquitto_persist_retain_msg_delete;
 	mosquitto_persist_retain_msg_set;
 	mosquitto_persistence_location;

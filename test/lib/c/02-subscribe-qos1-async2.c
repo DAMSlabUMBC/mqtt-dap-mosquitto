@@ -11,6 +11,7 @@
 static int run = -1;
 static bool should_run = true;
 
+
 static void on_connect(struct mosquitto *mosq, void *obj, int rc)
 {
 	(void)obj;
@@ -22,6 +23,7 @@ static void on_connect(struct mosquitto *mosq, void *obj, int rc)
 	}
 }
 
+
 static void on_disconnect(struct mosquitto *mosq, void *obj, int rc)
 {
 	(void)mosq;
@@ -29,6 +31,7 @@ static void on_disconnect(struct mosquitto *mosq, void *obj, int rc)
 
 	run = rc;
 }
+
 
 static void on_subscribe(struct mosquitto *mosq, void *obj, int mid, int qos_count, const int *granted_qos)
 {
@@ -43,22 +46,23 @@ static void on_subscribe(struct mosquitto *mosq, void *obj, int mid, int qos_cou
 }
 
 
-static const char* loglevel_as_str(int level)
+static const char *loglevel_as_str(int level)
 {
-    switch (level){
-	    case MOSQ_LOG_INFO:
+	switch(level){
+		case MOSQ_LOG_INFO:
 			return "INFO";
-	    case MOSQ_LOG_NOTICE:
+		case MOSQ_LOG_NOTICE:
 			return "NOTICE";
-	    case MOSQ_LOG_WARNING:
+		case MOSQ_LOG_WARNING:
 			return "WARNING";
-	    case MOSQ_LOG_ERR:
+		case MOSQ_LOG_ERR:
 			return "ERROR";
-	    case MOSQ_LOG_DEBUG:
+		case MOSQ_LOG_DEBUG:
 			return "DEBUG";
 	}
 	return "UNKNOWN";
 }
+
 
 static void on_log(struct mosquitto *mosq, void *user_data, int level, const char *msg)
 {
@@ -66,6 +70,7 @@ static void on_log(struct mosquitto *mosq, void *user_data, int level, const cha
 	(void)user_data;
 	fprintf(stderr, "%s: %s\n", loglevel_as_str(level), msg);
 }
+
 
 int main(int argc, char *argv[])
 {

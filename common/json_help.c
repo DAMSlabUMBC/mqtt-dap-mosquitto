@@ -73,6 +73,29 @@ int json_get_int(cJSON *json, const char *name, int *value, bool optional, int d
 }
 
 
+int json_get_int64(cJSON *json, const char *name, int64_t *value, bool optional, int64_t default_value)
+{
+	cJSON *jtmp;
+
+	if(optional == true){
+		*value = default_value;
+	}
+
+	jtmp = cJSON_GetObjectItem(json, name);
+	if(jtmp){
+		if(cJSON_IsNumber(jtmp) == false){
+			return MOSQ_ERR_INVAL;
+		}
+		*value  = (int64_t)jtmp->valuedouble;
+	}else{
+		if(optional == false){
+			return MOSQ_ERR_INVAL;
+		}
+	}
+	return MOSQ_ERR_SUCCESS;
+}
+
+
 int json_get_string(cJSON *json, const char *name, const char **value, bool optional)
 {
 	cJSON *jtmp;
@@ -103,5 +126,14 @@ cJSON *cJSON_AddIntToObject(cJSON * const object, const char * const name, long 
 	char buf[30];
 
 	snprintf(buf, sizeof(buf), "%lld", number);
+	return cJSON_AddRawToObject(object, name, buf);
+}
+
+
+cJSON *cJSON_AddUIntToObject(cJSON * const object, const char * const name, unsigned long long number)
+{
+	char buf[30];
+
+	snprintf(buf, sizeof(buf), "%llu", number);
 	return cJSON_AddRawToObject(object, name, buf);
 }

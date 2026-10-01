@@ -47,6 +47,7 @@ MOSQUITTO_PLUGIN_DECLARE_VERSION(5);
 
 static mosquitto_plugin_id_t *mosq_pid = NULL;
 
+
 static int callback_message_in(int event, void *event_data, void *userdata)
 {
 	struct mosquitto_evt_message *ed = event_data;
@@ -62,31 +63,38 @@ static int callback_message_in(int event, void *event_data, void *userdata)
 	snprintf(ts_buf, TS_BUF_LEN, "%li%03lu", ts.tv_sec, ts.tv_nsec / 1000 / 1000);
 
 	result = mosquitto_property_add_string_pair(
-		&ed->properties,
-		MQTT_PROP_USER_PROPERTY,
-		"$timestamp",
-		ts_buf);
-	if (result != MOSQ_ERR_SUCCESS) return result;
+			&ed->properties,
+			MQTT_PROP_USER_PROPERTY,
+			"$timestamp",
+			ts_buf);
+	if(result != MOSQ_ERR_SUCCESS){
+		return result;
+	}
 
 	// Add client id
 	result = mosquitto_property_add_string_pair(
-		&ed->properties,
-		MQTT_PROP_USER_PROPERTY,
-		"$clientid",
-		mosquitto_client_id(ed->client));
-	if (result != MOSQ_ERR_SUCCESS) return result;
+			&ed->properties,
+			MQTT_PROP_USER_PROPERTY,
+			"$clientid",
+			mosquitto_client_id(ed->client));
+	if(result != MOSQ_ERR_SUCCESS){
+		return result;
+	}
 
 	// Add client username
 	result = mosquitto_property_add_string_pair(
-		&ed->properties,
-		MQTT_PROP_USER_PROPERTY,
-		"$client_username",
-		mosquitto_client_username(ed->client));
-	if (result != MOSQ_ERR_SUCCESS) return result;
+			&ed->properties,
+			MQTT_PROP_USER_PROPERTY,
+			"$client_username",
+			mosquitto_client_username(ed->client));
+	if(result != MOSQ_ERR_SUCCESS){
+		return result;
+	}
 
 	// If no return occurred up to this point, we were successful
 	return MOSQ_ERR_SUCCESS;
 }
+
 
 int mosquitto_plugin_init(mosquitto_plugin_id_t *identifier, void **user_data, struct mosquitto_opt *opts, int opt_count)
 {
@@ -98,6 +106,7 @@ int mosquitto_plugin_init(mosquitto_plugin_id_t *identifier, void **user_data, s
 	mosquitto_plugin_set_info(identifier, PLUGIN_NAME, PLUGIN_VERSION);
 	return mosquitto_callback_register(mosq_pid, MOSQ_EVT_MESSAGE_IN, callback_message_in, NULL, NULL);
 }
+
 
 /* mosquitto_plugin_cleanup() is optional in 2.1 and later. Use it only if you have your own cleanup to do */
 int mosquitto_plugin_cleanup(void *user_data, struct mosquitto_opt *opts, int opt_count)

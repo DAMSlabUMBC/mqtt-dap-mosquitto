@@ -31,7 +31,7 @@ Contributors:
  *
  * For simplicity of this example, all clients with id starting with "jailed"
  * will be jailed. All other clients will work as normal.
- * 
+ *
  * Two jailed clients cannot interact with each other. Normal clients can interact
  * with any jailed client by publishing or subscribing to the mounted topic.
  *
@@ -59,6 +59,7 @@ Contributors:
 MOSQUITTO_PLUGIN_DECLARE_VERSION(5);
 
 static mosquitto_plugin_id_t *mosq_pid = NULL;
+
 
 static bool is_jailed(const char *str)
 {
@@ -106,6 +107,7 @@ static int callback_message_in(int event, void *event_data, void *userdata)
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 static int callback_message_out(int event, void *event_data, void *userdata)
 {
 	struct mosquitto_evt_message *ed = event_data;
@@ -151,6 +153,7 @@ static int callback_message_out(int event, void *event_data, void *userdata)
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 static int callback_subscribe(int event, void *event_data, void *userdata)
 {
 	struct mosquitto_evt_subscribe *ed = event_data;
@@ -190,6 +193,7 @@ static int callback_subscribe(int event, void *event_data, void *userdata)
 
 	return MOSQ_ERR_SUCCESS;
 }
+
 
 static int callback_unsubscribe(int event, void *event_data, void *userdata)
 {
@@ -244,11 +248,17 @@ int mosquitto_plugin_init(mosquitto_plugin_id_t *identifier, void **user_data, s
 	int rc;
 
 	rc = mosquitto_callback_register(mosq_pid, MOSQ_EVT_MESSAGE_IN, callback_message_in, NULL, NULL);
-	if(rc) return rc;
+	if(rc){
+		return rc;
+	}
 	rc = mosquitto_callback_register(mosq_pid, MOSQ_EVT_MESSAGE_OUT, callback_message_out, NULL, NULL);
-	if(rc) return rc;
+	if(rc){
+		return rc;
+	}
 	rc = mosquitto_callback_register(mosq_pid, MOSQ_EVT_SUBSCRIBE, callback_subscribe, NULL, NULL);
-	if(rc) return rc;
+	if(rc){
+		return rc;
+	}
 	rc = mosquitto_callback_register(mosq_pid, MOSQ_EVT_UNSUBSCRIBE, callback_unsubscribe, NULL, NULL);
 	return rc;
 }

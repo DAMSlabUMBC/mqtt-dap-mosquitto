@@ -19,6 +19,7 @@ Contributors:
 #ifndef MOSQUITTO_LIBCOMMON_FILE_H
 #define MOSQUITTO_LIBCOMMON_FILE_H
 
+#include <stdarg.h>
 #include <stdbool.h>
 #include <stdio.h>
 
@@ -45,7 +46,14 @@ libmosqcommon_EXPORT char *mosquitto_fgets(char **buf, int *buflen, FILE *stream
 /*
  * Function: mosquitto_write_file
  */
-libmosqcommon_EXPORT int mosquitto_write_file(const char* target_path, bool restrict_read, int (*write_fn)(FILE* fptr, void* user_data), void* user_data, void (*log_fn)(const char* msg));
+libmosqcommon_EXPORT int mosquitto_write_file(const char *target_path, bool restrict_read, int (*write_fn)(FILE *fptr, void *user_data), void *user_data, void (*log_fn)(const char *msg));
+
+
+/*
+ * Function: mosquitto_read_file
+ */
+libmosqcommon_EXPORT int mosquitto_read_file(const char *file, bool restrict_read, char **buf, size_t *buflen);
+
 
 /*
  * Function: mosquitto_trimblanks
@@ -53,6 +61,8 @@ libmosqcommon_EXPORT int mosquitto_write_file(const char* target_path, bool rest
  * Removes blanks from the end of a string.
  */
 libmosqcommon_EXPORT char *mosquitto_trimblanks(char *str);
+
+libmosqcommon_EXPORT extern void (*libcommon_vprintf)(const char *fmt, va_list va);
 
 #ifdef __cplusplus
 }

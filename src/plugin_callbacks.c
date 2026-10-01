@@ -23,7 +23,7 @@ Contributors:
 #include "lib_load.h"
 
 
-static const char *get_event_name(int event)
+static const char *get_event_name(enum mosquitto_plugin_event event)
 {
 	switch(event){
 		case MOSQ_EVT_RELOAD:
@@ -38,6 +38,8 @@ static const char *get_event_name(int event)
 			return "auth-start";
 		case MOSQ_EVT_EXT_AUTH_CONTINUE:
 			return "auth-continue";
+		case MOSQ_EVT_CONTROL:
+			return "control";
 		case MOSQ_EVT_MESSAGE_IN:
 			return "message-in";
 		case MOSQ_EVT_MESSAGE_OUT:
@@ -80,24 +82,36 @@ static const char *get_event_name(int event)
 			return "persist-client-msg-delete";
 		case MOSQ_EVT_PERSIST_CLIENT_MSG_UPDATE:
 			return "persist-client-msg-update";
-		default:
-			return "";
+		case MOSQ_EVT_PERSIST_WILL_ADD:
+			return "persist-will-add";
+		case MOSQ_EVT_PERSIST_WILL_DELETE:
+			return "persist-will-delete";
+		case MOSQ_EVT_PERSIST_DAP_OP_ADD:
+			return "persist-dap-op-add";
+		case MOSQ_EVT_PERSIST_DAP_TRACKED_OP_ADD:
+			return "persist-dap-tracked-op-add";
+		case MOSQ_EVT_PERSIST_DAP_TRACKED_OP_RESPONSE:
+			return "persist-dap-tracked-op-response";
+		case MOSQ_EVT_PERSIST_DAP_TRACKED_OP_DELETE:
+			return "persist-dap-tracked-op-delete";
 	}
+	return "";
 }
 
-static bool check_callback_exists(struct mosquitto__callback *cb_base, MOSQ_FUNC_generic_callback cb_func)
+
+static bool check_callback_exists(struct mosquitto__callback *cb_base, mosquitto_plugin_id_t *identifier, MOSQ_FUNC_generic_callback cb_func)
 {
 	struct mosquitto__callback *tail, *tmp;
 
 	DL_FOREACH_SAFE(cb_base, tail, tmp){
-		if(tail->cb == cb_func){
+		if(tail->identifier == identifier && tail->cb == cb_func){
 			return true;
 		}
 	}
 	return false;
 }
 
-static struct mosquitto__callback **plugin__get_callback_base(struct mosquitto__security_options *security_options, int event)
+static struct mosquitto__callback **plugin__get_callback_base(struct mosquitto__security_options *security_options, enum mosquitto_plugin_event event)
 {
 	switch(event){
 		case MOSQ_EVT_RELOAD:
@@ -156,11 +170,21 @@ static struct mosquitto__callback **plugin__get_callback_base(struct mosquitto__
 			return &security_options->plugin_callbacks.persist_retain_msg_delete;
 		case MOSQ_EVT_MESSAGE_OUT:
 			return &security_options->plugin_callbacks.message_out;
-		default:
-			return NULL;
+		case MOSQ_EVT_PERSIST_WILL_ADD:
+			return &security_options->plugin_callbacks.persist_will_add;
+		case MOSQ_EVT_PERSIST_WILL_DELETE:
+			return &security_options->plugin_callbacks.persist_will_delete;
+		case MOSQ_EVT_PERSIST_DAP_OP_ADD:
+			return &security_options->plugin_callbacks.persist_dap_op_add;
+		case MOSQ_EVT_PERSIST_DAP_TRACKED_OP_ADD:
+			return &security_options->plugin_callbacks.persist_dap_tracked_op_add;
+		case MOSQ_EVT_PERSIST_DAP_TRACKED_OP_RESPONSE:
+			return &security_options->plugin_callbacks.persist_dap_tracked_op_response;
+		case MOSQ_EVT_PERSIST_DAP_TRACKED_OP_DELETE:
+			return &security_options->plugin_callbacks.persist_dap_tracked_op_delete;
 	}
+	return NULL;
 }
-
 
 
 static int remove_callback(mosquitto_plugin_id_t *plugin, struct plugin_own_callback *own)
@@ -178,7 +202,7 @@ static int remove_callback(mosquitto_plugin_id_t *plugin, struct plugin_own_call
 		}
 
 		DL_FOREACH_SAFE(*cb_base, tail, tmp){
-			if(tail->cb == own->cb_func){
+			if(tail->identifier == plugin && tail->cb == own->cb_func){
 				DL_DELETE(*cb_base, tail);
 				mosquitto_FREE(tail);
 				break;
@@ -204,7 +228,33 @@ BROKER_EXPORT int mosquitto_callback_register(
 	struct mosquitto__security_options *security_options;
 	struct plugin_own_callback *own_callback;
 
-	if(cb_func == NULL) return MOSQ_ERR_INVAL;
+	if(cb_func == NULL){
+		return MOSQ_ERR_INVAL;
+	}
+
+	if(db.config->persistence && (event == MOSQ_EVT_PERSIST_RESTORE
+			|| event == MOSQ_EVT_PERSIST_BASE_MSG_ADD
+			|| event == MOSQ_EVT_PERSIST_BASE_MSG_DELETE
+			|| event == MOSQ_EVT_PERSIST_RETAIN_MSG_SET
+			|| event == MOSQ_EVT_PERSIST_RETAIN_MSG_DELETE
+			|| event == MOSQ_EVT_PERSIST_CLIENT_ADD
+			|| event == MOSQ_EVT_PERSIST_CLIENT_DELETE
+			|| event == MOSQ_EVT_PERSIST_CLIENT_UPDATE
+			|| event == MOSQ_EVT_PERSIST_SUBSCRIPTION_ADD
+			|| event == MOSQ_EVT_PERSIST_SUBSCRIPTION_DELETE
+			|| event == MOSQ_EVT_PERSIST_CLIENT_MSG_ADD
+			|| event == MOSQ_EVT_PERSIST_CLIENT_MSG_DELETE
+			|| event == MOSQ_EVT_PERSIST_CLIENT_MSG_UPDATE
+			|| event == MOSQ_EVT_PERSIST_WILL_ADD
+			|| event == MOSQ_EVT_PERSIST_WILL_DELETE
+			|| event == MOSQ_EVT_PERSIST_DAP_OP_ADD
+			|| event == MOSQ_EVT_PERSIST_DAP_TRACKED_OP_ADD
+			|| event == MOSQ_EVT_PERSIST_DAP_TRACKED_OP_RESPONSE
+			|| event == MOSQ_EVT_PERSIST_DAP_TRACKED_OP_DELETE
+			)){
+		log__printf(NULL, MOSQ_LOG_ERR, "Error: `persistence true` cannot be used with a persistence plugin.");
+		return MOSQ_ERR_INVAL;
+	}
 
 	if(event == MOSQ_EVT_CONTROL){
 		return control__register_callback(identifier, cb_func, event_data, userdata);
@@ -214,25 +264,25 @@ BROKER_EXPORT int mosquitto_callback_register(
 	if(own_callback == NULL){
 		return MOSQ_ERR_NOMEM;
 	}
-	own_callback->event = event;
+	own_callback->event = (enum mosquitto_plugin_event)event;
 	own_callback->cb_func = cb_func;
 	DL_APPEND(identifier->own_callbacks, own_callback);
 
-	if(identifier->config.security_option_count == 0) {
+	if(identifier->config.security_option_count == 0){
 		log__printf(NULL, MOSQ_LOG_WARNING, "Plugin could not register callback '%s'",
-				get_event_name(event));
+				get_event_name((enum mosquitto_plugin_event)event));
 		return MOSQ_ERR_INVAL;
 	}
 
 	for(int i=0; i<identifier->config.security_option_count; i++){
 		security_options = identifier->config.security_options[i];
 
-		cb_base = plugin__get_callback_base(security_options, event);
+		cb_base = plugin__get_callback_base(security_options, (enum mosquitto_plugin_event)event);
 		if(cb_base == NULL){
 			return MOSQ_ERR_NOT_SUPPORTED;
 		}
 
-		if(check_callback_exists(*cb_base, cb_func)){
+		if(check_callback_exists(*cb_base, identifier, cb_func)){
 			return MOSQ_ERR_ALREADY_EXISTS;
 		}
 
@@ -244,16 +294,17 @@ BROKER_EXPORT int mosquitto_callback_register(
 		}
 
 		DL_APPEND(*cb_base, cb_new);
+		cb_new->identifier = identifier;
 		cb_new->cb = cb_func;
 		cb_new->userdata = userdata;
 	}
 
 	if(identifier->plugin_name){
 		log__printf(NULL, MOSQ_LOG_INFO, "Plugin %s has registered to receive '%s' events.",
-				identifier->plugin_name, get_event_name(event));
+				identifier->plugin_name, get_event_name((enum mosquitto_plugin_event)event));
 	}else{
 		log__printf(NULL, MOSQ_LOG_INFO, "Plugin has registered to receive '%s' events.",
-				get_event_name(event));
+				get_event_name((enum mosquitto_plugin_event)event));
 	}
 
 	return MOSQ_ERR_SUCCESS;
@@ -294,7 +345,7 @@ BROKER_EXPORT int mosquitto_callback_unregister(
 	}
 
 	DL_FOREACH_SAFE(identifier->own_callbacks, own, own_tmp){
-		if(own->event == event && own->cb_func == cb_func){
+		if(own->event == (enum mosquitto_plugin_event)event && own->cb_func == cb_func){
 			return remove_callback(identifier, own);
 		}
 	}

@@ -9,7 +9,7 @@ jobs:
   coverity:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v6
       with:
         ref: fixes
 
@@ -23,6 +23,8 @@ jobs:
             libcjson-dev \
             libcjson1 \
             libcunit1-dev \
+            libedit-dev \
+            libmicrohttpd-dev \
             libssl-dev \
             libwrap0-dev \
             microsocks \

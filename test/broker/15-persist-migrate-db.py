@@ -12,7 +12,6 @@ conf_file = os.path.basename(__file__).replace(".py", ".conf")
 persist_help.write_config(conf_file, port)
 
 
-
 def do_success_test(create_db_of_version: list[int]):
     print(f"db migration success test from db {create_db_of_version}")
     persist_help.init(port, create_db_of_version=create_db_of_version)
@@ -27,9 +26,18 @@ def do_success_test(create_db_of_version: list[int]):
         (broker_terminate_rc, stde) = mosq_test.terminate_broker(broker)
         broker = None
 
-        persist_help.check_version_infos(port, database_schema_version=[1, 0, 0])
+        persist_help.check_version_infos(
+            port,
+            database_schema_version=[
+                1,
+                1,
+                create_db_of_version[2] if create_db_of_version else 0,
+            ],
+        )
 
         rc = 0
+    except Exception as err:
+        print(f"{err}")
     finally:
         if broker is not None:
             broker.terminate()
@@ -58,6 +66,7 @@ def do_failure_test(create_db_of_version: list[int]):
             port=port,
             rc_expected=3,
             error_log_entry=f"Unknown database_schema version {'.'.join([str(i) for i in create_db_of_version])}",
+            with_test_config=False,
         )
     except Exception as exc:
         print(f"Exception: {str(exc)}")
@@ -70,8 +79,10 @@ def do_failure_test(create_db_of_version: list[int]):
 do_success_test(create_db_of_version=None)
 do_success_test(create_db_of_version=[0, 9, 0])
 do_success_test(create_db_of_version=[1, 0, 0])
+do_success_test(create_db_of_version=[1, 1, 0])
+do_success_test(create_db_of_version=[1, 1, 2])
 
-do_failure_test(create_db_of_version=[1, 1, 0])
+do_failure_test(create_db_of_version=[1, 2, 0])
 do_failure_test(create_db_of_version=[2, 0, 0])
 
 os.remove(conf_file)

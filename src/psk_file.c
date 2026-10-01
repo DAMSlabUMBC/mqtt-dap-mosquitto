@@ -31,6 +31,14 @@ static int psk__cleanup(struct mosquitto__psk **psk);
 static int psk__file_parse(struct mosquitto__psk **psk_id, const char *psk_file);
 
 
+static void psk__free_item(struct mosquitto__psk *psk)
+{
+	mosquitto_FREE(psk->username);
+	mosquitto_FREE(psk->password);
+	mosquitto_FREE(psk);
+}
+
+
 int psk_file__init(void)
 {
 	int rc;
@@ -62,17 +70,22 @@ int psk_file__init(void)
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 int psk_file__cleanup(void)
 {
 	int rc;
 
 	rc = psk__cleanup(&db.config->security_options.psk_id);
-	if(rc != MOSQ_ERR_SUCCESS) return rc;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return rc;
+	}
 
 	for(int i=0; i<db.config->listener_count; i++){
 		if(db.config->listeners[i].security_options->psk_id){
 			rc = psk__cleanup(&db.config->listeners[i].security_options->psk_id);
-			if(rc != MOSQ_ERR_SUCCESS) return rc;
+			if(rc != MOSQ_ERR_SUCCESS){
+				return rc;
+			}
 		}
 	}
 
@@ -104,8 +117,12 @@ static int pwfile__parse(const char *file, struct mosquitto__psk **root)
 
 	while(!feof(pwfile)){
 		if(mosquitto_fgets(&buf, &buflen, pwfile)){
-			if(buf[0] == '#') continue;
-			if(!strchr(buf, ':')) continue;
+			if(buf[0] == '#'){
+				continue;
+			}
+			if(!strchr(buf, ':')){
+				continue;
+			}
 
 			username = strtok_r(buf, ":", &saveptr);
 			if(username){
@@ -134,7 +151,7 @@ static int pwfile__parse(const char *file, struct mosquitto__psk **root)
 
 				psk->username = mosquitto_strdup(username);
 				if(!psk->username){
-					mosquitto_FREE(psk);
+					psk__free_item(psk);
 					mosquitto_FREE(buf);
 					fclose(pwfile);
 					return MOSQ_ERR_NOMEM;
@@ -145,25 +162,21 @@ static int pwfile__parse(const char *file, struct mosquitto__psk **root)
 
 					if(strlen(password) > 65535){
 						log__printf(NULL, MOSQ_LOG_NOTICE, "Warning: Invalid line in password file '%s', password too long.", file);
-						mosquitto_FREE(psk->username);
-						mosquitto_FREE(psk);
+						psk__free_item(psk);
 						continue;
 					}
 
 					psk->password = mosquitto_strdup(password);
 					if(!psk->password){
 						log__printf(NULL, MOSQ_LOG_NOTICE, "Warning: Unable to decode line in password file '%s'.", file);
-						mosquitto_FREE(psk->username);
-						mosquitto_FREE(psk);
+						psk__free_item(psk);
 						continue;
 					}
 
 					HASH_ADD_KEYPTR(hh, *root, psk->username, strlen(psk->username), psk);
 				}else{
 					log__printf(NULL, MOSQ_LOG_NOTICE, "Warning: Invalid line in psk file '%s': %s", file, buf);
-					mosquitto_FREE(psk->username);
-					mosquitto_FREE(psk->password);
-					mosquitto_FREE(psk);
+					psk__free_item(psk);
 				}
 			}
 		}
@@ -175,27 +188,24 @@ static int pwfile__parse(const char *file, struct mosquitto__psk **root)
 }
 
 
-void psk__free_item(struct mosquitto__psk **psk, struct mosquitto__psk *item)
-{
-	mosquitto_FREE(item->username);
-	mosquitto_FREE(item->password);
-	HASH_DEL(*psk, item);
-	mosquitto_FREE(item);
-}
-
-
 static int psk__file_parse(struct mosquitto__psk **psk_id, const char *psk_file)
 {
 	int rc;
 	struct mosquitto__psk *psk, *tmp = NULL;
 
-	if(!db.config || !psk_id) return MOSQ_ERR_INVAL;
+	if(!db.config || !psk_id){
+		return MOSQ_ERR_INVAL;
+	}
 
 	/* We haven't been asked to parse a psk file. */
-	if(!psk_file) return MOSQ_ERR_SUCCESS;
+	if(!psk_file){
+		return MOSQ_ERR_SUCCESS;
+	}
 
 	rc = pwfile__parse(psk_file, psk_id);
-	if(rc) return rc;
+	if(rc){
+		return rc;
+	}
 
 	HASH_ITER(hh, (*psk_id), psk, tmp){
 		/* Check for hex only digits */
@@ -216,13 +226,13 @@ static int psk__cleanup(struct mosquitto__psk **root)
 {
 	struct mosquitto__psk *psk, *tmp = NULL;
 
-	if(!root) return MOSQ_ERR_INVAL;
+	if(!root){
+		return MOSQ_ERR_INVAL;
+	}
 
 	HASH_ITER(hh, *root, psk, tmp){
 		HASH_DEL(*root, psk);
-		mosquitto_FREE(psk->username);
-		mosquitto_FREE(psk->password);
-		mosquitto_FREE(psk);
+		psk__free_item(psk);
 	}
 
 	*root = NULL;
@@ -236,15 +246,21 @@ int mosquitto_psk_key_get_default(struct mosquitto *context, const char *hint, c
 	struct mosquitto__psk *psk;
 	struct mosquitto__psk *psk_id_ref = NULL;
 
-	if(!hint || !identity || !key) return MOSQ_ERR_INVAL;
+	if(!hint || !identity || !key){
+		return MOSQ_ERR_INVAL;
+	}
 
 	if(db.config->per_listener_settings){
-		if(!context->listener) return MOSQ_ERR_INVAL;
+		if(!context->listener){
+			return MOSQ_ERR_INVAL;
+		}
 		psk_id_ref = context->listener->security_options->psk_id;
 	}else{
 		psk_id_ref = db.config->security_options.psk_id;
 	}
-	if(!psk_id_ref) return MOSQ_ERR_PLUGIN_IGNORE;
+	if(!psk_id_ref){
+		return MOSQ_ERR_PLUGIN_IGNORE;
+	}
 
 	HASH_FIND(hh, psk_id_ref, identity, strlen(identity), psk);
 	if(psk){

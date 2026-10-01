@@ -34,9 +34,10 @@ Contributors:
 #include "tls_mosq.h"
 #include "util_mosq.h"
 
-#if !defined(WIN32) && !defined(__SYMBIAN32__) && !defined(__QNX__)
+#if !defined(WIN32) && !defined(__QNX__)
 #define HAVE_PSELECT
 #endif
+
 
 int mosquitto_loop(struct mosquitto *mosq, int timeout, int max_packets)
 {
@@ -53,7 +54,9 @@ int mosquitto_loop(struct mosquitto *mosq, int timeout, int max_packets)
 	time_t now;
 	time_t timeout_ms;
 
-	if(!mosq || max_packets < 1) return MOSQ_ERR_INVAL;
+	if(!mosq || max_packets < 1){
+		return MOSQ_ERR_INVAL;
+	}
 #ifndef WIN32
 	if(mosq->sock >= FD_SETSIZE || mosq->sockpairR >= FD_SETSIZE){
 		return MOSQ_ERR_INVAL;
@@ -72,11 +75,11 @@ int mosquitto_loop(struct mosquitto *mosq, int timeout, int max_packets)
 			if(mosq->ssl == NULL || SSL_is_init_finished(mosq->ssl))
 #endif
 			{
-				pthread_mutex_lock(&mosq->out_packet_mutex);
+				COMPAT_pthread_mutex_lock(&mosq->out_packet_mutex);
 				if(mosq->out_packet){
 					FD_SET(mosq->sock, &writefds);
 				}
-				pthread_mutex_unlock(&mosq->out_packet_mutex);
+				COMPAT_pthread_mutex_unlock(&mosq->out_packet_mutex);
 			}
 		}
 	}else{
@@ -110,11 +113,11 @@ int mosquitto_loop(struct mosquitto *mosq, int timeout, int max_packets)
 	}
 
 	now = mosquitto_time();
-	pthread_mutex_lock(&mosq->msgtime_mutex);
+	COMPAT_pthread_mutex_lock(&mosq->msgtime_mutex);
 	if(mosq->next_msg_out && now + timeout_ms/1000 > mosq->next_msg_out){
 		timeout_ms = (mosq->next_msg_out - now)*1000;
 	}
-	pthread_mutex_unlock(&mosq->msgtime_mutex);
+	COMPAT_pthread_mutex_unlock(&mosq->msgtime_mutex);
 
 	if(timeout_ms < 0){
 		/* There has been a delay somewhere which means we should have already
@@ -135,9 +138,7 @@ int mosquitto_loop(struct mosquitto *mosq, int timeout, int max_packets)
 	fdcount = select(maxfd+1, &readfds, &writefds, NULL, &local_timeout);
 #endif
 	if(fdcount == -1){
-#ifdef WIN32
-		errno = WSAGetLastError();
-#endif
+		WINDOWS_SET_ERRNO();
 		if(errno == EINTR){
 			return MOSQ_ERR_SUCCESS;
 		}else{
@@ -195,9 +196,11 @@ static int interruptible_sleep(struct mosquitto *mosq, time_t reconnect_delay)
 	int maxfd = 0;
 
 #ifndef WIN32
-	while(mosq->sockpairR != INVALID_SOCKET && read(mosq->sockpairR, &pairbuf, 1) > 0);
+	while(mosq->sockpairR != INVALID_SOCKET && read(mosq->sockpairR, &pairbuf, 1) > 0){
+	}
 #else
-	while(mosq->sockpairR != INVALID_SOCKET && recv(mosq->sockpairR, &pairbuf, 1, 0) > 0);
+	while(mosq->sockpairR != INVALID_SOCKET && recv(mosq->sockpairR, &pairbuf, 1, 0) > 0){
+	}
 #endif
 
 	local_timeout.tv_sec = reconnect_delay;
@@ -220,9 +223,7 @@ static int interruptible_sleep(struct mosquitto *mosq, time_t reconnect_delay)
 	fdcount = select(maxfd+1, &readfds, NULL, NULL, &local_timeout);
 #endif
 	if(fdcount == -1){
-#ifdef WIN32
-		errno = WSAGetLastError();
-#endif
+		WINDOWS_SET_ERRNO();
 		if(errno == EINTR){
 			return MOSQ_ERR_SUCCESS;
 		}else{
@@ -242,21 +243,23 @@ static int interruptible_sleep(struct mosquitto *mosq, time_t reconnect_delay)
 
 int mosquitto_loop_forever(struct mosquitto *mosq, int timeout, int max_packets)
 {
-	int run = 1;
 	int rc = MOSQ_ERR_SUCCESS;
 	unsigned long reconnect_delay;
 
-	if(!mosq) return MOSQ_ERR_INVAL;
+	if(!mosq){
+		return MOSQ_ERR_INVAL;
+	}
 
 	mosq->reconnects = 0;
+	mosq->run = true;
 
-	while(run){
+	while(mosq->run){
 		do{
 #ifdef HAVE_PTHREAD_CANCEL
-			pthread_testcancel();
+			COMPAT_pthread_testcancel();
 #endif
 			rc = mosquitto_loop(mosq, timeout, max_packets);
-		}while(run && rc == MOSQ_ERR_SUCCESS);
+		}while(mosq->run && rc == MOSQ_ERR_SUCCESS);
 		/* Quit after fatal errors. */
 		switch(rc){
 			case MOSQ_ERR_NOMEM:
@@ -280,11 +283,11 @@ int mosquitto_loop_forever(struct mosquitto *mosq, int timeout, int max_packets)
 		}
 		do{
 #ifdef HAVE_PTHREAD_CANCEL
-			pthread_testcancel();
+			COMPAT_pthread_testcancel();
 #endif
 			rc = MOSQ_ERR_SUCCESS;
 			if(mosquitto__get_request_disconnect(mosq)){
-				run = 0;
+				mosq->run = false;
 			}else{
 				if(mosq->reconnect_delay_max > mosq->reconnect_delay){
 					if(mosq->reconnect_exponential_backoff){
@@ -303,15 +306,17 @@ int mosquitto_loop_forever(struct mosquitto *mosq, int timeout, int max_packets)
 				}
 
 				rc = interruptible_sleep(mosq, (time_t)reconnect_delay);
-				if(rc) return rc;
+				if(rc){
+					return rc;
+				}
 
 				if(mosquitto__get_request_disconnect(mosq)){
-					run = 0;
+					mosq->run = false;
 				}else{
 					rc = mosquitto_reconnect(mosq);
 				}
 			}
-		}while(run && rc != MOSQ_ERR_SUCCESS);
+		}while(mosq->run && rc != MOSQ_ERR_SUCCESS);
 	}
 	return rc;
 }
@@ -319,8 +324,12 @@ int mosquitto_loop_forever(struct mosquitto *mosq, int timeout, int max_packets)
 
 int mosquitto_loop_misc(struct mosquitto *mosq)
 {
-	if(!mosq) return MOSQ_ERR_INVAL;
-	if(!net__is_connected(mosq)) return MOSQ_ERR_NO_CONN;
+	if(!mosq){
+		return MOSQ_ERR_INVAL;
+	}
+	if(!net__is_connected(mosq)){
+		return MOSQ_ERR_NO_CONN;
+	}
 
 	return mosquitto__check_keepalive(mosq);
 }
@@ -346,17 +355,21 @@ int mosquitto_loop_read(struct mosquitto *mosq, int max_packets)
 {
 	int rc = MOSQ_ERR_SUCCESS;
 	int i;
-	if(max_packets < 1) return MOSQ_ERR_INVAL;
+	if(max_packets < 1){
+		return MOSQ_ERR_INVAL;
+	}
 
-	pthread_mutex_lock(&mosq->msgs_out.mutex);
+	COMPAT_pthread_mutex_lock(&mosq->msgs_out.mutex);
 	max_packets = mosq->msgs_out.queue_len;
-	pthread_mutex_unlock(&mosq->msgs_out.mutex);
+	COMPAT_pthread_mutex_unlock(&mosq->msgs_out.mutex);
 
-	pthread_mutex_lock(&mosq->msgs_in.mutex);
+	COMPAT_pthread_mutex_lock(&mosq->msgs_in.mutex);
 	max_packets += mosq->msgs_in.queue_len;
-	pthread_mutex_unlock(&mosq->msgs_in.mutex);
+	COMPAT_pthread_mutex_unlock(&mosq->msgs_in.mutex);
 
-	if(max_packets < 1) max_packets = 1;
+	if(max_packets < 1){
+		max_packets = 1;
+	}
 	/* Queue len here tells us how many messages are awaiting processing and
 	 * have QoS > 0. We should try to deal with that many in this loop in order
 	 * to keep up. */
@@ -393,7 +406,9 @@ int mosquitto_loop_write(struct mosquitto *mosq, int max_packets)
 {
 	int rc = MOSQ_ERR_SUCCESS;
 	int i;
-	if(max_packets < 1) return MOSQ_ERR_INVAL;
+	if(max_packets < 1){
+		return MOSQ_ERR_INVAL;
+	}
 
 	for(i=0; i<max_packets; i++){
 		rc = packet__write(mosq);

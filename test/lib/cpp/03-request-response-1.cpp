@@ -1,4 +1,3 @@
-#include <cassert>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -11,17 +10,18 @@ static int run = -1;
 
 class mosquittopp_test : public mosqpp::mosquittopp
 {
-	public:
-		mosquittopp_test(const char *id);
+public:
+	mosquittopp_test(const char *id);
 
-		void on_connect(int rc);
-		void on_message(const struct mosquitto_message *msg);
-		void on_subscribe(int mid, int qos_count, const int *granted_qos);
+	void on_connect(int rc);
+	void on_message(const struct mosquitto_message *msg);
+	void on_subscribe(int mid, int qos_count, const int *granted_qos);
 };
 
 mosquittopp_test::mosquittopp_test(const char *id) : mosqpp::mosquittopp(id)
 {
 }
+
 
 void mosquittopp_test::on_connect(int rc)
 {
@@ -31,6 +31,7 @@ void mosquittopp_test::on_connect(int rc)
 		subscribe(NULL, "response/topic", QOS);
 	}
 }
+
 
 void mosquittopp_test::on_subscribe(int mid, int qos_count, const int *granted_qos)
 {
@@ -48,6 +49,7 @@ void mosquittopp_test::on_subscribe(int mid, int qos_count, const int *granted_q
 	mosquitto_property_free_all(&props);
 }
 
+
 void mosquittopp_test::on_message(const struct mosquitto_message *msg)
 {
 	if(!strcmp((char *)msg->payload, "a response")){
@@ -57,11 +59,14 @@ void mosquittopp_test::on_message(const struct mosquitto_message *msg)
 	}
 }
 
+
 int main(int argc, char *argv[])
 {
 	mosquittopp_test *mosq;
 
-	assert(argc == 2);
+	if(argc != 2){
+		return 1;
+	}
 	int port = atoi(argv[1]);
 
 	mosqpp::lib_init();

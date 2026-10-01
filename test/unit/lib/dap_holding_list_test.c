@@ -48,20 +48,20 @@ static void test_holding_lifecycle(void)
     printf("ok - holding state goes on with start and off with flush\n");
 }
 
-static void test_pending_mid_recorded(void)
+static void test_pending_id_recorded(void)
 {
     struct dap_holding_list h;
     dap_holding_list_init(&h);
 
-    /* A subscription that is not holding reports a pending mid of 0. */
-    assert(dap_holding_list_pending_mid(&h, "sub/a") == 0);
+    /* A subscription that is not holding reports a pending id of 0. */
+    assert(dap_holding_list_pending_id(&h, "sub/a") == 0);
 
-    /* start_holding records the bumped message's mid for the re-verify candidate. */
-    assert(dap_holding_list_start_holding(&h, "sub/a", 0xCAFE) == 0);
-    assert(dap_holding_list_pending_mid(&h, "sub/a") == 0xCAFE);
+    /* start_holding records the bumped message's cmsg_id for the re-verify candidate. */
+    assert(dap_holding_list_start_holding(&h, "sub/a", 0x10000CAFEULL) == 0);
+    assert(dap_holding_list_pending_id(&h, "sub/a") == 0x10000CAFEULL);
 
     dap_holding_list_destroy(&h);
-    printf("ok - start_holding records the pending re-verify mid\n");
+    printf("ok - start_holding records the pending re-verify cmsg_id\n");
 }
 
 static void test_add_flush_ordering(void)
@@ -166,7 +166,7 @@ static void test_double_start_is_harmless(void)
      * original pending mid (a later bump does not displace the first candidate). */
     assert(dap_holding_list_start_holding(&h, "sub/a", 0x9999) == 0);
     assert(dap_holding_list_is_holding(&h, "sub/a") == true);
-    assert(dap_holding_list_pending_mid(&h, "sub/a") == 0xCAFE);
+    assert(dap_holding_list_pending_id(&h, "sub/a") == 0xCAFE);
     dap_holding_list_add_held(&h, "sub/a", MSG(1));
 
     struct dap_held_msg *flushed = dap_holding_list_flush(&h, "sub/a");
@@ -203,7 +203,7 @@ static void test_destroy_cleans_everything(void)
 int main(void)
 {
     test_holding_lifecycle();
-    test_pending_mid_recorded();
+    test_pending_id_recorded();
     test_add_flush_ordering();
     test_add_requires_holding();
     test_subscriptions_independent();

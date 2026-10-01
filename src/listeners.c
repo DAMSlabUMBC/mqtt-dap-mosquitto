@@ -23,6 +23,7 @@ Contributors:
 static int listensock_index = 0;
 extern int g_run;
 
+
 void listener__set_defaults(struct mosquitto__listener *listener)
 {
 	listener->disable_protocol_v3 = false;
@@ -35,8 +36,8 @@ void listener__set_defaults(struct mosquitto__listener *listener)
 	listener->protocol = mp_mqtt;
 	mosquitto_FREE(listener->mount_point);
 
-	mosquitto_FREE(listener->security_options->acl_file);
-	mosquitto_FREE(listener->security_options->password_file);
+	mosquitto_FREE(listener->security_options->acl_data.acl_file);
+	mosquitto_FREE(listener->security_options->password_data.password_file);
 	mosquitto_FREE(listener->security_options->psk_file);
 	listener->security_options->allow_anonymous = -1;
 	listener->security_options->allow_zero_length_clientid = true;
@@ -107,13 +108,17 @@ static int listeners__start_single_mqtt(struct mosquitto__listener *listener)
 
 
 #if defined(WITH_WEBSOCKETS) && WITH_WEBSOCKETS == WS_IS_LWS
+
+
 void listeners__add_websockets(struct lws_context *ws_context, mosq_sock_t fd)
 {
 	struct mosquitto__listener *listener = NULL;
 	struct mosquitto__listener_sock *listensock_new;
 
 	/* Don't add more listeners after we've started the main loop */
-	if(g_run || ws_context == NULL) return;
+	if(g_run || ws_context == NULL){
+		return;
+	}
 
 	/* Find context */
 	for(int i=0; i<db.config->listener_count; i++){
@@ -146,7 +151,14 @@ void listeners__add_websockets(struct lws_context *ws_context, mosq_sock_t fd)
 static int listeners__add_local(const char *host, uint16_t port)
 {
 	struct mosquitto__listener *listeners;
+	bool allow_anonymous;
+
 	listeners = db.config->listeners;
+	if(db.config->security_options.allow_anonymous == -1){
+		allow_anonymous = true;
+	}else{
+		allow_anonymous = db.config->security_options.allow_anonymous;
+	}
 
 	listeners[db.config->listener_count].security_options = mosquitto_calloc(1, sizeof(struct mosquitto__security_options));
 	if(listeners[db.config->listener_count].security_options == NULL){
@@ -154,13 +166,13 @@ static int listeners__add_local(const char *host, uint16_t port)
 	}
 
 	listener__set_defaults(&listeners[db.config->listener_count]);
-	listeners[db.config->listener_count].security_options->allow_anonymous = true;
+	listeners[db.config->listener_count].security_options->allow_anonymous = allow_anonymous;
 	listeners[db.config->listener_count].security_options->auto_id_prefix = mosquitto_strdup("auto-");
 	if(listeners[db.config->listener_count].security_options->auto_id_prefix == NULL){
 		mosquitto_FREE(listeners[db.config->listener_count].security_options);
 		return MOSQ_ERR_NOMEM;
 	}
-	listeners[db.config->listener_count].security_options->auto_id_prefix_len = strlen("auto-");
+	listeners[db.config->listener_count].security_options->auto_id_prefix_len = (int)strlen("auto-");
 	listeners[db.config->listener_count].port = port;
 	listeners[db.config->listener_count].host = mosquitto_strdup(host);
 	if(listeners[db.config->listener_count].host == NULL){
@@ -192,6 +204,10 @@ static int listeners__start_local_only(void)
 		count = (size_t)(db.config->cmd_port_count*2);
 	}
 
+#ifdef WITH_HTTP_API
+	count++;
+#endif
+
 	listeners = mosquitto_realloc(db.config->listeners, count*sizeof(struct mosquitto__listener));
 	if(listeners == NULL){
 		return MOSQ_ERR_NOMEM;
@@ -205,19 +221,31 @@ static int listeners__start_local_only(void)
 	log__printf(NULL, MOSQ_LOG_WARNING, "For more details see https://mosquitto.org/documentation/authentication-methods/");
 	if(db.config->cmd_port_count == 0){
 		rc = listeners__add_local("127.0.0.1", 1883);
-		if(rc == MOSQ_ERR_NOMEM) return MOSQ_ERR_NOMEM;
+		if(rc == MOSQ_ERR_NOMEM){
+			return MOSQ_ERR_NOMEM;
+		}
 		rc = listeners__add_local("::1", 1883);
-		if(rc == MOSQ_ERR_NOMEM) return MOSQ_ERR_NOMEM;
+		if(rc == MOSQ_ERR_NOMEM){
+			return MOSQ_ERR_NOMEM;
+		}
 	}else{
 		for(int i=0; i<db.config->cmd_port_count; i++){
 			rc = listeners__add_local("127.0.0.1", db.config->cmd_port[i]);
-			if(rc == MOSQ_ERR_NOMEM) return MOSQ_ERR_NOMEM;
+			if(rc == MOSQ_ERR_NOMEM){
+				return MOSQ_ERR_NOMEM;
+			}
 			rc = listeners__add_local("::1", db.config->cmd_port[i]);
-			if(rc == MOSQ_ERR_NOMEM) return MOSQ_ERR_NOMEM;
+			if(rc == MOSQ_ERR_NOMEM){
+				return MOSQ_ERR_NOMEM;
+			}
 		}
 	}
 
 	if(db.config->listener_count > 0){
+#ifdef WITH_HTTP_API
+		db.config->listener_count++;
+		http_api__start_local(&db.config->listeners[db.config->listener_count-1]);
+#endif
 		return MOSQ_ERR_SUCCESS;
 	}else{
 		return MOSQ_ERR_UNKNOWN;
@@ -266,6 +294,10 @@ int listeners__start(void)
 				return 1;
 			}
 #endif
+#ifdef WITH_HTTP_API
+		}else if(db.config->listeners[i].protocol == mp_http_api){
+			http_api__start(&db.config->listeners[i]);
+#endif
 		}
 	}
 	if(g_listensock == NULL){
@@ -292,6 +324,11 @@ void listeners__stop(void)
 #ifdef WITH_UNIX_SOCKETS
 		if(db.config->listeners[i].unix_socket_path != NULL){
 			unlink(db.config->listeners[i].unix_socket_path);
+		}
+#endif
+#ifdef WITH_HTTP_API
+		if(db.config->listeners[i].mhd){
+			http_api__stop(&db.config->listeners[i]);
 		}
 #endif
 	}

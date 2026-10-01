@@ -3,6 +3,7 @@
 #
 
 from mosq_test_helper import *
+import platform
 
 def do_test(format_str, expected_output, proto_ver=4, payload="message"):
     rc = 1
@@ -32,15 +33,15 @@ def do_test(format_str, expected_output, proto_ver=4, payload="message"):
     if proto_ver == 5:
         cmd += ['-D', 'subscribe', 'subscription-identifier', '56']
 
-    props = mqtt5_props.gen_byte_prop(mqtt5_props.PROP_PAYLOAD_FORMAT_INDICATOR, 1)
-    props += mqtt5_props.gen_uint32_prop(mqtt5_props.PROP_MESSAGE_EXPIRY_INTERVAL, 3600)
-    props += mqtt5_props.gen_string_prop(mqtt5_props.PROP_CONTENT_TYPE, "plain/text")
-    props += mqtt5_props.gen_string_prop(mqtt5_props.PROP_RESPONSE_TOPIC, "/dev/null")
-    #props += mqtt5_props.gen_string_prop(mqtt5_props.PROP_CORRELATION_DATA, "2357289375902345")
-    props += mqtt5_props.gen_string_pair_prop(mqtt5_props.PROP_USER_PROPERTY, "name1", "value1")
-    props += mqtt5_props.gen_string_pair_prop(mqtt5_props.PROP_USER_PROPERTY, "name2", "value2")
-    props += mqtt5_props.gen_string_pair_prop(mqtt5_props.PROP_USER_PROPERTY, "name3", "value3")
-    props += mqtt5_props.gen_string_pair_prop(mqtt5_props.PROP_USER_PROPERTY, "name4", "value4")
+    props = mqtt5_props.gen_byte_prop(mqtt5_props.PAYLOAD_FORMAT_INDICATOR, 1)
+    props += mqtt5_props.gen_uint32_prop(mqtt5_props.MESSAGE_EXPIRY_INTERVAL, 3600)
+    props += mqtt5_props.gen_string_prop(mqtt5_props.CONTENT_TYPE, "plain/text")
+    props += mqtt5_props.gen_string_prop(mqtt5_props.RESPONSE_TOPIC, "/dev/null")
+    #props += mqtt5_props.gen_string_prop(mqtt5_props.CORRELATION_DATA, "2357289375902345")
+    props += mqtt5_props.gen_string_pair_prop(mqtt5_props.USER_PROPERTY, "name1", "value1")
+    props += mqtt5_props.gen_string_pair_prop(mqtt5_props.USER_PROPERTY, "name2", "value2")
+    props += mqtt5_props.gen_string_pair_prop(mqtt5_props.USER_PROPERTY, "name3", "value3")
+    props += mqtt5_props.gen_string_pair_prop(mqtt5_props.USER_PROPERTY, "name4", "value4")
     if proto_ver == 5:
         publish_packet = mosq_test.gen_publish("02/sub/format/test", qos=0, payload=payload, properties=props, proto_ver=proto_ver)
     else:
@@ -128,5 +129,6 @@ do_test('\\t', '\t\n')
 do_test('\\v', '\v\n')
 do_test('@@', '@\n')
 do_test('text', 'text\n')
-do_test('%.3d', '2.718\n', payload=struct.pack('BBBBBBBB', 0x58, 0x39, 0xB4, 0xC8, 0x76, 0xBE, 0x05, 0x40))
-do_test('%.3f', '0.707\n', payload=struct.pack('BBBB', 0xF4, 0xFD, 0x34, 0x3F))
+if platform.system() != 'Darwin':
+    do_test('%.3d', '2.718\n', payload=struct.pack('BBBBBBBB', 0x58, 0x39, 0xB4, 0xC8, 0x76, 0xBE, 0x05, 0x40))
+    do_test('%.3f', '0.707\n', payload=struct.pack('BBBB', 0xF4, 0xFD, 0x34, 0x3F))

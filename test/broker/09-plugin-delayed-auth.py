@@ -21,7 +21,7 @@ def do_test(proto_ver):
 
     connect_packet2 = mosq_test.gen_connect("delayed-auth-test", username="delayed-username", password="bad", proto_ver=proto_ver)
     if proto_ver == 5:
-        connack_packet2 = mosq_test.gen_connack(rc=mqtt5_rc.MQTT_RC_NOT_AUTHORIZED, proto_ver=proto_ver, property_helper=False)
+        connack_packet2 = mosq_test.gen_connack(rc=mqtt5_rc.NOT_AUTHORIZED, proto_ver=proto_ver, property_helper=False)
     else:
         connack_packet2 = mosq_test.gen_connack(rc=5, proto_ver=proto_ver)
 
@@ -31,9 +31,24 @@ def do_test(proto_ver):
         sock = mosq_test.do_client_connect(connect_packet, connack_packet, timeout=20, port=port)
         sock.close()
         sock = mosq_test.do_client_connect(connect_packet2, connack_packet2, timeout=20, port=port)
+        sock.close()
+
+        # Connect, disconnect, reconnect - try to trigger #3388
+        print(broker.returncode)
+        for i in range(0, 10):
+            try:
+                sock = mosq_test.client_connect_only()
+            except ConnectionRefusedError:
+                time.sleep(0.5)
+        sock.send(connect_packet)
+        sock.close()
+        # Give the tick time to trigger
+        time.sleep(0.5)
+        sock = mosq_test.do_client_connect(connect_packet, connack_packet, timeout=20, port=port)
+        sock.close()
+
         rc = 0
 
-        sock.close()
     except mosq_test.TestError:
         pass
     finally:

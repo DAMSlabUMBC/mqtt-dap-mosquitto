@@ -1,3 +1,5 @@
+add_subdirectory(mock)
+
 add_subdirectory(apps)
 add_subdirectory(broker)
 add_subdirectory(client)

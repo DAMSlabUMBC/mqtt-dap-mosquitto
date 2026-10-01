@@ -1,7 +1,10 @@
 <?xml version='1.0' encoding='UTF-8'?>
 <?xml-stylesheet type="text/xsl" href="manpage.xsl"?>
 
-<refentry xml:id="mosquitto_signal" xmlns:xlink="http://www.w3.org/1999/xlink">
+<refentry xml:id="mosquitto_signal"
+		xmlns:xlink="http://www.w3.org/1999/xlink"
+		xmlns:xi="http://www.w3.org/2001/XInclude">
+
 	<refmeta>
 		<refentrytitle>mosquitto_signal</refentrytitle>
 		<manvolnum>1</manvolnum>
@@ -162,16 +165,17 @@
 		</variablelist>
 	</refsect1>
 
-
-	<refsect1>
-		<title>Bugs</title>
-		<para><command>mosquitto</command> bug information can be found at
-			<ulink url="https://github.com/eclipse/mosquitto/issues"/></para>
-	</refsect1>
+	<xi:include href="common/section-bugs.xml" />
 
 	<refsect1>
 		<title>See Also</title>
 		<simplelist type="inline">
+			<member>
+				<citerefentry>
+					<refentrytitle><link xlink:href="mosquitto-7.html">mosquitto</link></refentrytitle>
+					<manvolnum>7</manvolnum>
+				</citerefentry>
+			</member>
 			<member>
 				<citerefentry>
 					<refentrytitle><link xlink:href="mosquitto-8.html">mosquitto</link></refentrytitle>

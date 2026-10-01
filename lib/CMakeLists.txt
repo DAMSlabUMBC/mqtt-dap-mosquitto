@@ -23,11 +23,12 @@ set(C_SRC
 	handle_unsuback.c
 	helpers.c
 	http_client.c http_client.h
+	libmosquitto.c
 	logging_mosq.c logging_mosq.h
 	loop.c
 	messages_mosq.c messages_mosq.h
-	mosquitto.c ../include/mosquitto.h
 	mosquitto_internal.h
+	../include/mosquitto.h
 	../include/mosquitto/mqtt_protocol.h
 	net_mosq_ocsp.c net_mosq.c net_mosq.h
 	net_ws.c
@@ -35,11 +36,6 @@ set(C_SRC
 	packet_datatypes.c
 	packet_mosq.c packet_mosq.h
 	property_mosq.c property_mosq.h
-	purpose_filters.c purpose_filters.h
-	mp_registry.c mp_registry.h
-	ri_registry.c ri_registry.h
-	dr_registry.c dr_registry.h
-	rights_registry.c rights_registry.h
 	read_handle.c read_handle.h
 	send_connect.c
 	send_disconnect.c
@@ -53,19 +49,29 @@ set(C_SRC
 	thread_mosq.c
 	tls_mosq.c
 	util_mosq.c util_mosq.h
-	will_mosq.c will_mosq.h)
+	will_mosq.c will_mosq.h
+	dap/dap_deadline_tracker.c dap/dap_deadline_tracker.h
+	dap/dap_holding_list.c dap/dap_holding_list.h
+	dap/dap_metrics.c dap/dap_metrics.h
+	dap/dap_op_request.c dap/dap_op_request.h
+	dap/dap_op_requester.c dap/dap_op_requester.h
+	dap/dap_pending_ops.c dap/dap_pending_ops.h
+	dap/dap_pqueue.c dap/dap_pqueue.h
+	dap/dap_send_verify.c dap/dap_send_verify.h
+	dap/dap_stamp.c dap/dap_stamp.h
+	dap/dap_subscription_queues.c dap/dap_subscription_queues.h
+	dap/dap_timestamp.c dap/dap_timestamp.h
+	dap/dap_topics.c dap/dap_topics.h
+	dap/dr_registry.c dap/dr_registry.h
+	dap/mp_registry.c dap/mp_registry.h
+	dap/purpose_filters.c dap/purpose_filters.h
+	dap/ri_registry.c dap/ri_registry.h
+	dap/rights_registry.c dap/rights_registry.h)
 
-set(LIBRARIES common-options ${OPENSSL_LIBRARIES})
+set(LIBRARIES common-options libmosquitto_common)
 
 if(WITH_TLS)
 	set (LIBRARIES ${LIBRARIES} OpenSSL::SSL)
-endif()
-
-if(UNIX AND NOT APPLE AND NOT ANDROID)
-	find_library(LIBRT rt)
-	if(LIBRT)
-		set (LIBRARIES ${LIBRARIES} rt)
-	endif()
 endif()
 
 if(WIN32)
@@ -120,29 +126,30 @@ endif()
 
 if(WITH_THREADING)
 	if(WIN32)
-		 target_link_libraries(libmosquitto PRIVATE PThreads4W::PThreads4W)
+		set (LIBRARIES ${LIBRARIES} PThreads4W::PThreads4W)
 	else()
 		set(THREADS_PREFER_PTHREAD_FLAG ON)
 		find_package(Threads REQUIRED)
 
-		target_link_libraries(libmosquitto PRIVATE Threads::Threads)
+		set (LIBRARIES ${LIBRARIES} Threads::Threads)
 	endif()
 endif()
 
-target_link_libraries(libmosquitto
-	PUBLIC
-		libmosquitto_common
-)
-target_link_libraries(libmosquitto PRIVATE ${LIBRARIES})
+target_link_libraries(libmosquitto PUBLIC ${LIBRARIES})
 
 set_target_properties(libmosquitto PROPERTIES
 	OUTPUT_NAME mosquitto
 	VERSION ${VERSION}
 	SOVERSION 1
-	LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/linker.version
-	LINK_FLAGS "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/linker.version"
 	POSITION_INDEPENDENT_CODE 1
 )
+
+if(UNIX AND NOT APPLE)
+	set_target_properties(libmosquitto PROPERTIES
+		LINK_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/linker.version
+		LINK_FLAGS "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/linker.version"
+	)
+endif()
 
 install(TARGETS libmosquitto
 	RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"

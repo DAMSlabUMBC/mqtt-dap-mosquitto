@@ -28,6 +28,7 @@ Contributors:
 #include "dynamic_security.h"
 #include "json_help.h"
 
+
 int dynsec__process_set_default_acl_access(struct dynsec__data *data, struct mosquitto_control_cmd *cmd)
 {
 	cJSON *j_actions, *j_action;
@@ -85,7 +86,7 @@ int dynsec__process_get_default_acl_access(struct dynsec__data *data, struct mos
 			admin_clientid, admin_username);
 
 	if(cJSON_AddStringToObject(tree, "command", "getDefaultACLAccess") == NULL
-		|| ((j_data = cJSON_AddObjectToObject(tree, "data")) == NULL)
+			|| ((j_data = cJSON_AddObjectToObject(tree, "data")) == NULL)
 
 			){
 		goto internal_error;

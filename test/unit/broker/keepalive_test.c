@@ -10,12 +10,20 @@
 
 struct mosquitto_db db;
 
+
 void do_disconnect(struct mosquitto *context, int reason)
 {
 	UNUSED(reason);
 
+#ifndef WITH_OLD_KEEPALIVE
 	keepalive__remove(context);
+#else
+	UNUSED(context);
+#endif
 }
+
+
+#ifndef WITH_OLD_KEEPALIVE
 
 
 static void TEST_single_client(void)
@@ -41,6 +49,7 @@ static void TEST_single_client(void)
 	rc = keepalive__init();
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
 	if(rc != MOSQ_ERR_SUCCESS){
+		free(context.id);
 		return;
 	}
 	CU_ASSERT_EQUAL(keepalive_list_max, 3001);
@@ -69,6 +78,7 @@ static void TEST_single_client(void)
 	free(context.id);
 }
 
+
 static void TEST_single_client_update(void)
 {
 	struct mosquitto context;
@@ -92,6 +102,7 @@ static void TEST_single_client_update(void)
 	rc = keepalive__init();
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
 	if(rc != MOSQ_ERR_SUCCESS){
+		free(context.id);
 		return;
 	}
 	CU_ASSERT_EQUAL(keepalive_list_max, 3001);
@@ -117,6 +128,7 @@ static void TEST_single_client_update(void)
 	free(db.config);
 	free(context.id);
 }
+
 
 static void TEST_over_max_keepalive(void)
 {
@@ -144,6 +156,7 @@ static void TEST_over_max_keepalive(void)
 	rc = keepalive__init();
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
 	if(rc != MOSQ_ERR_SUCCESS){
+		free(context.id);
 		return;
 	}
 	CU_ASSERT_EQUAL(keepalive_list_max, 3001);
@@ -158,6 +171,7 @@ static void TEST_over_max_keepalive(void)
 	free(db.config);
 	free(context.id);
 }
+
 
 static void TEST_100k_random_clients(void)
 {
@@ -229,9 +243,11 @@ static void TEST_100k_random_clients(void)
 	free(db.config);
 }
 
+
 /* ========================================================================
  * TEST SUITE SETUP
  * ======================================================================== */
+
 
 int init_keepalive_tests(void)
 {
@@ -256,31 +272,35 @@ int init_keepalive_tests(void)
 
 	return 0;
 }
+#endif
+
 
 int main(int argc, char *argv[])
 {
-	unsigned int fails;
+	unsigned int fails = 0;
 
 	UNUSED(argc);
 	UNUSED(argv);
 
-    if(CU_initialize_registry() != CUE_SUCCESS){
-        printf("Error initializing CUnit registry.\n");
-        return 1;
-    }
+#ifndef WITH_OLD_KEEPALIVE
+	if(CU_initialize_registry() != CUE_SUCCESS){
+		printf("Error initializing CUnit registry.\n");
+		return 1;
+	}
 
-    if(0
+	if(0
 			|| init_keepalive_tests()
 			){
 
-        CU_cleanup_registry();
-        return 1;
-    }
+		CU_cleanup_registry();
+		return 1;
+	}
 
-    CU_basic_set_mode(CU_BRM_VERBOSE);
-    CU_basic_run_tests();
+	CU_basic_set_mode(CU_BRM_VERBOSE);
+	CU_basic_run_tests();
 	fails = CU_get_number_of_failures();
-    CU_cleanup_registry();
+	CU_cleanup_registry();
+#endif
 
-    return (int)fails;
+	return (int)fails;
 }

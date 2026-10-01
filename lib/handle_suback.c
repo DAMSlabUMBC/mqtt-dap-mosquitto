@@ -48,6 +48,9 @@ int handle__suback(struct mosquitto *mosq)
 	assert(mosq);
 
 	if(mosquitto__get_state(mosq) != mosq_cs_active){
+#ifdef WITH_BROKER
+		log__printf(NULL, MOSQ_LOG_INFO, "Protocol error from %s: SUBACK before session is active.", mosq->id);
+#endif
 		return MOSQ_ERR_PROTOCOL;
 	}
 	if(mosq->in_packet.command != CMD_SUBACK){
@@ -57,6 +60,7 @@ int handle__suback(struct mosquitto *mosq)
 #ifdef WITH_BROKER
 	if(mosq->bridge == NULL){
 		/* Client is not a bridge, so shouldn't be sending SUBACK */
+		log__printf(NULL, MOSQ_LOG_INFO, "Protocol error from %s: SUBACK when not a bridge.", mosq->id);
 		return MOSQ_ERR_PROTOCOL;
 	}
 	log__printf(NULL, MOSQ_LOG_DEBUG, "Received SUBACK from %s", SAFE_PRINT(mosq->id));
@@ -64,16 +68,25 @@ int handle__suback(struct mosquitto *mosq)
 	log__printf(mosq, MOSQ_LOG_DEBUG, "Client %s received SUBACK", SAFE_PRINT(mosq->id));
 #endif
 	rc = packet__read_uint16(&mosq->in_packet, &mid);
-	if(rc) return rc;
-	if(mid == 0) return MOSQ_ERR_PROTOCOL;
+	if(rc){
+		return rc;
+	}
+	if(mid == 0){
+		return MOSQ_ERR_PROTOCOL;
+	}
 
 	if(mosq->protocol == mosq_p_mqtt5){
 		rc = property__read_all(CMD_SUBACK, &mosq->in_packet, &properties);
-		if(rc) return rc;
+		if(rc){
+			return rc;
+		}
 	}
 
 	qos_count = (int)(mosq->in_packet.remaining_length - mosq->in_packet.pos);
-	if(qos_count == 0) return MOSQ_ERR_PROTOCOL;
+	if(qos_count == 0){
+		mosquitto_property_free_all(&properties);
+		return MOSQ_ERR_PROTOCOL;
+	}
 	granted_qos = mosquitto_malloc((size_t)qos_count*sizeof(int));
 	if(!granted_qos){
 		mosquitto_property_free_all(&properties);
@@ -100,4 +113,3 @@ int handle__suback(struct mosquitto *mosq)
 
 	return MOSQ_ERR_SUCCESS;
 }
-

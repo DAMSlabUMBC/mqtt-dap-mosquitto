@@ -44,4 +44,32 @@ struct mqtt5__property {
 	bool client_generated;
 };
 
+struct dap__op_property {
+	bool op_present;
+	char *op_id;
+
+	/* DAP-OpTFs / DAP-OpPFs / DAP-OpClients: the operation's comma-separated topic,
+	 * purpose and client filter lists. */
+	char *op_topic_filters;
+	char *op_purpose_filters;
+	char *op_client_filters;
+	/* DAP-OpBefore / DAP-OpAfter: the operation's receipt-time bounds (decimal
+	 * seconds; 0 = unbounded), used by the relevance query. */
+	time_t op_before;
+	time_t op_after;
+	char *correlation_data;
+	uint16_t correlation_data_len;
+	char *response_topic;
+
+	/* Inbound operation status notification (subscriber -> broker). DAP-Status marks a
+	 * publish on $OSYS as a notification rather than a request; DAP-OpId names the
+	 * operation being responded to, DAP-Reason is optional, DAP-ClientID is the
+	 * responding subscriber. */
+	char *op_status;
+	char *op_reason;
+	char *op_client_id ;
+	uint64_t op_id_num;
+	bool found_op_id_num;
+};
+
 #endif

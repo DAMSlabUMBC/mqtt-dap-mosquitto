@@ -23,6 +23,8 @@ Contributors:
 #include "utlist.h"
 
 #ifdef WITH_BRIDGE
+
+
 static int bridge__create_remap_topic(const char *prefix, const char *topic, char **remap_topic)
 {
 	if(prefix){
@@ -57,9 +59,11 @@ static int bridge__create_prefix(char **full_prefix, const char *topic, const ch
 {
 	size_t len;
 
-	if(mosquitto_pub_topic_check(prefix) != MOSQ_ERR_SUCCESS){
-		log__printf(NULL, MOSQ_LOG_ERR, "Error: Invalid bridge topic local prefix '%s'.", prefix);
-		return MOSQ_ERR_INVAL;
+	if(!prefix || strlen(prefix) != 0){
+		if(mosquitto_pub_topic_check(prefix) != MOSQ_ERR_SUCCESS){
+			log__printf(NULL, MOSQ_LOG_ERR, "Error: Invalid bridge topic local prefix '%s'.", prefix);
+			return MOSQ_ERR_INVAL;
+		}
 	}
 
 	if(topic){
@@ -125,8 +129,9 @@ static struct mosquitto__bridge_topic *bridge__find_topic(struct mosquitto__brid
 		found = true;
 		break;
 	}
-	if(!found)
+	if(!found){
 		cur_topic = NULL;
+	}
 
 	return cur_topic;
 }
@@ -136,7 +141,9 @@ void bridge__cleanup_topics(struct mosquitto__bridge *bridge)
 {
 	struct mosquitto__bridge_topic *topic, *topic_tmp;
 
-	if(!bridge) return;
+	if(!bridge){
+		return;
+	}
 
 	LL_FOREACH_SAFE(bridge->topics, topic, topic_tmp){
 		LL_DELETE(bridge->topics, topic);
@@ -155,7 +162,9 @@ int bridge__add_topic(struct mosquitto__bridge *bridge, const char *topic, enum 
 {
 	struct mosquitto__bridge_topic *cur_topic;
 
-	if(bridge == NULL) return MOSQ_ERR_INVAL;
+	if(bridge == NULL){
+		return MOSQ_ERR_INVAL;
+	}
 	if(direction != bd_out && direction != bd_in && direction != bd_both){
 		return MOSQ_ERR_INVAL;
 	}

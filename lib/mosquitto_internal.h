@@ -40,16 +40,16 @@ Contributors:
 #endif
 
 #ifdef WIN32
-#	if _MSC_VER < 1600
-		typedef unsigned char uint8_t;
-		typedef unsigned short uint16_t;
-		typedef unsigned int uint32_t;
-		typedef unsigned long long uint64_t;
-#	else
-#		include <stdint.h>
-#	endif
+#   if _MSC_VER < 1600
+typedef unsigned char uint8_t;
+typedef unsigned short uint16_t;
+typedef unsigned int uint32_t;
+typedef unsigned long long uint64_t;
+#   else
+#       include <stdint.h>
+#   endif
 #else
-#	include <stdint.h>
+#   include <stdint.h>
 #endif
 
 #include "mosquitto.h"
@@ -75,14 +75,28 @@ typedef SOCKET mosq_sock_t;
 typedef int mosq_sock_t;
 #endif
 
+#ifdef WIN32
+#  define WINDOWS_SET_ERRNO() \
+		do{ \
+			errno = WSAGetLastError(); \
+		}while(0)
+#  define WINDOWS_SET_ERRNO_RW() \
+		if(errno != EAGAIN){ \
+			errno = WSAGetLastError(); \
+		}
+#else
+#  define WINDOWS_SET_ERRNO()
+#  define WINDOWS_SET_ERRNO_RW()
+#endif
+
 #define SAFE_PRINT(A) (A)?(A):"null"
-#define SAFE_FREE(A) do { free(A); (A) = NULL;} while(0)
+#define SAFE_FREE(A) do{ free(A); (A) = NULL;}while(0)
 
 #define MSG_EXPIRY_INFINITE UINT32_MAX
 
 enum mosquitto_msg_direction {
 	mosq_md_in = 0,
-	mosq_md_out = 1
+	mosq_md_out = 1,
 };
 
 enum mosquitto_msg_state {
@@ -97,7 +111,10 @@ enum mosquitto_msg_state {
 	mosq_ms_resend_pubcomp = 8,
 	mosq_ms_wait_for_pubcomp = 9,
 	mosq_ms_send_pubrec = 10,
-	mosq_ms_queued = 11
+	mosq_ms_queued = 11,
+
+	mosq_ms_any = 255,
+	/* max value allowed is 255 */
 };
 
 enum mosquitto_client_state {
@@ -134,9 +151,9 @@ enum mosquitto__protocol {
 };
 
 enum mosquitto__threaded_state {
-	mosq_ts_none,		/* No threads in use */
-	mosq_ts_self,		/* Threads started by libmosquitto */
-	mosq_ts_external	/* Threads started by external code */
+	mosq_ts_none,       /* No threads in use */
+	mosq_ts_self,       /* Threads started by libmosquitto */
+	mosq_ts_external,   /* Threads started by external code */
 };
 
 enum mosquitto__transport {
@@ -153,7 +170,7 @@ enum mosquitto__transport {
 #define ALIAS_DIR_L2R 1
 #define ALIAS_DIR_R2L 2
 
-struct mosquitto__alias{
+struct mosquitto__alias {
 	char *topic;
 	uint16_t alias;
 };
@@ -164,7 +181,7 @@ struct session_expiry_list {
 	struct session_expiry_list *next;
 };
 
-struct mosquitto__packet{
+struct mosquitto__packet {
 	struct mosquitto__packet *next;
 	uint32_t remaining_length;
 	uint32_t packet_length;
@@ -173,10 +190,11 @@ struct mosquitto__packet{
 	uint16_t mid;
 	uint8_t command;
 	int8_t remaining_count;
+	bool dap_priority; /* MQTT-DAP op/PBMR publish, written ahead of queued data */
 	uint8_t payload[];
 };
 
-struct mosquitto__packet_in{
+struct mosquitto__packet_in {
 	uint8_t *payload;
 	uint32_t remaining_mult;
 	uint32_t remaining_length;
@@ -191,7 +209,7 @@ struct mosquitto__packet_in{
 	int8_t remaining_count;
 };
 
-struct mosquitto_message_all{
+struct mosquitto_message_all {
 	struct mosquitto_message_all *next;
 	struct mosquitto_message_all *prev;
 	mosquitto_property *properties;
@@ -214,7 +232,7 @@ struct will_delay_list {
 	struct will_delay_list *next;
 };
 
-struct mosquitto_msg_data{
+struct mosquitto_msg_data {
 #ifdef WITH_BROKER
 	struct mosquitto__client_msg *inflight;
 	struct mosquitto__client_msg *queued;
@@ -246,7 +264,7 @@ struct mosquitto_msg_data{
 #define WS_PONG 0x0A
 
 #if defined(WITH_WEBSOCKETS) && WITH_WEBSOCKETS == WS_IS_BUILTIN
-struct ws_data{
+struct ws_data {
 	struct mosquitto__packet *out_packet;
 	char *http_path;
 	char *accept_key;
@@ -263,7 +281,7 @@ struct ws_data{
 };
 #endif
 
-struct proxy_data{
+struct proxy_data {
 	uint8_t *buf;
 	char *cipher;
 	char *tls_version;
@@ -274,7 +292,7 @@ struct proxy_data{
 	bool have_tls;
 };
 
-struct client_stats{
+struct client_stats {
 	uint64_t messages_received;
 	uint64_t messages_sent;
 	uint64_t messages_dropped;
@@ -350,6 +368,7 @@ struct mosquitto {
 	enum mosquitto__keyform tls_keyform;
 #endif
 	bool want_write;
+	bool run;
 #if defined(WITH_THREADING) && !defined(WITH_BROKER)
 	pthread_mutex_t callback_mutex;
 	pthread_mutex_t log_callback_mutex;
@@ -367,6 +386,7 @@ struct mosquitto {
 	bool is_dropping;
 	bool is_bridge;
 	bool is_persisted;
+	bool dap_write_again; /* the DAP send-path gate left messages ready for another write pass */
 	struct mosquitto__bridge *bridge;
 	struct mosquitto_msg_data msgs_in;
 	struct mosquitto_msg_data msgs_out;
@@ -396,23 +416,23 @@ struct mosquitto {
 	void *userdata;
 	struct mosquitto_msg_data msgs_in;
 	struct mosquitto_msg_data msgs_out;
-	void (*on_pre_connect)(struct mosquitto *, void *userdata);
-	void (*on_connect)(struct mosquitto *, void *userdata, int rc);
-	void (*on_connect_with_flags)(struct mosquitto *, void *userdata, int rc, int flags);
-	void (*on_connect_v5)(struct mosquitto *, void *userdata, int rc, int flags, const mosquitto_property *props);
-	void (*on_disconnect)(struct mosquitto *, void *userdata, int rc);
-	void (*on_disconnect_v5)(struct mosquitto *, void *userdata, int rc, const mosquitto_property *props);
-	void (*on_publish)(struct mosquitto *, void *userdata, int mid);
-	void (*on_publish_v5)(struct mosquitto *, void *userdata, int mid, int reason_code, const mosquitto_property *props);
-	void (*on_message)(struct mosquitto *, void *userdata, const struct mosquitto_message *message);
-	void (*on_message_v5)(struct mosquitto *, void *userdata, const struct mosquitto_message *message, const mosquitto_property *props);
-	void (*on_subscribe)(struct mosquitto *, void *userdata, int mid, int qos_count, const int *granted_qos);
-	void (*on_subscribe_v5)(struct mosquitto *, void *userdata, int mid, int qos_count, const int *granted_qos, const mosquitto_property *props);
-	void (*on_unsubscribe)(struct mosquitto *, void *userdata, int mid);
-	void (*on_unsubscribe_v5)(struct mosquitto *, void *userdata, int mid, const mosquitto_property *props);
-	void (*on_unsubscribe2_v5)(struct mosquitto *, void *userdata, int mid, int reason_code_count, const int *reason_codes, const mosquitto_property *props);
-	int (*on_ext_auth)(struct mosquitto *, void *userdata, const char *auth_method, uint16_t auth_data_len, const void *auth_data, const mosquitto_property *props);
-	void (*on_log)(struct mosquitto *, void *userdata, int level, const char *str);
+	LIBMOSQ_CB_pre_connect on_pre_connect;
+	LIBMOSQ_CB_connect on_connect;
+	LIBMOSQ_CB_connect_with_flags on_connect_with_flags;
+	LIBMOSQ_CB_connect_v5 on_connect_v5;
+	LIBMOSQ_CB_disconnect on_disconnect;
+	LIBMOSQ_CB_disconnect_v5 on_disconnect_v5;
+	LIBMOSQ_CB_publish on_publish;
+	LIBMOSQ_CB_publish_v5 on_publish_v5;
+	LIBMOSQ_CB_message on_message;
+	LIBMOSQ_CB_message_v5 on_message_v5;
+	LIBMOSQ_CB_subscribe on_subscribe;
+	LIBMOSQ_CB_subscribe_v5 on_subscribe_v5;
+	LIBMOSQ_CB_unsubscribe on_unsubscribe;
+	LIBMOSQ_CB_unsubscribe_v5 on_unsubscribe_v5;
+	LIBMOSQ_CB_unsubscribe2_v5 on_unsubscribe2_v5;
+	LIBMOSQ_CB_ext_auth on_ext_auth;
+	LIBMOSQ_CB_log on_log;
 	/*void (*on_error)();*/
 	char *host;
 	char *bind_address;
@@ -447,6 +467,7 @@ struct mosquitto {
 #  ifndef WITH_OLD_KEEPALIVE
 	struct mosquitto *keepalive_next;
 	struct mosquitto *keepalive_prev;
+	time_t keepalive_add_time;
 #  endif
 	struct client_stats stats;
 #endif

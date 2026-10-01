@@ -37,6 +37,7 @@ Contributors:
 
 #define MAX_STRING_LEN 4096
 
+
 void dynsec__print_usage(void)
 {
 	printf("\nDynamic Security module\n");
@@ -52,7 +53,7 @@ void dynsec__print_usage(void)
 	printf("Set group for anonymous clients: setAnonymousGroup   <groupname>\n");
 
 	printf("\nClients\n-------\n");
-	printf("Create a new client:         createClient      <username> [-c clientid] [-p password]\n");
+	printf("Create a new client:         createClient      <username> [-i clientid] [-p password]\n");
 	printf("Delete a client:             deleteClient      <username>\n");
 	printf("Set a client password:       setClientPassword <username> [password]\n");
 	printf("Set a client password on an existing file:\n");
@@ -95,11 +96,13 @@ void dynsec__print_usage(void)
 	printf("    https://mosquitto.org/documentation/dynamic-security/\n\n");
 }
 
+
 /* ################################################################
  * #
  * # Payload callback
  * #
  * ################################################################ */
+
 
 static void print_list(cJSON *j_response, const char *arrayname, const char *keyname)
 {
@@ -119,7 +122,7 @@ static void print_list(cJSON *j_response, const char *arrayname, const char *key
 
 	cJSON_ArrayForEach(j_elem, j_array){
 		if(cJSON_IsObject(j_elem)){
-            const char *stmp;
+			const char *stmp;
 			if(json_get_string(j_elem, keyname, &stmp, false) == MOSQ_ERR_SUCCESS){
 				printf("%s\n", stmp);
 			}
@@ -128,6 +131,7 @@ static void print_list(cJSON *j_response, const char *arrayname, const char *key
 		}
 	}
 }
+
 
 static void print_json_value(cJSON *value, const char *null_value)
 {
@@ -142,9 +146,10 @@ static void print_json_value(cJSON *value, const char *null_value)
 			printf("%s", buffer);
 		}
 	}else if(null_value){
-		printf("%s",null_value);
+		printf("%s", null_value);
 	}
 }
+
 
 static void print_json_array(cJSON *j_list, int slen, const char *label, const char *element_name, const char *optional_element_name, const char *optional_element_null_value)
 {
@@ -161,7 +166,7 @@ static void print_json_array(cJSON *j_list, int slen, const char *label, const c
 				printf("%-*s %s", (int)slen, label, stmp);
 				if(optional_element_name){
 					printf(" (%s: ", optional_element_name);
-					print_json_value(cJSON_GetObjectItem(j_elem,optional_element_name),optional_element_null_value);
+					print_json_value(cJSON_GetObjectItem(j_elem, optional_element_name), optional_element_null_value);
 					printf(")");
 				}
 			}else if(cJSON_IsString(j_elem) && j_elem->valuestring){
@@ -179,7 +184,7 @@ static void print_json_array(cJSON *j_list, int slen, const char *label, const c
 static void print_client(cJSON *j_response)
 {
 	cJSON *j_data, *j_client, *jtmp;
-	const int label_width = strlen( "Connections:");
+	const int label_width = (int)strlen("Connections:");
 
 	j_data = cJSON_GetObjectItem(j_response, "data");
 	if(j_data == NULL || !cJSON_IsObject(j_data)){
@@ -221,7 +226,7 @@ static void print_client(cJSON *j_response)
 static void print_group(cJSON *j_response)
 {
 	cJSON *j_data, *j_group;
-	int label_width = strlen("Groupname:");
+	int label_width = (int)strlen("Groupname:");
 	const char *groupname;
 
 	j_data = cJSON_GetObjectItem(j_response, "data");
@@ -331,6 +336,7 @@ static void print_anonymous_group(cJSON *j_response)
 	printf("%s\n", groupname);
 }
 
+
 static void print_default_acl_access(cJSON *j_response)
 {
 	cJSON *j_data, *j_acls, *j_acl;
@@ -360,6 +366,7 @@ static void print_default_acl_access(cJSON *j_response)
 		printf("%-20s : %s\n", acltype, allow?"allow":"deny");
 	}
 }
+
 
 static void dynsec__payload_callback(struct mosq_ctrl *ctrl, long payloadlen, const void *payload)
 {
@@ -425,11 +432,13 @@ static void dynsec__payload_callback(struct mosq_ctrl *ctrl, long payloadlen, co
 	cJSON_Delete(tree);
 }
 
+
 /* ################################################################
  * #
  * # Default ACL access
  * #
  * ################################################################ */
+
 
 static int dynsec__set_default_acl_access(int argc, char *argv[], cJSON *j_command)
 {
@@ -483,6 +492,7 @@ static int dynsec__set_default_acl_access(int argc, char *argv[], cJSON *j_comma
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 static int dynsec__get_default_acl_access(int argc, char *argv[], cJSON *j_command)
 {
 	UNUSED(argc);
@@ -497,18 +507,22 @@ static int dynsec__get_default_acl_access(int argc, char *argv[], cJSON *j_comma
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 /* ################################################################
  * #
  * # Init
  * #
  * ################################################################ */
 
+
 static cJSON *init_add_acl_to_role(cJSON *j_acls, const char *type, const char *topic)
 {
 	cJSON *j_acl;
 
 	j_acl = cJSON_CreateObject();
-	if(j_acl == NULL) return NULL;
+	if(j_acl == NULL){
+		return NULL;
+	}
 
 	if(cJSON_AddStringToObject(j_acl, "acltype", type) == NULL
 			|| cJSON_AddStringToObject(j_acl, "topic", topic) == NULL
@@ -521,6 +535,7 @@ static cJSON *init_add_acl_to_role(cJSON *j_acls, const char *type, const char *
 	cJSON_AddItemToArray(j_acls, j_acl);
 	return j_acl;
 }
+
 
 static cJSON *init_add_role(const char *rolename)
 {
@@ -556,6 +571,7 @@ static cJSON *init_add_role(const char *rolename)
 	}
 	return j_role;
 }
+
 
 static cJSON *init_add_client(const char *username, const char *password, const char *rolename)
 {
@@ -610,13 +626,16 @@ static cJSON *init_add_client(const char *username, const char *password, const 
 	return j_client;
 }
 
+
 static cJSON *init_create(const char *username, const char *password, const char *rolename)
 {
 	cJSON *tree, *j_clients, *j_client, *j_roles, *j_role;
 	cJSON *j_default_access;
 
 	tree = cJSON_CreateObject();
-	if(tree == NULL) return NULL;
+	if(tree == NULL){
+		return NULL;
+	}
 
 	if((j_clients = cJSON_AddArrayToObject(tree, "clients")) == NULL
 			|| (j_roles = cJSON_AddArrayToObject(tree, "roles")) == NULL
@@ -659,6 +678,7 @@ static cJSON *init_create(const char *username, const char *password, const char
 
 	return tree;
 }
+
 
 /* mosquitto_ctrl dynsec init <filename> <admin-user> <admin-password> [role-name] */
 static int dynsec_init(int argc, char *argv[])
@@ -704,7 +724,7 @@ static int dynsec_init(int argc, char *argv[])
 		fprintf(stderr, "dynsec init: Out of memory.\n");
 		return MOSQ_ERR_NOMEM;
 	}
-	json_str = cJSON_Print(tree);
+	json_str = cJSON_PrintUnformatted(tree);
 	cJSON_Delete(tree);
 
 #ifdef WIN32
@@ -741,11 +761,13 @@ static int dynsec_init(int argc, char *argv[])
 	return -1; /* Suppress client connection */
 }
 
+
 /* ################################################################
  * #
  * # Main
  * #
  * ################################################################ */
+
 
 int dynsec__main(int argc, char *argv[], struct mosq_ctrl *ctrl)
 {
@@ -771,7 +793,9 @@ int dynsec__main(int argc, char *argv[], struct mosq_ctrl *ctrl)
 		return MOSQ_ERR_NOMEM;
 	}
 	j_tree = cJSON_CreateObject();
-	if(j_tree == NULL) return MOSQ_ERR_NOMEM;
+	if(j_tree == NULL){
+		return MOSQ_ERR_NOMEM;
+	}
 	j_commands = cJSON_AddArrayToObject(j_tree, "commands");
 	if(j_commands == NULL){
 		cJSON_Delete(j_tree);

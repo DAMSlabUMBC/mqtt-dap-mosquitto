@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 
+import json
+import os
 from pathlib import Path
 import subprocess
 import time
 import sys
+
+COLOUR_PASS = 34
+COLOUR_FAIL = 124
 
 class PTestCase():
     def __init__(self, path, ports, cmd, args=None):
@@ -28,9 +33,37 @@ class PTestCase():
         self.proc = subprocess.Popen(self.run_args, stdout=subprocess.PIPE, stderr=subprocess.PIPE, cwd=self.path)
         self.start_time = time.time()
 
-    def print_result(self, col):
+    def print_result(self, attempt, col):
         cmd = " ".join(self.run_args)
-        print(f"{self.runtime:0.3f}s : \033[{col}m{self.path}/{cmd}\033[0m")
+        if col == COLOUR_PASS:
+            stat = "✓"
+        elif col == COLOUR_FAIL:
+            stat = "✗"
+        else:
+            stat = attempt
+
+        if sys.stdout.isatty():
+            ansi_col = f"\033[38:5:{col}m"
+            ansi_reset = "\033[0m"
+        else:
+            ansi_col = ""
+            ansi_reset = ""
+        print(f"{self.runtime:0.3f}s : {stat} : {ansi_col}{self.path}/{cmd}{ansi_reset}")
+
+    def print_timed_out(self, col):
+        cmd = " ".join(self.run_args)
+        if sys.stdout.isatty():
+            ansi_col = f"\033[38:5:{col}m"
+            ansi_reset = "\033[0m"
+        else:
+            ansi_col = ""
+            ansi_reset = ""
+        print(f"{self.runtime:0.3f}s : ⏳ : {ansi_col}{self.path}/{cmd}{ansi_reset}")
+
+    def print_log(self):
+        (stdo, stde) = self.proc.communicate()
+        print(stdo.decode('utf-8'))
+        print(stde.decode('utf-8'))
 
 
 class PTest():
@@ -72,6 +105,15 @@ class PTest():
         self.add_tests(test_list)
         self.run()
 
+    def load_failed_tests(self):
+        with open("failed-tests.json", "rt") as f:
+            return json.loads(f.read())
+
+    def run_failed_tests(self):
+        test_list = self.load_failed_tests()
+        self.add_tests(test_list)
+        self.run()
+
     def run(self):
         ports = list(range(self.minport, self.minport+self.max_running+1))
         start_time = time.time()
@@ -80,6 +122,7 @@ class PTest():
         failed = 0
 
         failed_tests = []
+        failed_tests_output = []
         running_tests = []
         retry_tests = []
         while len(self.tests) > 0 or len(running_tests) > 0 or len(retry_tests) > 0:
@@ -97,8 +140,8 @@ class PTest():
 
             for t in running_tests:
                 t.proc.poll()
+                t.runtime = time.time() - t.start_time
                 if t.proc.returncode is not None:
-                    t.runtime = time.time() - t.start_time
                     running_tests.remove(t)
 
                     for portret in t.mosq_port:
@@ -106,8 +149,8 @@ class PTest():
                     t.proc.terminate()
                     t.proc.wait()
 
-                    if t.proc.returncode == 1 and t.attempts < 5:
-                        t.print_result(33)
+                    if t.proc.returncode != 0 and t.attempts < 5:
+                        t.print_result(t.attempts+1, 226-6*t.attempts)
                         retried += 1
                         t.attempts += 1
                         t.proc = None
@@ -115,15 +158,21 @@ class PTest():
                         retry_tests.append(t)
                         continue
 
-                    if t.proc.returncode == 1:
-                        t.print_result(31)
+                    if t.proc.returncode != 0:
+                        t.print_result(0, COLOUR_FAIL)
                         failed = failed + 1
                         failed_tests.append(t.cmd)
+                        failed_tests_output.append([t.ports]+t.args)
                         print(f"{t.cmd}:")
-                        (stdo, stde) = t.proc.communicate()
+                        t.print_log()
                     else:
                         passed = passed + 1
-                        t.print_result(32)
+                        t.print_result(0, COLOUR_PASS)
+                elif t.runtime > 180: # 3 minutes max
+                    t.print_timed_out(226-6*t.attempts)
+                    t.proc.terminate()
+                    t.proc.wait()
+                    t.print_log()
 
         print("Passed: %d\nRetried: %d\nFailed: %d\nTotal: %d\nTotal time: %0.2f" % (passed, retried, failed, passed+failed, time.time()-start_time))
         if failed > 0:
@@ -131,4 +180,11 @@ class PTest():
             failed_tests.sort()
             for f in failed_tests:
                 print(f)
+            with open("failed-tests.json", "wt") as out:
+                out.write(json.dumps(failed_tests_output))
             sys.exit(1)
+        else:
+            try:
+                os.remove("failed-tests.json")
+            except FileNotFoundError:
+                pass

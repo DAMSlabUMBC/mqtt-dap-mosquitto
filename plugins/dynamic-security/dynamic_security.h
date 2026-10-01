@@ -55,31 +55,31 @@ Contributors:
  * #
  * ################################################################ */
 
-struct dynsec__clientlist{
+struct dynsec__clientlist {
 	UT_hash_handle hh;
 	struct dynsec__client *client;
 	int priority;
 };
 
-struct dynsec__grouplist{
+struct dynsec__grouplist {
 	UT_hash_handle hh;
 	struct dynsec__group *group;
 	int priority;
 };
 
-struct dynsec__rolelist{
+struct dynsec__rolelist {
 	UT_hash_handle hh;
 	struct dynsec__role *role;
 	int priority;
 	char rolename[];
 };
 
-struct dynsec__kicklist{
+struct dynsec__kicklist {
 	struct dynsec__kicklist *next, *prev;
 	char username[];
 };
 
-struct dynsec__client{
+struct dynsec__client {
 	UT_hash_handle hh;
 	struct mosquitto_pw *pw;
 	struct dynsec__rolelist *rolelist;
@@ -91,7 +91,7 @@ struct dynsec__client{
 	char username[];
 };
 
-struct dynsec__group{
+struct dynsec__group {
 	UT_hash_handle hh;
 	struct dynsec__rolelist *rolelist;
 	struct dynsec__clientlist *clientlist;
@@ -101,14 +101,14 @@ struct dynsec__group{
 };
 
 
-struct dynsec__acl{
+struct dynsec__acl {
 	UT_hash_handle hh;
 	int priority;
 	bool allow;
 	char topic[];
 };
 
-struct dynsec__acls{
+struct dynsec__acls {
 	struct dynsec__acl *publish_c_send;
 	struct dynsec__acl *publish_c_recv;
 	struct dynsec__acl *subscribe_literal;
@@ -117,7 +117,7 @@ struct dynsec__acls{
 	struct dynsec__acl *unsubscribe_pattern;
 };
 
-struct dynsec__role{
+struct dynsec__role {
 	UT_hash_handle hh;
 	struct dynsec__acls acls;
 	struct dynsec__clientlist *clientlist;
@@ -128,20 +128,20 @@ struct dynsec__role{
 	char rolename[];
 };
 
-struct dynsec__acl_default_access{
+struct dynsec__acl_default_access {
 	bool publish_c_send;
 	bool publish_c_recv;
 	bool subscribe;
 	bool unsubscribe;
 };
 
-enum dynsec_pw_init_mode{
+enum dynsec_pw_init_mode {
 	dpwim_file = 1,
 	dpwim_env = 2,
 	dpwim_random = 3,
 };
 
-struct dynsec__data{
+struct dynsec__data {
 	char *config_file;
 	char *password_init_file;
 	struct dynsec__client *clients;
@@ -150,6 +150,7 @@ struct dynsec__data{
 	struct dynsec__group *anonymous_group;
 	struct dynsec__kicklist *kicklist;
 	struct dynsec__acl_default_access default_access;
+	int64_t changeindex;
 	int init_mode;
 	bool need_save;
 };
@@ -307,5 +308,13 @@ int dynsec_kicklist__add(struct dynsec__data *data, const char *username);
 void dynsec_kicklist__kick(struct dynsec__data *data);
 int dynsec__tick_callback(int event, void *event_data, void *userdata);
 void dynsec_kicklist__cleanup(struct dynsec__data *data);
+
+/* ################################################################
+ * #
+ * # Change Index Functions
+ * #
+ * ################################################################ */
+
+int dynsec_details__process_get(struct dynsec__data *data, struct mosquitto_control_cmd *cmd);
 
 #endif

@@ -1,4 +1,3 @@
-#include <cassert>
 #include <signal.h>
 #include <mosquitto/libmosquittopp.h>
 #include <openssl/ssl.h>
@@ -6,6 +5,7 @@
 
 
 static int run = -1;
+
 
 void handle_sigint(int signal)
 {
@@ -15,16 +15,17 @@ void handle_sigint(int signal)
 
 class mosquittopp_test : public mosqpp::mosquittopp
 {
-	public:
-		mosquittopp_test(const char *id);
+public:
+	mosquittopp_test(const char *id);
 
-		void on_connect(int rc);
-		void on_disconnect(int rc);
+	void on_connect(int rc);
+	void on_disconnect(int rc);
 };
 
 mosquittopp_test::mosquittopp_test(const char *id) : mosqpp::mosquittopp(id)
 {
 }
+
 
 void mosquittopp_test::on_connect(int rc)
 {
@@ -34,6 +35,7 @@ void mosquittopp_test::on_connect(int rc)
 		disconnect();
 	}
 }
+
 
 void mosquittopp_test::on_disconnect(int rc)
 {
@@ -45,7 +47,9 @@ int main(int argc, char *argv[])
 {
 	mosquittopp_test *mosq;
 	SSL_CTX *ssl_ctx;
-	assert(argc == 2);
+	if(argc != 2){
+		return 1;
+	}
 	int port = atoi(argv[1]);
 
 	mosqpp::lib_init();

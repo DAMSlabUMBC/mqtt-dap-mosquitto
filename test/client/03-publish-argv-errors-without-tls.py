@@ -84,7 +84,7 @@ if __name__ == '__main__':
     do_test(['-l', '-s'], "Error: Only one type of message can be sent at once.\n\n" + helps, 1)
 
     # Invalid values
-    do_test(['-t', 'topic', '-f', 'missing'], "Error: Unable to open file \"missing\".\nError loading input file \"missing\".\n", 1)
+    do_test(['-t', 'topic', '-f', 'missing'], "Error: Unable to read file \"missing\": No such file or directory.\nError loading input file \"missing\".\n", 1)
     do_test(['-k', '-1'], "Error: Invalid keepalive given, it must be between 5 and 65535 inclusive.\n\n" + helps, 1)
     do_test(['-k', '65536'], "Error: Invalid keepalive given, it must be between 5 and 65535 inclusive.\n\n" + helps, 1)
     do_test(['-M', '0'], "Error: Maximum inflight messages must be greater than 0.\n\n" + helps, 1)
@@ -116,6 +116,7 @@ if __name__ == '__main__':
     do_test(['--random-filter'], "Error: Unknown option '--random-filter'.\n" + helps, 1)
     do_test(['--remove-retained'], "Error: Unknown option '--remove-retained'.\n" + helps, 1)
     do_test(['--retain-as-published'], "Error: Unknown option '--retain-as-published'.\n" + helps, 1)
+    do_test(['--retain-handling', 'invalid'], "Error: Unknown option '--retain-handling'.\n" + helps, 1)
     do_test(['--retained-only'], "Error: Unknown option '--retained-only'.\n" + helps, 1)
     do_test(['-T'], "Error: Unknown option '-T'.\n" + helps, 1)
     do_test(['-U'], "Error: Unknown option '-U'.\n" + helps, 1)

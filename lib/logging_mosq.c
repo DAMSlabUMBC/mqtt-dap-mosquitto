@@ -27,21 +27,25 @@ Contributors:
 #include "mosquitto_internal.h"
 #include "mosquitto.h"
 
+
 int log__printf(struct mosquitto *mosq, unsigned int priority, const char *fmt, ...)
 {
 	va_list va;
 	char *s;
 	size_t len;
+	void (*on_log)(struct mosquitto *, void *userdata, int level, const char *str);
 
 	assert(mosq);
 	assert(fmt);
 
-	pthread_mutex_lock(&mosq->log_callback_mutex);
-	if(mosq->on_log){
+	COMPAT_pthread_mutex_lock(&mosq->log_callback_mutex);
+	on_log = mosq->on_log;
+	COMPAT_pthread_mutex_unlock(&mosq->log_callback_mutex);
+
+	if(on_log){
 		len = strlen(fmt) + 500;
 		s = mosquitto_malloc(len*sizeof(char));
 		if(!s){
-			pthread_mutex_unlock(&mosq->log_callback_mutex);
 			return MOSQ_ERR_NOMEM;
 		}
 
@@ -50,12 +54,10 @@ int log__printf(struct mosquitto *mosq, unsigned int priority, const char *fmt, 
 		va_end(va);
 		s[len-1] = '\0'; /* Ensure string is null terminated. */
 
-		mosq->on_log(mosq, mosq->userdata, (int)priority, s);
+		on_log(mosq, mosq->userdata, (int)priority, s);
 
 		mosquitto_FREE(s);
 	}
-	pthread_mutex_unlock(&mosq->log_callback_mutex);
 
 	return MOSQ_ERR_SUCCESS;
 }
-

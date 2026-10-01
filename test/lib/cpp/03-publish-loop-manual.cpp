@@ -1,7 +1,8 @@
-#include <cassert>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <sys/select.h>
+#include <sys/types.h>
 
 #include <mosquitto/libmosquittopp.h>
 
@@ -9,18 +10,19 @@ static int run = -1;
 
 class mosquittopp_test : public mosqpp::mosquittopp
 {
-	public:
-		mosquittopp_test(const char *id);
+public:
+	mosquittopp_test(const char *id);
 
-		void on_connect_v5(int rc, int flags, const mosquitto_property *properties);
-		void on_disconnect_v5(int rc, const mosquitto_property *properties);
-		void on_subscribe_v5(int mid, int qos_count, const int *granted_qos, const mosquitto_property *props);
-		void on_message_v5(const struct mosquitto_message *msg, const mosquitto_property *properties);
+	void on_connect_v5(int rc, int flags, const mosquitto_property *properties);
+	void on_disconnect_v5(int rc, const mosquitto_property *properties);
+	void on_subscribe_v5(int mid, int qos_count, const int *granted_qos, const mosquitto_property *props);
+	void on_message_v5(const struct mosquitto_message *msg, const mosquitto_property *properties);
 };
 
 mosquittopp_test::mosquittopp_test(const char *id) : mosqpp::mosquittopp(id)
 {
 }
+
 
 void mosquittopp_test::on_connect_v5(int rc, int flags, const mosquitto_property *properties)
 {
@@ -34,12 +36,14 @@ void mosquittopp_test::on_connect_v5(int rc, int flags, const mosquitto_property
 	}
 }
 
+
 void mosquittopp_test::on_disconnect_v5(int rc, const mosquitto_property *properties)
 {
 	(void)properties;
 
 	run = rc;
 }
+
 
 void mosquittopp_test::on_subscribe_v5(int mid, int qos_count, const int *granted_qos, const mosquitto_property *props)
 {
@@ -51,6 +55,7 @@ void mosquittopp_test::on_subscribe_v5(int mid, int qos_count, const int *grante
 	publish_v5(NULL, "loop/test", strlen("message"), "message", 0, false, NULL);
 }
 
+
 void mosquittopp_test::on_message_v5(const struct mosquitto_message *msg, const mosquitto_property *properties)
 {
 	(void)msg;
@@ -59,6 +64,7 @@ void mosquittopp_test::on_message_v5(const struct mosquitto_message *msg, const 
 	disconnect();
 }
 
+
 void do_loop(mosquittopp_test *mosq)
 {
 	int sock;
@@ -66,7 +72,9 @@ void do_loop(mosquittopp_test *mosq)
 	fd_set readfds, writefds;
 
 	sock = mosq->socket();
-	if(sock < 0) exit(1);
+	if(sock < 0){
+		exit(1);
+	}
 
 	FD_ZERO(&readfds);
 	FD_ZERO(&writefds);
@@ -85,7 +93,9 @@ void do_loop(mosquittopp_test *mosq)
 		}
 
 		int fdcount = select(sock+1, &readfds, &writefds, NULL, &tv);
-		if(fdcount < 0) exit(1);
+		if(fdcount < 0){
+			exit(1);
+		}
 
 		if(FD_ISSET(sock, &readfds)){
 			mosq->loop_read();
@@ -97,11 +107,14 @@ void do_loop(mosquittopp_test *mosq)
 	}
 }
 
+
 int main(int argc, char *argv[])
 {
 	mosquittopp_test *mosq;
 
-	assert(argc == 2);
+	if(argc != 2){
+		return 1;
+	}
 	int port = atoi(argv[1]);
 
 	mosqpp::lib_init();

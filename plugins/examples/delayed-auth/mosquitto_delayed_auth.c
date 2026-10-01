@@ -50,7 +50,7 @@ Contributors:
 
 MOSQUITTO_PLUGIN_DECLARE_VERSION(5);
 
-struct client_list{
+struct client_list {
 	UT_hash_handle hh;
 	char *id;
 	time_t request_time;
@@ -60,6 +60,7 @@ static mosquitto_plugin_id_t *mosq_pid = NULL;
 static struct client_list *clients = NULL;
 static time_t last_check = 0;
 
+
 static bool authentication_check(struct client_list *client, time_t now)
 {
 	time_t secs;
@@ -68,6 +69,7 @@ static bool authentication_check(struct client_list *client, time_t now)
 
 	return secs > 5 ? true : false;
 }
+
 
 static int basic_auth_callback(int event, void *event_data, void *userdata)
 {
@@ -138,7 +140,7 @@ static int tick_callback(int event, void *event_data, void *userdata)
 		}
 		last_check = now;
 	}
-	/* Declare that we want another call in at most 1 second */
+	/* Declare that we want another call in 1 second at the earliest */
 	ed->next_s = 1;
 
 	return MOSQ_ERR_SUCCESS;
@@ -157,10 +159,13 @@ int mosquitto_plugin_init(mosquitto_plugin_id_t *identifier, void **user_data, s
 	mosquitto_plugin_set_info(identifier, PLUGIN_NAME, PLUGIN_VERSION);
 
 	rc = mosquitto_callback_register(mosq_pid, MOSQ_EVT_BASIC_AUTH, basic_auth_callback, NULL, NULL);
-	if(rc) return rc;
+	if(rc){
+		return rc;
+	}
 	rc = mosquitto_callback_register(mosq_pid, MOSQ_EVT_TICK, tick_callback, NULL, NULL);
 	return rc;
 }
+
 
 int mosquitto_plugin_cleanup(void *user_data, struct mosquitto_opt *opts, int opt_count)
 {

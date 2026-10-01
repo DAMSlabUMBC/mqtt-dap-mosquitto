@@ -27,6 +27,7 @@ Contributors:
 #include "lib_load.h"
 #include "utlist.h"
 
+
 int acl__pre_check(mosquitto_plugin_id_t *plugin, struct mosquitto *context, int access)
 {
 	const char *username;
@@ -39,11 +40,11 @@ int acl__pre_check(mosquitto_plugin_id_t *plugin, struct mosquitto *context, int
 		* Do this check for every message regardless, we have to protect the
 		* plugins against possible pattern based attacks.
 		*/
-		if(username && strpbrk(username, "+#")){
+		if(username && strpbrk(username, "+#/")){
 			log__printf(NULL, MOSQ_LOG_NOTICE, "ACL denying access to client with dangerous username \"%s\"", username);
 			return MOSQ_ERR_ACL_DENIED;
 		}
-		if(context->id && strpbrk(context->id, "+#")){
+		if(context->id && strpbrk(context->id, "+#/")){
 			log__printf(NULL, MOSQ_LOG_NOTICE, "ACL denying access to client with dangerous client id \"%s\"", context->id);
 			return MOSQ_ERR_ACL_DENIED;
 		}
@@ -71,7 +72,9 @@ static int acl__check_dollar(const char *topic, int access)
 	int rc;
 	bool match = false;
 
-	if(topic[0] != '$') return MOSQ_ERR_SUCCESS;
+	if(topic[0] != '$'){
+		return MOSQ_ERR_SUCCESS;
+	}
 
 	if(!strncmp(topic, "$SYS", 4)){
 		if(access == MOSQ_ACL_WRITE){
@@ -99,7 +102,7 @@ static int acl__check_dollar(const char *topic, int access)
 }
 
 
-static int plugin__acl_check(struct mosquitto__security_options *opts, struct mosquitto *context, const char *topic, uint32_t payloadlen, void* payload, uint8_t qos, bool retain, int access)
+static int plugin__acl_check(struct mosquitto__security_options *opts, struct mosquitto *context, const char *topic, uint32_t payloadlen, void *payload, uint8_t qos, bool retain, mosquitto_property *properties, int access)
 {
 	int rc = MOSQ_ERR_PLUGIN_DEFER;
 	struct mosquitto_acl_msg msg;
@@ -124,7 +127,7 @@ static int plugin__acl_check(struct mosquitto__security_options *opts, struct mo
 		event_data.payload = payload;
 		event_data.qos = qos;
 		event_data.retain = retain;
-		event_data.properties = NULL;
+		event_data.properties = properties;
 		rc = cb_base->cb(MOSQ_EVT_ACL_CHECK, &event_data, cb_base->userdata);
 		if(rc != MOSQ_ERR_PLUGIN_DEFER && rc != MOSQ_ERR_PLUGIN_IGNORE){
 			return rc;
@@ -134,7 +137,8 @@ static int plugin__acl_check(struct mosquitto__security_options *opts, struct mo
 	return rc;
 }
 
-int mosquitto_acl_check(struct mosquitto *context, const char *topic, uint32_t payloadlen, void* payload, uint8_t qos, bool retain, int access)
+
+int mosquitto_acl_check(struct mosquitto *context, const char *topic, uint32_t payloadlen, void *payload, uint8_t qos, bool retain, mosquitto_property *properties, int access)
 {
 	int rc;
 	int rc_final;
@@ -147,18 +151,18 @@ int mosquitto_acl_check(struct mosquitto *context, const char *topic, uint32_t p
 	}
 
 	rc = acl__check_dollar(topic, access);
-	if(rc) return rc;
+	if(rc){
+		return rc;
+	}
 
 	/*
 	 * If no plugins exist we should accept at this point so set rc to success.
 	 */
 	rc_final = MOSQ_ERR_SUCCESS;
 
-	/* If per_listener_settings is true, these are the global plugins.
-	 * If per listener_settings is false, these are global and listener plugins. */
 	if(db.config->security_options.plugin_callbacks.acl_check){
 		rc = plugin__acl_check(&db.config->security_options, context, topic, payloadlen,
-				payload, qos, retain, access);
+				payload, qos, retain, properties, access);
 
 		if(rc == MOSQ_ERR_PLUGIN_IGNORE){
 			/* Do nothing, this is as if the plugin doesn't exist */
@@ -169,21 +173,21 @@ int mosquitto_acl_check(struct mosquitto *context, const char *topic, uint32_t p
 		}
 	}
 
-	if(db.config->per_listener_settings){
-		if(context->listener){
-			if(context->listener->security_options->plugin_callbacks.acl_check){
-				rc = plugin__acl_check(context->listener->security_options, context, topic, payloadlen,
-						payload, qos, retain, access);
+	if(context->listener){
+		if(context->listener->security_options->plugin_callbacks.acl_check){
+			rc = plugin__acl_check(context->listener->security_options, context, topic, payloadlen,
+					payload, qos, retain, properties, access);
 
-				if(rc == MOSQ_ERR_PLUGIN_IGNORE){
-					/* Do nothing, this is as if the plugin doesn't exist */
-				}else if(rc == MOSQ_ERR_PLUGIN_DEFER){
-					rc_final = MOSQ_ERR_PLUGIN_DEFER;
-				}else{
-					return rc;
-				}
+			if(rc == MOSQ_ERR_PLUGIN_IGNORE){
+				/* Do nothing, this is as if the plugin doesn't exist */
+			}else if(rc == MOSQ_ERR_PLUGIN_DEFER){
+				rc_final = MOSQ_ERR_PLUGIN_DEFER;
+			}else{
+				return rc;
 			}
-		}else{
+		}
+	}else{
+		if(db.config->per_listener_settings){
 			return MOSQ_ERR_ACL_DENIED;
 		}
 	}

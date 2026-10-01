@@ -45,15 +45,17 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 
 	snprintf(filename, sizeof(filename), "/tmp/psk_file_%d", getpid());
 	fptr = fopen(filename, "wb");
-	if(!fptr) return 1;
+	if(!fptr){
+		return 1;
+	}
 	fwrite(data, 1, size, fptr);
 	fclose(fptr);
 
 	config.security_options.psk_file = strdup(filename);
 
 	log__init(&config);
-	mosquitto_security_init_default(false);
-	mosquitto_security_cleanup_default(false);
+	mosquitto_security_init_default();
+	mosquitto_security_cleanup_default();
 	config__cleanup(&config);
 
 	unlink(filename);

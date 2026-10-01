@@ -30,6 +30,7 @@ Contributors:
 #include "read_handle.h"
 #include "util_mosq.h"
 
+
 int handle__connack(struct mosquitto *mosq)
 {
 	uint8_t connect_flags;
@@ -53,7 +54,9 @@ int handle__connack(struct mosquitto *mosq)
 	}
 
 	rc = packet__read_byte(&mosq->in_packet, &connect_flags);
-	if(rc) return rc;
+	if(rc){
+		return rc;
+	}
 	if((mosq->protocol == mosq_p_mqtt311 || mosq->protocol == mosq_p_mqtt5) && (connect_flags & 0xFE)){
 		log__printf(mosq, MOSQ_LOG_DEBUG, "Client %s received CONNACK with invalid connect flags (%d)", mosq->id, connect_flags);
 		return MOSQ_ERR_PROTOCOL;
@@ -64,7 +67,9 @@ int handle__connack(struct mosquitto *mosq)
 	}
 
 	rc = packet__read_byte(&mosq->in_packet, &reason_code);
-	if(rc) return rc;
+	if(rc){
+		return rc;
+	}
 
 	if(mosq->protocol == mosq_p_mqtt5){
 		rc = property__read_all(CMD_CONNACK, &mosq->in_packet, &properties);
@@ -100,6 +105,7 @@ int handle__connack(struct mosquitto *mosq)
 	mosquitto_property_read_byte(properties, MQTT_PROP_MAXIMUM_QOS, &mosq->max_qos, false);
 	mosquitto_property_read_int16(properties, MQTT_PROP_RECEIVE_MAXIMUM, &mosq->msgs_out.inflight_maximum, false);
 	mosquitto_property_read_int16(properties, MQTT_PROP_SERVER_KEEP_ALIVE, &mosq->keepalive, false);
+	mosquitto_property_read_int16(properties, MQTT_PROP_TOPIC_ALIAS_MAXIMUM, &mosq->alias_max_l2r, false);
 	mosquitto_property_read_int32(properties, MQTT_PROP_MAXIMUM_PACKET_SIZE, &mosq->maximum_packet_size, false);
 
 	mosq->msgs_out.inflight_quota = mosq->msgs_out.inflight_maximum;
@@ -114,11 +120,11 @@ int handle__connack(struct mosquitto *mosq)
 
 	switch(reason_code){
 		case 0:
-			pthread_mutex_lock(&mosq->state_mutex);
+			COMPAT_pthread_mutex_lock(&mosq->state_mutex);
 			if(mosq->state != mosq_cs_disconnecting){
 				mosq->state = mosq_cs_active;
 			}
-			pthread_mutex_unlock(&mosq->state_mutex);
+			COMPAT_pthread_mutex_unlock(&mosq->state_mutex);
 			message__retry_check(mosq);
 			return MOSQ_ERR_SUCCESS;
 		case 1:

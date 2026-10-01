@@ -9,7 +9,7 @@
 #
 # Modify the variable below to enable/disable features.
 #
-# Can also be overriden at the command line, e.g.:
+# Can also be overridden at the command line, e.g.:
 #
 # make WITH_TLS=no
 # =============================================================================
@@ -72,7 +72,7 @@ WITH_SYS_TREE:=yes
 # initialization. See README in service/systemd/ for more information.
 # Setting to yes means the libsystemd-dev or similar package will need to be
 # installed.
-WITH_SYSTEMD:=yes
+WITH_SYSTEMD:=no
 
 # Build with SRV lookup support.
 WITH_SRV:=no
@@ -82,9 +82,6 @@ WITH_SRV:=no
 # Set to lws to build with old libwebsockets code
 # Set to no to disable
 WITH_WEBSOCKETS:=yes
-
-# Use elliptic keys in broker
-WITH_EC:=yes
 
 # Build man page documentation by default.
 WITH_DOCS:=no
@@ -142,15 +139,21 @@ WITH_OLD_KEEPALIVE=no
 # Build with sqlite3 support - this enables the sqlite persistence plugin.
 WITH_SQLITE=yes
 
+# Use gmock for testing
+WITH_GMOCK:=no
+
 # Build broker for fuzzing only - does not work as a normal broker. This is
 # currently only suitable for use with oss-fuzz.
 WITH_FUZZING=no
 
-# Build with argon2id support for password hashing.
-WITH_ARGON2=no
-
 # Build using clang and with address sanitiser enabled
 WITH_ASAN=no
+
+# Build with editline support to allow the mosquitto_ctrl shell
+WITH_EDITLINE=no
+
+# Build with basic HTTP API support
+WITH_HTTP_API=no
 
 # =============================================================================
 # End of user configuration
@@ -159,7 +162,7 @@ WITH_ASAN=no
 
 # Also bump lib/mosquitto.h, CMakeLists.txt,
 # installer/mosquitto.nsi, installer/mosquitto64.nsi
-VERSION=2.1.0
+VERSION=2.1.2
 
 # Client library SO version. Bump if incompatible API/ABI changes are made.
 SOVERSION=1
@@ -191,7 +194,7 @@ ifeq ($(UNAME),SunOS)
 		CFLAGS?=-Wall -ggdb -O2
 	endif
 else
-	CFLAGS?=-Wall -ggdb -O3 -Wconversion -Wextra -std=gnu99
+	CFLAGS?=-Wall -ggdb -O3 -Wconversion -Wextra -std=gnu99 -Werror=switch
 	CXXFLAGS?=-Wall -ggdb -O3 -Wconversion -Wextra
 endif
 
@@ -223,6 +226,7 @@ ifeq ($(UNAME),SunOS)
 endif
 
 ifeq ($(WITH_FUZZING),yes)
+	WITH_GMOCK:=no
 	WITH_SHARED_LIBRARIES:=no
 	WITH_STATIC_LIBRARIES:=yes
 endif
@@ -267,7 +271,9 @@ ifeq ($(WITH_UNIX_SOCKETS),yes)
 endif
 
 ifeq ($(WITH_WEBSOCKETS),yes)
-	LOCAL_CPPFLAGS+=-DWITH_WEBSOCKETS=WS_IS_BUILTIN -I${R}/deps/picohttpparser
+	ifeq ($(WITH_TLS),yes)
+		LOCAL_CPPFLAGS+=-DWITH_WEBSOCKETS=WS_IS_BUILTIN -I${R}/deps/picohttpparser
+	endif
 endif
 
 ifeq ($(WITH_WEBSOCKETS),lws)
@@ -285,6 +291,7 @@ endif
 
 ifeq ($(WITH_COVERAGE),yes)
 	LOCAL_CFLAGS+=-coverage
+	LOCAL_CXXFLAGS+=-coverage
 	LOCAL_LDFLAGS+=-coverage
 endif
 

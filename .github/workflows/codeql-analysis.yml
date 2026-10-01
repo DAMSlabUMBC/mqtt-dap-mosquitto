@@ -14,7 +14,7 @@ name: "CodeQL"
 on:
   workflow_dispatch:
   push:
-    branches: [ master, fixes, develop, 1.6.x ]
+    branches: [ master, fixes, develop ]
   pull_request:
     # The branches below must be a subset of the branches above
     branches: [ master ]
@@ -36,7 +36,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     # Initializes the CodeQL tools for scanning.
     - name: Initialize CodeQL
@@ -51,10 +51,10 @@ jobs:
     # ℹ️ Command-line programs to run using the OS shell.
     # 📚 https://git.io/JvXDl
 
-    - run: sudo apt-get update && sudo apt-get install -y gcc g++ git libssl-dev libargon2-dev
+    - run: sudo apt-get update && sudo apt-get install -y gcc g++ git libssl-dev libargon2-dev libedit-dev libmicrohttpd-dev
     # Install cJSON
     - run: git clone https://github.com/DaveGamble/cJSON /tmp/cJSON
-    - run: wget https://github.com/DaveGamble/cJSON/archive/v1.7.14.tar.gz -O /tmp/cjson.tar.gz
+    - run: wget https://github.com/DaveGamble/cJSON/archive/v1.7.19.tar.gz -O /tmp/cjson.tar.gz
     - run: mkdir -p /tmp/build/cjson
     - run: tar --strip=1 -xf /tmp/cjson.tar.gz -C /tmp/build/cjson
     - run: rm /tmp/cjson.tar.gz

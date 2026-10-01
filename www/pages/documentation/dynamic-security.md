@@ -231,7 +231,7 @@ set explicitly, priorities will default to -1. Priority has a maximum of 100000.
 For each of the group, role, and ACL objects, checks are made in priority order
 from the highest numerical value to the lowest numerical value. If two objects
 of the same type have the same priority, then they will be checked in
-lexographical order according to the username/groupname/rolename, but it is
+lexicographical order according to the username/groupname/rolename, but it is
 advised to use unique priorities per object type.
 
 When an event occurs that needs an ACL check, the ACLs for that ACL type are
@@ -478,8 +478,8 @@ they would be provided on the command line. For example:
 
 ```
 --cafile /path/to/my/CA.crt
---certfile /path/to/my/client.crt
---keyfile /path/to/my/client.key
+--cert /path/to/my/client.crt
+--key /path/to/my/client.key
 -u admin
 -h mosquitto.example.com
 
@@ -528,7 +528,7 @@ they would be provided on the command line. For example:
   the port defaults to 1883. If the scheme is mqtts:// then the port defaults
   to 8883.
 * `--nodelay` : Disable Nagle's algorithm for the socket. This means that
-  latency of sent messages is reduced, which is particularly noticable for
+  latency of sent messages is reduced, which is particularly noticeable for
   small, reasonably infrequent messages. Using this option may result in more
   packets being sent than would normally be necessary.
 * `-p port` : Connect to the port specified. If not given, the default of 1883
@@ -554,8 +554,8 @@ they would be provided on the command line. For example:
   This excludes any error messages given in case of invalid user input (e.g.
   using `-p` without a port).
 * `--tls-version version` : Choose which TLS protocol version to use when
-  communicating with the broker. Valid options are tlsv1.3, tlsv1.2 and
-  tlsv1.1. The default value is tlsv1.2. Must match the protocol version used
+  communicating with the broker. Valid options are tlsv1.3 and tlsv1.2.
+  The default value is tlsv1.2. Must match the protocol version used
   by the broker.
 * `-u username` : Provide a username to be used for authenticating with the
   broker. See also the `-P` argument.

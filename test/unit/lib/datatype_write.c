@@ -5,9 +5,11 @@
 
 #include "packet_mosq.h"
 
+
 /* ========================================================================
  * BYTE TESTS
  * ======================================================================== */
+
 
 /* This tests writing a Byte to an incoming packet.  */
 static void TEST_byte_write(void)
@@ -18,7 +20,9 @@ static void TEST_byte_write(void)
 
 	rc = packet__alloc(&packet, 0, 260);
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 
 	packet->pos = 0; /* We don't need the command or RL parts, so make indexing easier below */
 	for(i=0; i<256; i++){
@@ -37,6 +41,7 @@ static void TEST_byte_write(void)
  * TWO BYTE INTEGER TESTS
  * ======================================================================== */
 
+
 /* This tests writing a Two Byte Integer to an incoming packet.  */
 static void TEST_uint16_write(void)
 {
@@ -47,7 +52,9 @@ static void TEST_uint16_write(void)
 
 	rc = packet__alloc(&packet, 0, 650);
 	CU_ASSERT_EQUAL(rc, MOSQ_ERR_SUCCESS);
-	if(rc != MOSQ_ERR_SUCCESS) return;
+	if(rc != MOSQ_ERR_SUCCESS){
+		return;
+	}
 
 	packet->pos = 0; /* We don't need the command or RL parts, so make indexing easier below */
 	for(i=0; i<325; i++){
@@ -67,6 +74,7 @@ static void TEST_uint16_write(void)
  * FOUR BYTE INTEGER TESTS
  * ======================================================================== */
 
+
 /* This tests writing a Four Byte Integer to an incoming packet.  */
 static void TEST_uint32_write(void)
 {
@@ -76,7 +84,9 @@ static void TEST_uint32_write(void)
 
 	packet = calloc(1, sizeof(struct mosquitto__packet) + 42000);
 	CU_ASSERT_PTR_NOT_NULL(packet);
-	if(packet == NULL) return;
+	if(packet == NULL){
+		return;
+	}
 
 	packet->packet_length = 42000;
 
@@ -97,6 +107,7 @@ static void TEST_uint32_write(void)
  * UTF-8 STRING TESTS
  * ======================================================================== */
 
+
 /* This tests writing a UTF-8 String to an incoming packet.  */
 static void TEST_string_write(void)
 {
@@ -104,7 +115,9 @@ static void TEST_string_write(void)
 
 	packet = calloc(1, sizeof(struct mosquitto__packet) + 100);
 	CU_ASSERT_PTR_NOT_NULL(packet);
-	if(packet == NULL) return;
+	if(packet == NULL){
+		return;
+	}
 
 	packet->packet_length = 100;
 
@@ -126,6 +139,7 @@ static void TEST_string_write(void)
 /* ========================================================================
  * TEST SUITE SETUP
  * ======================================================================== */
+
 
 int init_datatype_write_tests(void)
 {

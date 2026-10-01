@@ -52,12 +52,15 @@ Contributors:
 #include "send_mosq.h"
 #include "sys_tree.h"
 #include "util_mosq.h"
-#include "rights_broker.h"
-#include "dap_deadline_tracker.h"
+#include "dap/rights_broker.h"
+#include "dap/dap_deadline_tracker.h"
+#include "dap/dap_persist.h"
 
 extern int g_run;
 
 #if defined(WITH_WEBSOCKETS) && WITH_WEBSOCKETS == WS_IS_LWS && LWS_LIBRARY_VERSION_NUMBER == 3002000
+
+
 void lws__sul_callback(struct lws_sorted_usec_list *l)
 {
 }
@@ -65,13 +68,16 @@ void lws__sul_callback(struct lws_sorted_usec_list *l)
 static struct lws_sorted_usec_list sul;
 #endif
 
+
 static int single_publish(struct mosquitto *context, struct mosquitto__message_v5 *pub_msg, uint32_t message_expiry)
 {
 	struct mosquitto__base_msg *base_msg;
 	uint16_t mid;
 
 	base_msg = mosquitto_calloc(1, sizeof(struct mosquitto__base_msg));
-	if(base_msg == NULL) return MOSQ_ERR_NOMEM;
+	if(base_msg == NULL){
+		return MOSQ_ERR_NOMEM;
+	}
 
 	base_msg->data.topic = pub_msg->topic;
 	pub_msg->topic = NULL;
@@ -91,7 +97,9 @@ static int single_publish(struct mosquitto *context, struct mosquitto__message_v
 		pub_msg->properties = NULL;
 	}
 
-	if(db__message_store(context, base_msg, &message_expiry, mosq_mo_broker)) return 1;
+	if(db__message_store(context, base_msg, &message_expiry, mosq_mo_broker)){
+		return 1;
+	}
 
 	if(pub_msg->qos){
 		mid = mosquitto__mid_generate(context);
@@ -108,7 +116,9 @@ static void read_message_expiry_interval(mosquitto_property **proplist, uint32_t
 
 	*message_expiry = MSG_EXPIRY_INFINITE;
 
-	if(!proplist) return;
+	if(!proplist){
+		return;
+	}
 
 	p = *proplist;
 	while(p){
@@ -127,6 +137,7 @@ static void read_message_expiry_interval(mosquitto_property **proplist, uint32_t
 		p = mosquitto_property_next(p);
 	}
 }
+
 
 static void queue_plugin_msgs(void)
 {
@@ -159,7 +170,7 @@ static void queue_plugin_msgs(void)
 void loop__update_next_event(time_t new_ms)
 {
 	if(new_ms > 0 && new_ms < db.next_event_ms){
-		db.next_event_ms = (int)new_ms;
+		db.next_event_ms = new_ms;
 	}
 }
 
@@ -173,6 +184,7 @@ static void dap_deadline__check(void)
 
 	struct dap_expired_op *expired = dap_deadline_tracker_check_expired(db.dap_deadline_tracker, db.now_real_s);
 	for(struct dap_expired_op *e = expired; e; e = e->next){
+		dap_persist__tracked_op_delete(e->op_id);
 		if(e->num_unresponded > 0){
 			broker_send_deadline_failure(e->op_id, e->publisher_id, e->unresponded_subs, e->num_unresponded);
 		}else{
@@ -196,6 +208,7 @@ int mosquitto_main_loop(struct mosquitto__listener_sock *listensock, int listens
 	int rc;
 
 
+	watchdog__init();
 #if defined(WITH_WEBSOCKETS) && WITH_WEBSOCKETS == WS_IS_LWS && LWS_LIBRARY_VERSION_NUMBER == 3002000
 	memset(&sul, 0, sizeof(struct lws_sorted_usec_list));
 #endif
@@ -205,10 +218,13 @@ int mosquitto_main_loop(struct mosquitto__listener_sock *listensock, int listens
 
 #ifdef WITH_BRIDGE
 	rc = bridge__register_local_connections();
-	if(rc) return rc;
+	if(rc){
+		return rc;
+	}
 #endif
 
 	while(g_run){
+		retain__expiry_check();
 		queue_plugin_msgs();
 		context__free_disused();
 
@@ -220,6 +236,7 @@ int mosquitto_main_loop(struct mosquitto__listener_sock *listensock, int listens
 #endif
 
 		keepalive__check();
+		watchdog__check();
 
 #ifdef WITH_BRIDGE
 		bridge_check();
@@ -230,7 +247,9 @@ int mosquitto_main_loop(struct mosquitto__listener_sock *listensock, int listens
 		dap_deadline__check();
 
 		rc = mux__handle(listensock, listensock_count);
-		if(rc) return rc;
+		if(rc){
+			return rc;
+		}
 
 #ifdef WITH_PERSISTENCE
 		if(db.config->persistence && db.config->autosave_interval){
@@ -248,7 +267,11 @@ int mosquitto_main_loop(struct mosquitto__listener_sock *listensock, int listens
 		}
 #endif
 
-		signal__flag_check();
+		rc = signal__flag_check();
+		if(rc){
+			return rc;
+		}
+
 #if defined(WITH_WEBSOCKETS) && WITH_WEBSOCKETS == WS_IS_LWS
 		for(int i=0; i<db.config->listener_count; i++){
 			/* Extremely hacky, should be using the lws provided external poll
@@ -270,10 +293,9 @@ int mosquitto_main_loop(struct mosquitto__listener_sock *listensock, int listens
 #endif
 	}
 
-	mux__cleanup();
-
 	return MOSQ_ERR_SUCCESS;
 }
+
 
 void do_disconnect(struct mosquitto *context, int reason)
 {
@@ -318,93 +340,96 @@ void do_disconnect(struct mosquitto *context, int reason)
 			if(context->id){
 				id = context->id;
 			}else{
-				id = "<unknown>";
+				id = context->address;
 			}
 			if(context->state != mosq_cs_disconnecting && context->state != mosq_cs_disconnect_with_will){
 				switch(reason){
 					case MOSQ_ERR_SUCCESS:
 						break;
 					case MOSQ_ERR_MALFORMED_PACKET:
-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected due to malformed packet.", id);
+						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: malformed packet.", id, context->address, context->remote_port);
 						break;
 					case MOSQ_ERR_PROTOCOL:
-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected due to protocol error.", id);
+						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: protocol error.", id, context->address, context->remote_port);
 						break;
 					case MOSQ_ERR_CONN_LOST:
-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s closed its connection.", id);
+						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: connection closed by client.", id, context->address, context->remote_port);
 						break;
 					case MOSQ_ERR_AUTH:
-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected, not authorised.", id);
+						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: not authorised.", id, context->address, context->remote_port);
 						break;
 					case MOSQ_ERR_KEEPALIVE:
-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s has exceeded timeout, disconnecting.", id);
+						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: exceeded timeout.", id, context->address, context->remote_port);
 						break;
 					case MOSQ_ERR_OVERSIZE_PACKET:
-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected due to oversize packet.", id);
+						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: oversize packet.", id, context->address, context->remote_port);
 						break;
 					case MOSQ_ERR_PAYLOAD_SIZE:
-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected due to oversize payload.", id);
+						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: oversize payload.", id, context->address, context->remote_port);
 						break;
 					case MOSQ_ERR_NOMEM:
-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected due to out of memory.", id);
+						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: out of memory.", id, context->address, context->remote_port);
 						break;
 					case MOSQ_ERR_NOT_SUPPORTED:
-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected due to using not allowed feature (QoS too high, retain not supported, or bad AUTH method).", id);
+						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: used disallowed feature (QoS too high, retain not supported, or bad AUTH method).", id, context->address, context->remote_port);
 						break;
 					case MOSQ_ERR_ADMINISTRATIVE_ACTION:
-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s been disconnected by administrative action.", id);
+						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: administrative action.", id, context->address, context->remote_port);
 						break;
 					case MOSQ_ERR_ERRNO:
-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected: %s.", id, strerror(errno));
+						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: %s.", id, context->address, context->remote_port, strerror(errno));
 						break;
 					case MOSQ_ERR_RECEIVE_MAXIMUM_EXCEEDED:
-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected due to exceeding the receive maximum.", id);
+						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: receive maximum exceeded.", id, context->address, context->remote_port);
 						break;
 					case MOSQ_ERR_IMPLEMENTATION_SPECIFIC:
-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected, implementation specific error.", id);
+						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: implementation specific error.", id, context->address, context->remote_port);
 						break;
 					case MOSQ_ERR_CLIENT_IDENTIFIER_NOT_VALID:
-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected, client identifier not valid.", id);
+						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: client identifier not valid.", id, context->address, context->remote_port);
 						break;
 					case MOSQ_ERR_BAD_USERNAME_OR_PASSWORD:
-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected, bad username or password.", id);
+						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: bad username or password.", id, context->address, context->remote_port);
 						break;
 					case MOSQ_ERR_SERVER_UNAVAILABLE:
-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected, server unavailable.", id);
+						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: server unavailable.", id, context->address, context->remote_port);
 						break;
 					case MOSQ_ERR_SERVER_BUSY:
-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected, server busy.", id);
+						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: server busy.", id, context->address, context->remote_port);
 						break;
 					case MOSQ_ERR_BANNED:
-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected, client banned.", id);
+						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: client banned.", id, context->address, context->remote_port);
 						break;
 					case MOSQ_ERR_BAD_AUTHENTICATION_METHOD:
-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected, bad authentication method.", id);
+						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: bad authentication method.", id, context->address, context->remote_port);
 						break;
 					case MOSQ_ERR_QUOTA_EXCEEDED:
-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected, quota exceeded.", id);
+						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: quota exceeded.", id, context->address, context->remote_port);
 						break;
 					case MOSQ_ERR_CONNECTION_RATE_EXCEEDED:
-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected, connection rate exceeded.", id);
+						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: connection rate exceeded.", id, context->address, context->remote_port);
 						break;
 					case MOSQ_ERR_SESSION_TAKEN_OVER:
-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected, session taken over.", id);
+						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: session taken over.", id, context->address, context->remote_port);
+						break;
+					case MOSQ_ERR_TOPIC_ALIAS_INVALID:
+						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: topic alias invalid.", id, context->address, context->remote_port);
 						break;
 					case MOSQ_ERR_HTTP_BAD_ORIGIN:
-						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected, non-matching http origin.", id);
+						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: non-matching http origin.", id, context->address, context->remote_port);
 						break;
 					case MOSQ_ERR_PROXY:
 						/* This was a proxy v2 health check connection, so don't report */
 						break;
 					default:
-						log__printf(NULL, MOSQ_LOG_NOTICE, "Bad socket read/write on client %s: %s", id, mosquitto_strerror(reason));
+						log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: bad socket read/write: %s", id, context->address, context->remote_port, mosquitto_strerror(reason));
 						break;
 				}
 			}else{
 				if(reason == MOSQ_ERR_ADMINISTRATIVE_ACTION){
-					log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s been disconnected by administrative action.", id);
+					log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected: administrative action.", id, context->address, context->remote_port);
 				}else{
-					log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s disconnected.", id);
+					log__printf(NULL, MOSQ_LOG_NOTICE, "Client %s [%s:%d] disconnected.", id, context->address, context->remote_port);
 				}
 			}
 		}

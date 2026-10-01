@@ -12,7 +12,7 @@ def write_config(filename, port1, port2, protocol_version):
         f.write("address 127.0.0.1:%d\n" % (port1))
         f.write("topic bridge/# both 2\n")
         f.write("notifications false\n")
-        f.write("restart_timeout 5\n")
+        f.write("restart_timeout 2\n")
         f.write("bridge_protocol_version %s\n" % (protocol_version))
 
 def do_test(proto_ver):
@@ -29,8 +29,8 @@ def do_test(proto_ver):
 
     rc = 1
     client_id = socket.gethostname()+".bridge_sample"
-    properties = mqtt5_props.gen_uint16_prop(mqtt5_props.PROP_TOPIC_ALIAS_MAXIMUM, 10)
-    properties += mqtt5_props.gen_uint16_prop(mqtt5_props.PROP_RECEIVE_MAXIMUM, 20)
+    properties = mqtt5_props.gen_uint16_prop(mqtt5_props.TOPIC_ALIAS_MAXIMUM, 10)
+    properties += mqtt5_props.gen_uint16_prop(mqtt5_props.RECEIVE_MAXIMUM, 20)
     connect_packet = mosq_test.gen_connect(client_id, clean_session=False, proto_ver=proto_ver_connect, properties=properties)
     connack_packet = mosq_test.gen_connack(rc=0, proto_ver=proto_ver)
 

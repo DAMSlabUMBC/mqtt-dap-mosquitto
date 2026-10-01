@@ -31,6 +31,7 @@ Contributors:
 
 #include "mosquitto.h"
 
+
 /* Check that a topic used for publishing is valid.
  * Search for + or # in a topic. Return MOSQ_ERR_INVAL if found.
  * Also returns MOSQ_ERR_INVAL if the topic string is too long.
@@ -54,18 +55,23 @@ BROKER_EXPORT int mosquitto_pub_topic_check(const char *str)
 		len++;
 		str = &str[1];
 	}
-	if(len > 65535) return MOSQ_ERR_INVAL;
-	if(hier_count > TOPIC_HIERARCHY_LIMIT) return MOSQ_ERR_INVAL;
+	if(len == 0 || len > 65535){
+		return MOSQ_ERR_INVAL;
+	}
+	if(hier_count > TOPIC_HIERARCHY_LIMIT){
+		return MOSQ_ERR_INVAL;
+	}
 
 	return MOSQ_ERR_SUCCESS;
 }
+
 
 BROKER_EXPORT int mosquitto_pub_topic_check2(const char *str, size_t len)
 {
 	size_t i;
 	int hier_count = 0;
 
-	if(str == NULL || len > 65535){
+	if(str == NULL || len == 0 || len > 65535){
 		return MOSQ_ERR_INVAL;
 	}
 
@@ -76,10 +82,13 @@ BROKER_EXPORT int mosquitto_pub_topic_check2(const char *str, size_t len)
 			hier_count++;
 		}
 	}
-	if(hier_count > TOPIC_HIERARCHY_LIMIT) return MOSQ_ERR_INVAL;
+	if(hier_count > TOPIC_HIERARCHY_LIMIT){
+		return MOSQ_ERR_INVAL;
+	}
 
 	return MOSQ_ERR_SUCCESS;
 }
+
 
 /* Check that a topic used for subscriptions is valid.
  * Search for + or # in a topic, check they aren't in invalid positions such as
@@ -114,11 +123,16 @@ BROKER_EXPORT int mosquitto_sub_topic_check(const char *str)
 		c = str[0];
 		str = &str[1];
 	}
-	if(len > 65535) return MOSQ_ERR_INVAL;
-	if(hier_count > TOPIC_HIERARCHY_LIMIT) return MOSQ_ERR_INVAL;
+	if(len == 0 || len > 65535){
+		return MOSQ_ERR_INVAL;
+	}
+	if(hier_count > TOPIC_HIERARCHY_LIMIT){
+		return MOSQ_ERR_INVAL;
+	}
 
 	return MOSQ_ERR_SUCCESS;
 }
+
 
 BROKER_EXPORT int mosquitto_sub_topic_check2(const char *str, size_t len)
 {
@@ -126,7 +140,7 @@ BROKER_EXPORT int mosquitto_sub_topic_check2(const char *str, size_t len)
 	size_t i;
 	int hier_count = 0;
 
-	if(str == NULL || len > 65535){
+	if(str == NULL || len == 0 || len > 65535){
 		return MOSQ_ERR_INVAL;
 	}
 
@@ -144,10 +158,13 @@ BROKER_EXPORT int mosquitto_sub_topic_check2(const char *str, size_t len)
 		}
 		c = str[i];
 	}
-	if(hier_count > TOPIC_HIERARCHY_LIMIT) return MOSQ_ERR_INVAL;
+	if(hier_count > TOPIC_HIERARCHY_LIMIT){
+		return MOSQ_ERR_INVAL;
+	}
 
 	return MOSQ_ERR_SUCCESS;
 }
+
 
 static int topic_matches_sub(const char *sub, const char *topic, const char *clientid, const char *username, bool match_patterns, bool *result)
 {
@@ -155,7 +172,9 @@ static int topic_matches_sub(const char *sub, const char *topic, const char *cli
 	const char *pattern_check;
 	const char *lastchar = NULL;
 
-	if(!result) return MOSQ_ERR_INVAL;
+	if(!result){
+		return MOSQ_ERR_INVAL;
+	}
 	*result = false;
 
 	if(!sub || !topic || sub[0] == 0 || topic[0] == 0){
@@ -258,8 +277,7 @@ static int topic_matches_sub(const char *sub, const char *topic, const char *cli
 						&& spos > 0
 						&& sub[-1] == '+'
 						&& sub[0] == '/'
-						&& sub[1] == '#')
-				{
+						&& sub[1] == '#'){
 					*result = true;
 					return MOSQ_ERR_SUCCESS;
 				}
@@ -318,6 +336,7 @@ static int topic_matches_sub(const char *sub, const char *topic, const char *cli
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 static int sub_matches_acl(const char *acl, const char *sub, const char *clientid, const char *username, bool match_patterns, bool *result)
 {
 	size_t apos;
@@ -355,10 +374,11 @@ static int sub_matches_acl(const char *acl, const char *sub, const char *clienti
 				/* no match */
 				return MOSQ_ERR_SUCCESS;
 			}
-			if(pattern_check[1] == '\0' && (
-					pattern_check[0] == '+' ||
-					pattern_check[0] == '#' ||
-					pattern_check[0] == '/')
+			if(pattern_check[1] == '\0' &&
+					(
+						pattern_check[0] == '+' ||
+						pattern_check[0] == '#' ||
+						pattern_check[0] == '/')
 					){
 
 				/* username/client id of just + / # not allowed */
@@ -429,8 +449,7 @@ static int sub_matches_acl(const char *acl, const char *sub, const char *clienti
 						&& apos > 0
 						&& acl[-1] == '+'
 						&& acl[0] == '/'
-						&& acl[1] == '#')
-				{
+						&& acl[1] == '#'){
 					*result = true;
 					return MOSQ_ERR_SUCCESS;
 				}
@@ -491,32 +510,39 @@ static int sub_matches_acl(const char *acl, const char *sub, const char *clienti
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 BROKER_EXPORT int mosquitto_sub_matches_acl(const char *acl, const char *sub, bool *result)
 {
 	return sub_matches_acl(acl, sub, NULL, NULL, false, result);
 }
+
 
 BROKER_EXPORT int mosquitto_sub_matches_acl_with_pattern(const char *acl, const char *sub, const char *clientid, const char *username, bool *result)
 {
 	return sub_matches_acl(acl, sub, clientid, username, true, result);
 }
 
+
 BROKER_EXPORT int mosquitto_topic_matches_sub(const char *sub, const char *topic, bool *result)
 {
 	return topic_matches_sub(sub, topic, NULL, NULL, false, result);
 }
+
 
 BROKER_EXPORT int mosquitto_topic_matches_sub_with_pattern(const char *sub, const char *topic, const char *clientid, const char *username, bool *result)
 {
 	return topic_matches_sub(sub, topic, clientid, username, true, result);
 }
 
+
 /* Does a topic match a subscription? */
 BROKER_EXPORT int mosquitto_topic_matches_sub2(const char *sub, size_t sublen, const char *topic, size_t topiclen, bool *result)
 {
 	size_t spos, tpos;
 
-	if(!result) return MOSQ_ERR_INVAL;
+	if(!result){
+		return MOSQ_ERR_INVAL;
+	}
 	*result = false;
 
 	if(!sub || !topic || !sublen || !topiclen){
@@ -582,8 +608,7 @@ BROKER_EXPORT int mosquitto_topic_matches_sub2(const char *sub, size_t sublen, c
 						&& sub[spos-1] == '+'
 						&& sub[spos] == '/'
 						&& spos+1 < sublen
-						&& sub[spos+1] == '#')
-				{
+						&& sub[spos+1] == '#'){
 					*result = true;
 					return MOSQ_ERR_SUCCESS;
 				}
@@ -648,7 +673,9 @@ int mosquitto_sub_topic_tokenise(const char *subtopic, char ***topics, int *coun
 	size_t tlen;
 	size_t i, j;
 
-	if(!subtopic || !topics || !count) return MOSQ_ERR_INVAL;
+	if(!subtopic || !topics || !count){
+		return MOSQ_ERR_INVAL;
+	}
 
 	len = strlen(subtopic);
 
@@ -663,7 +690,9 @@ int mosquitto_sub_topic_tokenise(const char *subtopic, char ***topics, int *coun
 	}
 
 	(*topics) = mosquitto_calloc(hier_count, sizeof(char *));
-	if(!(*topics)) return MOSQ_ERR_NOMEM;
+	if(!(*topics)){
+		return MOSQ_ERR_NOMEM;
+	}
 
 	start = 0;
 	hier = 0;
@@ -695,11 +724,14 @@ int mosquitto_sub_topic_tokenise(const char *subtopic, char ***topics, int *coun
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 int mosquitto_sub_topic_tokens_free(char ***topics, int count)
 {
 	int i;
 
-	if(!topics || !(*topics) || count<1) return MOSQ_ERR_INVAL;
+	if(!topics || !(*topics) || count<1){
+		return MOSQ_ERR_INVAL;
+	}
 
 	for(i=0; i<count; i++){
 		mosquitto_FREE((*topics)[i]);

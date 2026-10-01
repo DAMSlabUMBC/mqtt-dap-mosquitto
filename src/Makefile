@@ -11,14 +11,18 @@ LOCAL_LDADD+=-lcjson -lm ${LIBMOSQ_COMMON}
 # ------------------------------------------
 #  Platform specific
 # ------------------------------------------
-ifneq ($(or $(findstring $(UNAME),FreeBSD), $(findstring $(UNAME),OpenBSD), $(findstring $(UNAME),NetBSD)),)
+ifneq ($(or $(findstring $(UNAME),AIX), $(findstring $(UNAME),FreeBSD), $(findstring $(UNAME),OpenBSD), $(findstring $(UNAME),NetBSD)),)
 	LOCAL_LDFLAGS+=-Wl,--dynamic-list=linker.syms
 else
 	LOCAL_LDADD+=-ldl
 endif
 
+ifeq ($(UNAME),AIX)
+	LOCAL_LDFLAGS+=-Wl,-bE:linker-aix.syms
+endif
+
 ifeq ($(UNAME),Linux)
-	LOCAL_LDADD+=-lrt
+	LOCAL_LDADD+=
 	LOCAL_LDFLAGS+=-Wl,--dynamic-list=linker.syms
 endif
 
@@ -41,6 +45,7 @@ all : mosquitto
 endif
 
 OBJS=	mosquitto.o \
+		acl_file.o \
 		bridge.o \
 		bridge_topic.o \
 		broker_control.o \
@@ -57,6 +62,7 @@ OBJS=	mosquitto.o \
 		handle_publish.o \
 		handle_subscribe.o \
 		handle_unsubscribe.o \
+		http_api.o \
 		http_serv.o \
 		keepalive.o \
 		listeners.o \
@@ -66,8 +72,8 @@ OBJS=	mosquitto.o \
 		mux_epoll.o \
 		mux_kqueue.o \
 		mux_poll.o \
-		rights_broker.o \
 		net.o \
+		password_file.o \
 		property_broker.o \
 		persist_read.o \
 		persist_read_v234.o \
@@ -91,9 +97,10 @@ OBJS=	mosquitto.o \
 		plugin_persist.o \
 		plugin_psk_key.o \
 		plugin_public.o \
+		plugin_reload.o \
 		plugin_subscribe.o \
-		plugin_unsubscribe.o \
 		plugin_tick.o \
+		plugin_unsubscribe.o \
 		proxy_v1.o \
 		proxy_v2.o \
 		psk_file.o \
@@ -110,11 +117,16 @@ OBJS=	mosquitto.o \
 		subs.o \
 		sys_tree.o \
 		topic_tok.o \
+		watchdog.o \
 		websockets.o \
 		will_delay.o \
-		xtreport.o
+		xtreport.o \
+		dap/rights_broker.o \
+		dap/dap_persist.o
 
 OBJS_EXTERNAL= \
+		acl_check.o \
+		acl_parse.o \
 		alias_mosq.o \
 		handle_ping.o \
 		handle_pubackcomp.o \
@@ -128,7 +140,18 @@ OBJS_EXTERNAL= \
 		net_ws.o \
 		packet_datatypes.o \
 		packet_mosq.o \
+		password_check.o \
+		password_parse.o \
 		property_mosq.o \
+		send_connect.o \
+		send_disconnect.o \
+		send_mosq.o \
+		send_publish.o \
+		send_subscribe.o \
+		send_unsubscribe.o \
+		tls_mosq.o \
+		util_mosq.o \
+		will_mosq.o \
 		purpose_filters.o \
 		mp_registry.o \
 		ri_registry.o \
@@ -144,16 +167,7 @@ OBJS_EXTERNAL= \
 		dap_deadline_tracker.o \
 		dap_holding_list.o \
 		dap_op_requester.o \
-		dap_stamp.o \
-		send_connect.o \
-		send_disconnect.o \
-		send_mosq.o \
-		send_publish.o \
-		send_subscribe.o \
-		send_unsubscribe.o \
-		tls_mosq.o \
-		util_mosq.o \
-		will_mosq.o
+		dap_stamp.o
 
 ifeq ($(WITH_WEBSOCKETS),yes)
 	OBJS_EXTERNAL+=${R}/deps/picohttpparser/picohttpparser.o
@@ -166,6 +180,12 @@ mosquitto_broker.a : ${OBJS} ${OBJS_EXTERNAL}
 	${CROSS_COMPILE}$(AR) cr $@ $^
 
 ${OBJS} : %.o: %.c mosquitto_broker_internal.h
+	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
+
+acl_check.o : ${R}/plugins/acl-file/acl_check.c acl_file.h
+	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
+
+acl_parse.o : ${R}/plugins/acl-file/acl_parse.c acl_file.h
 	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
 
 alias_mosq.o : ${R}/lib/alias_mosq.c ${R}/lib/alias_mosq.h
@@ -207,58 +227,16 @@ packet_datatypes.o : ${R}/lib/packet_datatypes.c ${R}/lib/packet_mosq.h
 packet_mosq.o : ${R}/lib/packet_mosq.c ${R}/lib/packet_mosq.h
 	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
 
+password_check.o : ${R}/plugins/password-file/password_check.c password_file.h
+	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
+
+password_parse.o : ${R}/plugins/password-file/password_parse.c password_file.h
+	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
+
 ${R}/deps/picohttpparser/picohttpparser.o : ${R}/deps/picohttpparser/picohttpparser.c ${R}/deps/picohttpparser/picohttpparser.h
 	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
 
 property_mosq.o : ${R}/lib/property_mosq.c ${R}/lib/property_mosq.h
-	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
-
-purpose_filters.o : ${R}/lib/purpose_filters.c ${R}/lib/purpose_filters.h
-	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
-
-mp_registry.o : ${R}/lib/mp_registry.c ${R}/lib/mp_registry.h
-	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
-
-ri_registry.o : ${R}/lib/ri_registry.c ${R}/lib/ri_registry.h
-	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
-
-dr_registry.o : ${R}/lib/dr_registry.c ${R}/lib/dr_registry.h
-	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
-
-dap_subscription_queues.o : ${R}/lib/dap_subscription_queues.c ${R}/lib/dap_subscription_queues.h
-	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
-
-dap_pending_ops.o : ${R}/lib/dap_pending_ops.c ${R}/lib/dap_pending_ops.h
-	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
-
-dap_op_request.o : ${R}/lib/dap_op_request.c ${R}/lib/dap_op_request.h
-	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
-
-dap_metrics.o : ${R}/lib/dap_metrics.c ${R}/lib/dap_metrics.h
-	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
-
-dap_timestamp.o : ${R}/lib/dap_timestamp.c ${R}/lib/dap_timestamp.h
-	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
-
-dap_topics.o : ${R}/lib/dap_topics.c ${R}/lib/dap_topics.h
-	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
-
-dap_send_verify.o : ${R}/lib/dap_send_verify.c ${R}/lib/dap_send_verify.h
-	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
-
-dap_deadline_tracker.o : ${R}/lib/dap_deadline_tracker.c ${R}/lib/dap_deadline_tracker.h
-	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
-
-dap_holding_list.o : ${R}/lib/dap_holding_list.c ${R}/lib/dap_holding_list.h
-	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
-
-dap_op_requester.o : ${R}/lib/dap_op_requester.c ${R}/lib/dap_op_requester.h
-	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
-
-dap_stamp.o : ${R}/lib/dap_stamp.c ${R}/lib/dap_stamp.h
-	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
-
-rights_registry.o : ${R}/lib/rights_registry.c ${R}/lib/rights_registry.h
 	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
 
 send_connect.o : ${R}/lib/send_connect.c ${R}/lib/send_mosq.h
@@ -286,6 +264,54 @@ util_mosq.o : ${R}/lib/util_mosq.c ${R}/lib/util_mosq.h
 	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
 
 will_mosq.o : ${R}/lib/will_mosq.c ${R}/lib/will_mosq.h
+	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
+
+purpose_filters.o : ${R}/lib/dap/purpose_filters.c ${R}/lib/dap/purpose_filters.h
+	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
+
+mp_registry.o : ${R}/lib/dap/mp_registry.c ${R}/lib/dap/mp_registry.h
+	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
+
+ri_registry.o : ${R}/lib/dap/ri_registry.c ${R}/lib/dap/ri_registry.h
+	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
+
+dr_registry.o : ${R}/lib/dap/dr_registry.c ${R}/lib/dap/dr_registry.h
+	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
+
+dap_subscription_queues.o : ${R}/lib/dap/dap_subscription_queues.c ${R}/lib/dap/dap_subscription_queues.h
+	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
+
+dap_pending_ops.o : ${R}/lib/dap/dap_pending_ops.c ${R}/lib/dap/dap_pending_ops.h
+	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
+
+dap_op_request.o : ${R}/lib/dap/dap_op_request.c ${R}/lib/dap/dap_op_request.h
+	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
+
+dap_metrics.o : ${R}/lib/dap/dap_metrics.c ${R}/lib/dap/dap_metrics.h
+	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
+
+dap_timestamp.o : ${R}/lib/dap/dap_timestamp.c ${R}/lib/dap/dap_timestamp.h
+	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
+
+dap_topics.o : ${R}/lib/dap/dap_topics.c ${R}/lib/dap/dap_topics.h
+	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
+
+dap_send_verify.o : ${R}/lib/dap/dap_send_verify.c ${R}/lib/dap/dap_send_verify.h
+	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
+
+dap_deadline_tracker.o : ${R}/lib/dap/dap_deadline_tracker.c ${R}/lib/dap/dap_deadline_tracker.h
+	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
+
+dap_holding_list.o : ${R}/lib/dap/dap_holding_list.c ${R}/lib/dap/dap_holding_list.h
+	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
+
+dap_op_requester.o : ${R}/lib/dap/dap_op_requester.c ${R}/lib/dap/dap_op_requester.h
+	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
+
+dap_stamp.o : ${R}/lib/dap/dap_stamp.c ${R}/lib/dap/dap_stamp.h
+	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
+
+rights_registry.o : ${R}/lib/dap/rights_registry.c ${R}/lib/dap/rights_registry.h
 	${CROSS_COMPILE}${CC} $(LOCAL_CPPFLAGS) $(LOCAL_CFLAGS) -c $< -o $@
 
 install : all

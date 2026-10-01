@@ -29,9 +29,9 @@ extern "C" {
 #endif
 
 #if defined(WIN32) && defined(mosquitto_EXPORTS)
-#	define mosq_EXPORT  __declspec(dllexport)
+#   define mosq_EXPORT  __declspec(dllexport)
 #else
-#	define mosq_EXPORT
+#   define mosq_EXPORT
 #endif
 
 #include <stdbool.h>
@@ -45,13 +45,14 @@ extern "C" {
 enum mosquitto_protocol {
 	mp_mqtt,
 	mp_mqttsn,
-	mp_websockets
+	mp_websockets,
+	mp_http_api,
 };
 
 enum mosquitto_broker_msg_direction {
 	mosq_bmd_in = 0,
 	mosq_bmd_out = 1,
-	mosq_bmd_all = 2
+	mosq_bmd_all = 2,
 };
 
 
@@ -65,7 +66,6 @@ struct mosquitto_client {
 	char *clientid;
 	char *username;
 	char *auth_method;
-	struct mosquitto_message_v5 *will;
 	time_t will_delay_time;
 	time_t session_expiry_time;
 	uint32_t will_delay_interval;
@@ -109,6 +109,30 @@ struct mosquitto_base_msg {
 	void *future2[8];
 };
 
+/* A DAP DELETE/RESTRICT op in the pending-op map. */
+struct mosquitto_dap_op {
+	uint64_t op_id;
+	const char *publisher_id;
+	int op_type;                 /* 0 = DELETE, 1 = RESTRICT */
+	time_t timestamp;
+	const char *topic_filters;   /* NULL = any */
+	const char *purpose_filters; /* NULL = any */
+	const char *client_filters;  /* NULL = any */
+	void *future[4];
+};
+
+/* A DAP op awaiting subscriber responses until its deadline. */
+struct mosquitto_dap_tracked_op {
+	uint64_t op_id;
+	const char *publisher_id;          /* requester */
+	time_t deadline;
+	const char *const *expected_subs;
+	const bool *responded;             /* restore only, may be NULL */
+	size_t num_expected;
+	bool settled;                      /* restore only */
+	void *future[4];
+};
+
 struct mosquitto_client_msg {
 	const char *clientid;
 	uint64_t cmsg_id;
@@ -122,6 +146,16 @@ struct mosquitto_client_msg {
 	uint8_t state;
 	uint8_t padding[5];
 	void *future2[8];
+};
+
+struct mosquitto_will_msg {
+	const char *clientid;
+	void *payload;
+	char *topic;
+	mosquitto_property *properties;
+	uint32_t payloadlen;
+	uint8_t qos;
+	bool retain;
 };
 
 /* =========================================================================
@@ -161,6 +195,14 @@ enum mosquitto_plugin_event {
 	MOSQ_EVT_PERSIST_CLIENT_MSG_UPDATE = 26,
 	MOSQ_EVT_MESSAGE_OUT = 27,
 	MOSQ_EVT_CLIENT_OFFLINE = 28,
+	MOSQ_EVT_PERSIST_WILL_ADD = 29,
+	MOSQ_EVT_PERSIST_WILL_DELETE = 30,
+
+	/* MQTT-DAP; kept clear of upstream event numbers. */
+	MOSQ_EVT_PERSIST_DAP_OP_ADD = 100,
+	MOSQ_EVT_PERSIST_DAP_TRACKED_OP_ADD = 101,
+	MOSQ_EVT_PERSIST_DAP_TRACKED_OP_RESPONSE = 102,
+	MOSQ_EVT_PERSIST_DAP_TRACKED_OP_DELETE = 103,
 };
 
 /* Data for the MOSQ_EVT_RELOAD event */
@@ -359,6 +401,32 @@ struct mosquitto_evt_persist_retain_msg {
 	void *future2[8];
 };
 
+/* Data for the MOSQ_EVT_PERSIST_WILL_ADD/_DELETE */
+/* NOTE: The persistence interface is currently marked as unstable, which means
+ * it may change in a future minor release. */
+struct mosquitto_evt_persist_will_msg {
+	void *future;
+	struct mosquitto_will_msg data;
+	void *future2[8];
+};
+
+
+/* Data for the MOSQ_EVT_PERSIST_DAP_OP_ADD event */
+struct mosquitto_evt_persist_dap_op {
+	void *future;
+	struct mosquitto_dap_op data;
+	void *future2[8];
+};
+
+
+/* Data for MOSQ_EVT_PERSIST_DAP_TRACKED_OP_*. _RESPONSE sets subscriber_id; _DELETE sets only op_id. */
+struct mosquitto_evt_persist_dap_tracked_op {
+	void *future;
+	struct mosquitto_dap_tracked_op data;
+	const char *subscriber_id;
+	void *future2[8];
+};
+
 
 /* Callback definition */
 typedef int (*MOSQ_FUNC_generic_callback)(int, void *, void *);
@@ -415,9 +483,10 @@ mosq_EXPORT int mosquitto_plugin_set_info(
  *              Called when a client connects with TLS-PSK and the broker needs
  *              the PSK information.
  *          * MOSQ_EVT_TICK
- *              Called periodically in the event loop. At the moment this
- *              occurs at a regular frequency, but this should not be relied
- *              upon.
+ *              Called periodically by the broker. The next_s and next_ms
+ *              values of the event data can be used to set a minimum interval
+ *              that the broker will wait before calling the tick event again
+ *              for this callback.
  *          * MOSQ_EVT_DISCONNECT
  *              Called when a client disconnects from the broker.
  *          * MOSQ_EVT_CONNECT
@@ -890,7 +959,7 @@ mosq_EXPORT int mosquitto_broker_publish_copy(
  * the call to `mosquitto_complete_basic_auth()` must happen in the main
  * mosquitto thread. Using the MOSQ_EVT_TICK event for this is suggested.
  */
-mosq_EXPORT void mosquitto_complete_basic_auth(const char* clientid, int result);
+mosq_EXPORT void mosquitto_complete_basic_auth(const char *clientid, int result);
 
 
 /* Function: mosquitto_broker_node_id_set
@@ -1219,6 +1288,22 @@ mosq_EXPORT int mosquitto_persist_retain_msg_set(const char *topic, uint64_t sto
  */
 mosq_EXPORT int mosquitto_persist_retain_msg_delete(const char *topic);
 
+
+/* Function: mosquitto_persist_dap_op_add
+ *
+ * Restore a DAP DELETE/RESTRICT op with its original id. For persistence plugins
+ * during MOSQ_EVT_PERSIST_RESTORE.
+ */
+mosq_EXPORT int mosquitto_persist_dap_op_add(const struct mosquitto_dap_op *op);
+
+
+/* Function: mosquitto_persist_dap_tracked_op_add
+ *
+ * Restore a DAP op's requester and, unless settled, its deadline tracking. For
+ * persistence plugins during MOSQ_EVT_PERSIST_RESTORE.
+ */
+mosq_EXPORT int mosquitto_persist_dap_tracked_op_add(const struct mosquitto_dap_tracked_op *op);
+
 /* Function: mosquitto_persistence_location
  *
  * Returns the `persistence_location` config option, or the contents of the
@@ -1232,6 +1317,35 @@ mosq_EXPORT int mosquitto_persist_retain_msg_delete(const char *topic);
  *   A NULL pointer if neither the option nor the variable are set
  */
 mosq_EXPORT const char *mosquitto_persistence_location(void);
+
+/* Function: mosquitto_client_will_set
+ *
+ * Set a will message for the client.
+ *
+ * Parameters:
+ *     clientid -   clientid of the sesion to set the will message for.
+ *     topic -      the topic on which to publish the will.
+ *     payloadlen - the size of the payload (bytes). Valid values are between 0 and
+ *                  268,435,455.
+ *     payload -    pointer to the data to send. If payloadlen > 0 this must be a
+ *                  valid memory location. The payload will be copied.
+ *     qos -        integer value 0, 1 or 2 indicating the Quality of Service to be
+ *                  used for the will.
+ *     retain -     set to true to make the will a retained message.
+ *     properties - list of MQTT 5 properties. Can be NULL. The property list
+ *                  becomes the property of the broker and will be freed by the
+ *                  broker, if the function call was successfull.
+ *
+ * Returns:
+ *     MOSQ_ERR_SUCCESS -        on success.
+ *     MOSQ_ERR_NOT_FOUND -      if the client is not found.
+ *     MOSQ_ERR_INVAL -          if the input parameters were invalid.
+ *     MOSQ_ERR_NOMEM -          if an out of memory condition occurred.
+ *     MOSQ_ERR_PAYLOAD_SIZE -   if payloadlen is too large.
+ *     MOSQ_ERR_MALFORMED_UTF8 - if the topic is not valid UTF-8.
+ */
+mosq_EXPORT int mosquitto_client_will_set(const char *clientid, const char *topic, int payloadlen, const void *payload, int qos, bool retain, mosquitto_property *properties);
+
 
 #ifdef __cplusplus
 }

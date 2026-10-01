@@ -27,7 +27,9 @@ static void plugin__handle_disconnect_single(struct mosquitto__security_options 
 	struct mosquitto_evt_disconnect event_data;
 	struct mosquitto__callback *cb_base, *cb_next;
 
-	if(context->id == NULL) return;
+	if(context->id == NULL){
+		return;
+	}
 
 	memset(&event_data, 0, sizeof(event_data));
 	event_data.client = context;
@@ -44,7 +46,7 @@ void plugin__handle_disconnect(struct mosquitto *context, int reason)
 	plugin__handle_disconnect_single(&db.config->security_options, context, reason);
 
 	/* Per listener plugins */
-	if(db.config->per_listener_settings && context->listener){
+	if(context->listener){
 		plugin__handle_disconnect_single(context->listener->security_options, context, reason);
 	}
 }

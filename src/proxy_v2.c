@@ -1,7 +1,9 @@
 #ifdef WIN32
 #  include <winsock2.h>
+#  include <ws2tcpip.h>
 #else
 #  include <arpa/inet.h>
+#  include <netinet/in.h>
 #endif
 #include <stdint.h>
 #include "mosquitto_broker_internal.h"
@@ -43,37 +45,38 @@ struct proxy_hdr_v2 {
 	uint16_t len; /* number of following bytes part of the header */
 };
 
-union proxy_addr{
-	struct{ /* for TCP/UDP over IPv4, len = 12 */
+union proxy_addr {
+	struct { /* for TCP/UDP over IPv4, len = 12 */
 		uint32_t src_addr;
 		uint32_t dst_addr;
 		uint16_t src_port;
 		uint16_t dst_port;
 	} ipv4_addr;
-	struct{ /* for TCP/UDP over IPv6, len = 36 */
-		 uint8_t  src_addr[16];
-		 uint8_t  dst_addr[16];
-		 uint16_t src_port;
-		 uint16_t dst_port;
+	struct { /* for TCP/UDP over IPv6, len = 36 */
+		uint8_t src_addr[16];
+		uint8_t dst_addr[16];
+		uint16_t src_port;
+		uint16_t dst_port;
 	} ipv6_addr;
-	struct{ /* for AF_UNIX sockets, len = 216 */
-		 uint8_t src_addr[108];
-		 uint8_t dst_addr[108];
+	struct { /* for AF_UNIX sockets, len = 216 */
+		uint8_t src_addr[108];
+		uint8_t dst_addr[108];
 	} unix_addr;
 };
 
-struct pp2_tlv{
+struct pp2_tlv {
 	uint8_t type;
 	uint8_t length_h;
 	uint8_t length_l;
 };
 
-struct pp2_tlv_ssl{
+struct pp2_tlv_ssl {
 	uint8_t client;
 	uint32_t verify;
 };
 
 const uint8_t signature[12] = {0x0D, 0x0A, 0x0D, 0x0A, 0x00, 0x0D, 0x0A, 0x51, 0x55, 0x49, 0x54, 0x0A};
+
 
 static void proxy_cleanup(struct mosquitto *context)
 {
@@ -81,6 +84,7 @@ static void proxy_cleanup(struct mosquitto *context)
 	mosquitto_FREE(context->proxy.tls_version);
 	mosquitto_FREE(context->proxy.cipher);
 }
+
 
 static int read_tlv_ssl(struct mosquitto *context, uint16_t len, bool *have_certificate)
 {
@@ -92,17 +96,20 @@ static int read_tlv_ssl(struct mosquitto *context, uint16_t len, bool *have_cert
 
 	ssl.client = context->proxy.buf[context->proxy.pos];
 	ssl.verify = ntohl(*(uint32_t *)(&context->proxy.buf[context->proxy.pos + sizeof(uint8_t)]));
-	context->proxy.pos += sizeof(uint8_t) + sizeof(uint32_t);
-	len -= (uint16_t)(sizeof(uint8_t) + sizeof(uint32_t));
+	context->proxy.pos = (uint16_t)(context->proxy.pos + sizeof(uint8_t) + sizeof(uint32_t));
+	len = (uint16_t)(len - (sizeof(uint8_t) + sizeof(uint32_t)));
 
 	if(ssl.client & PP2_CLIENT_SSL && ssl.client & PP2_CLIENT_CERT_SESS && !ssl.verify){
 		*have_certificate = true;
 	}
 
 	while(len > 0){
+		if(context->proxy.len - context->proxy.pos < (int)sizeof(struct pp2_tlv)){
+			return MOSQ_ERR_INVAL;
+		}
 		struct pp2_tlv *tlv = (struct pp2_tlv *)(&context->proxy.buf[context->proxy.pos]);
 		uint16_t tlv_len = (uint16_t)((tlv->length_h<<8) + tlv->length_l);
-		context->proxy.pos += (uint16_t)sizeof(struct pp2_tlv);
+		context->proxy.pos = (uint16_t)(context->proxy.pos + sizeof(struct pp2_tlv));
 
 		if(tlv_len > context->proxy.len - context->proxy.pos){
 			return MOSQ_ERR_INVAL;
@@ -110,14 +117,25 @@ static int read_tlv_ssl(struct mosquitto *context, uint16_t len, bool *have_cert
 
 		switch(tlv->type){
 			case PP2_SUBTYPE_SSL_VERSION:
+#ifdef WITH_TLS
+				mosquitto_free(context->proxy.tls_version);
 				context->proxy.tls_version = mosquitto_strndup((const char *)&context->proxy.buf[context->proxy.pos], tlv_len);
+#else
+				return MOSQ_ERR_NOT_SUPPORTED;
+#endif
 				break;
 
 			case PP2_SUBTYPE_SSL_CIPHER:
+#ifdef WITH_TLS
+				mosquitto_free(context->proxy.cipher);
 				context->proxy.cipher = mosquitto_strndup((const char *)&context->proxy.buf[context->proxy.pos], tlv_len);
+#else
+				return MOSQ_ERR_NOT_SUPPORTED;
+#endif
 				break;
 
 			case PP2_SUBTYPE_SSL_CN:
+#ifdef WITH_TLS
 				if(context->listener->use_identity_as_username){
 					mosquitto_free(context->username);
 					context->username = mosquitto_strndup((const char *)&context->proxy.buf[context->proxy.pos], tlv_len);
@@ -125,22 +143,29 @@ static int read_tlv_ssl(struct mosquitto *context, uint16_t len, bool *have_cert
 						return MOSQ_ERR_NOMEM;
 					}
 				}
+#else
+				return MOSQ_ERR_NOT_SUPPORTED;
+#endif
 				break;
 		}
-		len -= (uint16_t)(sizeof(uint8_t) + sizeof(uint8_t) + sizeof(uint8_t) + tlv_len);
-		context->proxy.pos += tlv_len;
+		len = (uint16_t)(len - (sizeof(uint8_t) + sizeof(uint8_t) + sizeof(uint8_t) + tlv_len));
+		context->proxy.pos = (uint16_t)(context->proxy.pos + tlv_len);
 	}
 	context->proxy.have_tls = true;
 
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 static int read_tlv(struct mosquitto *context, bool *have_certificate)
 {
 	while(context->proxy.pos < context->proxy.len){
+		if(context->proxy.len - context->proxy.pos < (int)sizeof(struct pp2_tlv)){
+			return MOSQ_ERR_INVAL;
+		}
 		struct pp2_tlv *tlv = (struct pp2_tlv *)(&context->proxy.buf[context->proxy.pos]);
 		uint16_t tlv_len = (uint16_t)((tlv->length_h<<8) + tlv->length_l);
-		context->proxy.pos += (uint16_t)sizeof(struct pp2_tlv);
+		context->proxy.pos = (uint16_t)(context->proxy.pos + sizeof(struct pp2_tlv));
 
 		if(tlv_len > context->proxy.len - context->proxy.pos){
 			return MOSQ_ERR_INVAL;
@@ -150,11 +175,13 @@ static int read_tlv(struct mosquitto *context, bool *have_certificate)
 			case PP2_TYPE_SSL:
 				{
 					int rc = read_tlv_ssl(context, tlv_len, have_certificate);
-					if(rc) return rc;
+					if(rc){
+						return rc;
+					}
 				}
 				break;
 			default:
-				context->proxy.pos += (uint16_t)tlv_len;
+				context->proxy.pos = (uint16_t)(context->proxy.pos + tlv_len);
 				break;
 		}
 	}
@@ -194,7 +221,7 @@ int proxy_v2__read(struct mosquitto *context)
 		context->proxy.len = ntohs(hdr.len);
 		if(context->proxy.len > 0){
 			/* PROXY_PACKET_LIMIT=500 bytes, arbitrary upper limit */
-			switch (context->proxy.fam){
+			switch(context->proxy.fam){
 				case PROXY_TCP_IPV4:
 					if(context->proxy.len < 12 || context->proxy.len > PROXY_PACKET_LIMIT){
 						return MOSQ_ERR_INVAL;
@@ -211,19 +238,22 @@ int proxy_v2__read(struct mosquitto *context)
 					}
 					break;
 			}
-			context->proxy.buf = mosquitto_calloc(1, context->proxy.len+1);
+			context->proxy.buf = mosquitto_calloc(1, (size_t)(context->proxy.len+1));
 			if(!context->proxy.buf){
 				return MOSQ_ERR_NOMEM;
 			}
 		}else{
-			context->proxy.buf = NULL;
+			if(context->proxy.cmd != PROXY_CMD_LOCAL || context->proxy.fam != 0x00){
+				return MOSQ_ERR_PROTOCOL;
+			}
 		}
 
 	}
+
 	if(context->proxy.pos < context->proxy.len){
-		ssize_t rc = net__read(context, context->proxy.buf, context->proxy.len - context->proxy.pos);
+		ssize_t rc = net__read(context, context->proxy.buf, (size_t)(context->proxy.len - context->proxy.pos));
 		if(rc > 0){
-			context->proxy.pos += (uint16_t)rc;
+			context->proxy.pos = (uint16_t)(context->proxy.pos + rc);
 		}else{
 			proxy_cleanup(context);
 			return MOSQ_ERR_CONN_LOST;
@@ -250,7 +280,7 @@ int proxy_v2__read(struct mosquitto *context)
 			union proxy_addr *addr = (union proxy_addr *)context->proxy.buf;
 			context->address = mosquitto_strndup((char *)addr->unix_addr.src_addr, sizeof(addr->unix_addr.src_addr));
 			context->remote_port = 0;
-			context->proxy.pos = (uint16_t)strlen(context->address) + 1;
+			context->proxy.pos = (uint16_t)(strlen(context->address) + 1);
 		}else{
 			/* Must be LOCAL */
 			/* Ignore address */
@@ -282,6 +312,7 @@ int proxy_v2__read(struct mosquitto *context)
 			return MOSQ_ERR_PROXY;
 		}
 
+#ifdef WITH_TLS
 		if(context->listener->require_certificate){
 			if(!have_certificate){
 				log__printf(NULL, MOSQ_LOG_NOTICE, "Connection from %s:%d rejected, client did not provide a certificate.",
@@ -295,11 +326,15 @@ int proxy_v2__read(struct mosquitto *context)
 			log__printf(NULL, MOSQ_LOG_NOTICE, "Connection from %s:%d negotiated %s cipher %s",
 					context->address, context->remote_port, context->proxy.tls_version, context->proxy.cipher);
 		}
+#endif
 		proxy_cleanup(context);
 
+#if defined(WITH_WEBSOCKETS) && WITH_WEBSOCKETS == WS_IS_BUILTIN
 		if(context->listener->protocol == mp_websockets){
 			return http__context_init(context);
-		}else{
+		}else
+#endif
+		{
 			context->transport = mosq_t_tcp;
 		}
 	}

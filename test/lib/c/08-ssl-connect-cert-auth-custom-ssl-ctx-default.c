@@ -10,12 +10,14 @@
 
 static int run = -1;
 
+
 void handle_sigint(int signal)
 {
 	(void)signal;
 
 	run = 0;
 }
+
 
 void on_connect(struct mosquitto *mosq, void *obj, int rc)
 {
@@ -28,6 +30,7 @@ void on_connect(struct mosquitto *mosq, void *obj, int rc)
 	}
 }
 
+
 void on_disconnect(struct mosquitto *mosq, void *obj, int rc)
 {
 	(void)mosq;
@@ -35,6 +38,7 @@ void on_disconnect(struct mosquitto *mosq, void *obj, int rc)
 
 	run = rc;
 }
+
 
 int main(int argc, char *argv[])
 {
@@ -71,7 +75,10 @@ int main(int argc, char *argv[])
 	mosquitto_connect_callback_set(mosq, on_connect);
 	mosquitto_disconnect_callback_set(mosq, on_disconnect);
 
-	mosquitto_connect(mosq, "localhost", port, 60);
+	int rc = mosquitto_connect(mosq, "localhost", port, 60);
+	if(rc){
+		return rc;
+	}
 
 	signal(SIGINT, handle_sigint);
 	while(run == -1){

@@ -19,10 +19,12 @@ do_test_broker_failure(conf_file, ["allow_anonymous"], port, 3, "Error: Empty 'a
 do_test_broker_failure(conf_file, ["allow_anonymous falst"], port, 3, "Error: Invalid 'allow_anonymous' value (falst).") # Invalid bool
 
 do_test_broker_failure(conf_file, ["autosave_interval"], port, 3, "Error: Empty 'autosave_interval' value in configuration.") # Empty int
-#do_test_broker_failure(conf_file, ["autosave_interval string"], port, 3, "bla") # Invalid int
+do_test_broker_failure(conf_file, ["autosave_interval string"], port, 3, "Error: 'autosave_interval' value not a number.") # Invalid int
 do_test_broker_failure(conf_file, ["listener"], port, 3, "Error: Empty 'listener port' value in configuration.") # Empty listener
 do_test_broker_failure(conf_file, ["mount_point test/"], port, 3, "Error: The 'mount_point' option requires a listener to be defined first.") # Missing listener config
 do_test_broker_failure(conf_file, [f"listener {port}","mount_point test/+/"], port, 3, "Error: Invalid 'mount_point' value (test/+/). Does it contain a wildcard character?") # Wildcard in mount point.
+do_test_broker_failure(conf_file, [f"listener 100000"], port, 3, "Error: Invalid 'port' value (100000).") # Out of range
+do_test_broker_failure(conf_file, [f"listener 0"], port, 3, "Error: A listener with port 0 must provide a Unix socket path.") # Missing unix socket
 do_test_broker_failure(conf_file, [f"listener {port}","protocol"], port, 3, "Error: Empty 'protocol' value in configuration.") # Empty proto
 do_test_broker_failure(conf_file, [f"listener {port}","protocol test"], port, 3, "Error: Invalid 'protocol' value (test).") # Invalid proto
 do_test_broker_failure(conf_file, [f"listener {port}","accept_protocol_versions"], port, 3, "Error: Empty 'accept_protocol_versions' value in configuration.")
@@ -48,6 +50,7 @@ do_test_broker_failure(conf_file, ["connection"], port, 3, "Error: Empty 'connec
 do_test_broker_failure(conf_file, ["connection just-name"], port, 3, "Error: Invalid bridge configuration: no remote addresses defined.") # Missing bridge topic and address
 do_test_broker_failure(conf_file, ["connection no-topic", "address localhost"], port, 3, "Error: Invalid bridge configuration: no topics defined.") # Missing bridge topic
 do_test_broker_failure(conf_file, ["connection no-address", "topic dummy-topic"], port, 3, "Error: Invalid bridge configuration: no remote addresses defined.") # Missing bridge address
+do_test_broker_failure(conf_file, ["connection no-address", "topic \"missing quote"], port, 3, "Error: Missing closing quote in topic value (quote).") # Missing topic quote
 
 do_test_broker_failure(conf_file, ["local_clientid str"], port, 3, "Error: The 'local_clientid' option requires a bridge to be defined first.") # Missing bridge config
 do_test_broker_failure(conf_file, ["local_password str"], port, 3, "Error: The 'local_password' option requires a bridge to be defined first.") # Missing bridge config
@@ -70,6 +73,9 @@ do_test_broker_failure(conf_file, ["maximum_qos -1"], port, 3, "Error: 'max_qos'
 
 do_test_broker_failure(conf_file, ["max_inflight_messages 65536"], port, 3, "Error: 'max_inflight_messages' must be <= 65535.") # Invalid value
 
+do_test_broker_failure(conf_file, ["max_packet_size 19"], port, 3, "Error: 'max_packet_size' must be >= 20.") # Invalid value
+do_test_broker_failure(conf_file, ["message_size_limit 556000000"], port, 3, "Error: Invalid 'message_size_limit' value (556000000).") # Invalid value
+
 do_test_broker_failure(conf_file, ["max_keepalive 65536"], port, 3, "Error: Invalid 'max_keepalive' value (65536).") # Invalid value
 do_test_broker_failure(conf_file, ["max_keepalive -1"], port, 3, "Error: Invalid 'max_keepalive' value (-1).") # Invalid value
 
@@ -77,7 +83,9 @@ do_test_broker_failure(conf_file, [f"listener {port}", "max_topic_alias 65536"],
 do_test_broker_failure(conf_file, [f"listener {port}", "max_topic_alias -1"], port, 3, "Error: Invalid 'max_topic_alias' value in configuration.") # Invalid value
 do_test_broker_failure(conf_file, [f"listener {port}", "max_topic_alias_broker 65536"], port, 3, "Error: Invalid 'max_topic_alias_broker' value in configuration.") # Invalid value
 do_test_broker_failure(conf_file, [f"listener {port}", "max_topic_alias_broker -1"], port, 3, "Error: Invalid 'max_topic_alias_broker' value in configuration.") # Invalid value
-do_test_broker_failure(conf_file, ["websockets_headers_size 65536"], port, 3, "Error: Packet buffer size must be between 0 and 65535 inclusive.") # Invalid 'value
+do_test_broker_failure(conf_file, [f"listener {port}", "listener_auto_id_prefix"], port, 3, "Error: Empty 'listener_auto_id_prefix' value in configuration.") # Empty string
+do_test_broker_failure(conf_file, [f"listener {port}", f"listener_auto_id_prefix {'a'*51}"], port, 3, "Error: 'listener_auto_id_prefix' length must be <= 50.") # Invalid value
+do_test_broker_failure(conf_file, ["websockets_headers_size 65536"], port, 3, "Error: Packet buffer size must be between 0 and 65535 inclusive.") # Invalid value
 do_test_broker_failure(conf_file, ["websockets_headers_size -1"], port, 3, "Error: Packet buffer size must be between 0 and 65535 inclusive.") # Invalid value
 do_test_broker_failure(conf_file, ["memory_limit -1"], port, 3, "Error: Invalid 'memory_limit' value (-1).") # Invalid value
 

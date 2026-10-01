@@ -44,11 +44,15 @@ int handle__disconnect(struct mosquitto *context)
 	if(context->protocol == mosq_p_mqtt5 && context->in_packet.remaining_length > 0){
 		/* FIXME - must handle reason code */
 		rc = packet__read_byte(&context->in_packet, &reason_code);
-		if(rc) return rc;
+		if(rc){
+			return rc;
+		}
 
 		if(context->in_packet.remaining_length > 1){
 			rc = property__read_all(CMD_DISCONNECT, &context->in_packet, &properties);
-			if(rc) return rc;
+			if(rc){
+				return rc;
+			}
 		}
 	}
 	rc = property__process_disconnect(context, &properties);
@@ -59,11 +63,15 @@ int handle__disconnect(struct mosquitto *context)
 	mosquitto_property_free_all(&properties); /* FIXME - TEMPORARY UNTIL PROPERTIES PROCESSED */
 
 	if(context->in_packet.pos != context->in_packet.remaining_length){
+		log__printf(NULL, MOSQ_LOG_INFO, "Protocol error from %s: DISCONNECT packet with overlong remaining length (%d:%d).",
+				context->id, context->in_packet.pos, context->in_packet.remaining_length);
 		return MOSQ_ERR_PROTOCOL;
 	}
 	log__printf(NULL, MOSQ_LOG_DEBUG, "Received DISCONNECT from %s", context->id);
 	if(context->protocol == mosq_p_mqtt311 || context->protocol == mosq_p_mqtt5){
 		if((context->in_packet.command&0x0F) != 0x00){
+			log__printf(NULL, MOSQ_LOG_INFO, "Protocol error from %s: DISCONNECT packet with incorrect flags %02X.",
+					context->id, context->in_packet.command);
 			do_disconnect(context, MOSQ_ERR_PROTOCOL);
 			return MOSQ_ERR_PROTOCOL;
 		}

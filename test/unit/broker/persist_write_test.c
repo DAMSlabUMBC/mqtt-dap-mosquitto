@@ -16,6 +16,14 @@ int last_qos;
 
 struct mosquitto_db db;
 
+
+static void dummy_vprintf(const char *fmt, va_list va)
+{
+	UNUSED(fmt);
+	UNUSED(va);
+}
+
+
 static void test_cleanup(void)
 {
 	struct mosquitto *ctxt, *ctxt_tmp;
@@ -32,6 +40,7 @@ static void test_cleanup(void)
 	db__close();
 }
 
+
 /* read entire file into memory */
 static int file_read(const char *filename, uint8_t **data, size_t *len)
 {
@@ -40,7 +49,9 @@ static int file_read(const char *filename, uint8_t **data, size_t *len)
 	long llen;
 
 	fptr = fopen(filename, "rb");
-	if(!fptr) return 1;
+	if(!fptr){
+		return 1;
+	}
 
 	fseek(fptr, 0, SEEK_END);
 	llen = ftell(fptr);
@@ -67,6 +78,7 @@ static int file_read(const char *filename, uint8_t **data, size_t *len)
 	}
 }
 
+
 /* Crude file diff, only for small files */
 static int file_diff(const char *one, const char *two)
 {
@@ -91,6 +103,7 @@ static int file_diff(const char *one, const char *two)
 
 	return rc;
 }
+
 
 static void TEST_persistence_disabled(void)
 {
@@ -368,6 +381,8 @@ static void TEST_v6_sub(void)
 
 
 #if 0
+
+
 NOT WORKING
 static void TEST_v5_full(void)
 {
@@ -410,15 +425,17 @@ int main(int argc, char *argv[])
 	UNUSED(argc);
 	UNUSED(argv);
 
-    if(CU_initialize_registry() != CUE_SUCCESS){
-        printf("Error initializing CUnit registry.\n");
-        return 1;
-    }
+	libcommon_vprintf = dummy_vprintf;
+
+	if(CU_initialize_registry() != CUE_SUCCESS){
+		printf("Error initializing CUnit registry.\n");
+		return 1;
+	}
 
 	test_suite = CU_add_suite("Persist write", NULL, NULL);
 	if(!test_suite){
 		printf("Error adding CUnit persist write test suite.\n");
-        CU_cleanup_registry();
+		CU_cleanup_registry();
 		return 1;
 	}
 
@@ -432,18 +449,18 @@ int main(int argc, char *argv[])
 			|| !CU_add_test(test_suite, "v6 client message", TEST_v6_client_message)
 			|| !CU_add_test(test_suite, "v6 client message+props", TEST_v6_client_message_props)
 			|| !CU_add_test(test_suite, "v6 sub", TEST_v6_sub)
-			//|| !CU_add_test(test_suite, "v5 full", TEST_v5_full)
+	        //|| !CU_add_test(test_suite, "v5 full", TEST_v5_full)
 			){
 
 		printf("Error adding persist CUnit tests.\n");
 		CU_cleanup_registry();
-        return 1;
-    }
+		return 1;
+	}
 
-    CU_basic_set_mode(CU_BRM_VERBOSE);
-    CU_basic_run_tests();
+	CU_basic_set_mode(CU_BRM_VERBOSE);
+	CU_basic_run_tests();
 	fails = CU_get_number_of_failures();
-    CU_cleanup_registry();
+	CU_cleanup_registry();
 
-    return (int)fails;
+	return (int)fails;
 }

@@ -46,10 +46,11 @@ HANDLE syslog_h;
 
 #ifdef ANDROID
 #include <android/log.h>
-static const char* LOG_TAG = "mosquitto";
+static const char *LOG_TAG = "mosquitto";
 #endif
 
 static char log_fptr_buffer[BUFSIZ];
+static void libcommon__vprintf(const char *fmt, va_list va);
 
 /* Options for logging should be:
  *
@@ -69,6 +70,7 @@ static unsigned int log_priorities = MOSQ_LOG_ERR | MOSQ_LOG_WARNING | MOSQ_LOG_
 #ifdef WITH_DLT
 static DltContext dltContext;
 static bool dlt_allowed = false;
+
 
 void dlt_fifo_check(void)
 {
@@ -92,6 +94,7 @@ void dlt_fifo_check(void)
 }
 #endif
 
+
 static int get_time(struct tm **ti)
 {
 	time_t s;
@@ -111,6 +114,8 @@ static int get_time(struct tm **ti)
 int log__init(struct mosquitto__config *config)
 {
 	int rc = 0;
+
+	libcommon_vprintf = libcommon__vprintf;
 
 	log_priorities = config->log_type;
 	log_destinations = config->log_dest;
@@ -133,20 +138,23 @@ int log__init(struct mosquitto__config *config)
 			log__printf(NULL, MOSQ_LOG_ERR, "Error: Unable to open log file %s for writing.", config->log_file);
 		}
 	}
+#ifndef WIN32
 	if(log_destinations & MQTT3_LOG_STDOUT){
 		setvbuf(stdout, NULL, _IOLBF, 0);
 	}
+#endif
 #ifdef WITH_DLT
 	if(log_destinations & MQTT3_LOG_DLT){
 		dlt_fifo_check();
 		if(dlt_allowed){
-			DLT_REGISTER_APP("MQTT","mosquitto log");
+			DLT_REGISTER_APP("MQTT", "mosquitto log");
 			dlt_register_context(&dltContext, "MQTT", "mosquitto DLT context");
 		}
 	}
 #endif
 	return rc;
 }
+
 
 int log__close(struct mosquitto__config *config)
 {
@@ -175,9 +183,11 @@ int log__close(struct mosquitto__config *config)
 }
 
 #ifdef WITH_DLT
+
+
 DltLogLevelType get_dlt_level(unsigned int priority)
 {
-	switch (priority) {
+	switch(priority){
 		case MOSQ_LOG_ERR:
 			return DLT_LOG_ERROR;
 		case MOSQ_LOG_WARNING:
@@ -197,9 +207,11 @@ DltLogLevelType get_dlt_level(unsigned int priority)
 #endif
 
 #ifdef ANDROID
+
+
 android_LogPriority get_android_level(unsigned int priority)
 {
-	switch (priority) {
+	switch(priority){
 		case MOSQ_LOG_ERR:
 			return ANDROID_LOG_ERROR;
 		case MOSQ_LOG_WARNING:
@@ -217,6 +229,7 @@ android_LogPriority get_android_level(unsigned int priority)
 	}
 }
 #endif
+
 
 static int log__vprintf(unsigned int priority, const char *fmt, va_list va)
 {
@@ -375,6 +388,7 @@ static int log__vprintf(unsigned int priority, const char *fmt, va_list va)
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 int log__printf(struct mosquitto *mosq, unsigned int priority, const char *fmt, ...)
 {
 	va_list va;
@@ -388,6 +402,7 @@ int log__printf(struct mosquitto *mosq, unsigned int priority, const char *fmt, 
 
 	return rc;
 }
+
 
 void log__internal(const char *fmt, ...)
 {
@@ -411,10 +426,12 @@ void log__internal(const char *fmt, ...)
 #endif
 }
 
+
 BROKER_EXPORT int mosquitto_log_vprintf(int level, const char *fmt, va_list va)
 {
 	return log__vprintf((unsigned int)level, fmt, va);
 }
+
 
 BROKER_EXPORT void mosquitto_log_printf(int level, const char *fmt, ...)
 {
@@ -423,4 +440,10 @@ BROKER_EXPORT void mosquitto_log_printf(int level, const char *fmt, ...)
 	va_start(va, fmt);
 	log__vprintf((unsigned int)level, fmt, va);
 	va_end(va);
+}
+
+
+static void libcommon__vprintf(const char *fmt, va_list va)
+{
+	log__vprintf(MOSQ_LOG_INFO, fmt, va);
 }

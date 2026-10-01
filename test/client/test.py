@@ -19,6 +19,7 @@ tests = [
     (1, './02-subscribe-null.py'),
     (1, './02-subscribe-qos1.py'),
     (2, './02-subscribe-qos1-ws.py'),
+    (1, './02-subscribe-retain-handling.py'),
     (1, './02-subscribe-verbose.py'),
 
     (1, './03-publish-argv-errors-tls-psk.py'),
@@ -35,8 +36,11 @@ tests = [
     (2, './03-publish-qos1-ws-large.py'),
     (1, './03-publish-repeat.py'),
     (1, './03-publish-url.py'),
+    (1, './03-publish-tls.py'),
 
     (2, './03-publish-socks.py'),
+    (2, './03-publish-socks-auth-failed.py'),
+    (2, './03-publish-socks-no-auth.py'),
     (1, './03-publish-stdin-file.py'),
     (1, './03-publish-stdin-line.py'),
 
@@ -46,6 +50,7 @@ tests = [
     (1, './04-rr-env.py'),
     (1, './04-rr-qos1.py'),
     (2, './04-rr-qos1-ws.py'),
+    (1, './04-rr-retain-handling.py'),
     ]
 
 if __name__ == "__main__":

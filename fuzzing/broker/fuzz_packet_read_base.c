@@ -27,13 +27,13 @@ extern "C" {
 #define kMinInputLength 3
 #define kMaxInputLength 268435455U
 
+
 int fuzz_packet_read_base(const uint8_t *data, size_t size, int (*packet_func)(struct mosquitto *))
 {
 	struct mosquitto *context = NULL;
 	uint8_t *data_heap;
 	struct mosquitto__listener listener;
 	struct mosquitto__security_options secopts;
-	struct mosquitto__bridge bridge;
 
 	if(size < kMinInputLength || size > kMaxInputLength){
 		return 0;
@@ -43,21 +43,28 @@ int fuzz_packet_read_base(const uint8_t *data, size_t size, int (*packet_func)(s
 	log__init(db.config);
 
 	memset(&listener, 0, sizeof(listener));
-	memset(&bridge, 0, sizeof(bridge));
 	memset(&secopts, 0, sizeof(secopts));
 
 	context = context__init();
-	if(!context) return 1;
+	if(!context){
+		return 1;
+	}
 	listener.security_options = &secopts;
 	context->listener = &listener;
-	context->bridge = &bridge;
+	context->bridge = (struct mosquitto__bridge *)calloc(1, sizeof(struct mosquitto__bridge));;
 
 	context->state = (enum mosquitto_client_state )data[0];
 	context->protocol = (enum mosquitto__protocol )data[1];
 	size -= 2;
 
 	data_heap = (uint8_t *)malloc(size);
-	if(!data_heap) return 1;
+	if(!data_heap){
+		free(context->bridge);
+		context->bridge = NULL;
+		free(db.config);
+		db.config = NULL;
+		return 1;
+	}
 
 	memcpy(data_heap, &data[2], size);
 
@@ -68,12 +75,17 @@ int fuzz_packet_read_base(const uint8_t *data, size_t size, int (*packet_func)(s
 	context->in_packet.pos = 1;
 
 	if(fuzz_packet_read_init(context)){
+		free(context->bridge);
+		context->bridge = NULL;
+		free(db.config);
 		return 1;
 	}
 	packet_func(context);
 	fuzz_packet_read_cleanup(context);
 
+	free(context->bridge);
 	context->bridge = NULL;
+
 	context__cleanup(context, true);
 
 	free(db.config);

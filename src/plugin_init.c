@@ -30,6 +30,7 @@ Contributors:
 typedef int (*FUNC_auth_plugin_version)(void);
 typedef int (*FUNC_plugin_version)(int, const int *);
 
+
 void LIB_ERROR(void)
 {
 #ifdef WIN32
@@ -47,7 +48,7 @@ void LIB_ERROR(void)
 static int plugin__load_single(mosquitto_plugin_id_t *plugin)
 {
 	void *lib;
-	int (*plugin_version)(int, const int*) = NULL;
+	int (*plugin_version)(int, const int *) = NULL;
 	int (*plugin_auth_version)(void) = NULL;
 	int version;
 	int rc;
@@ -86,16 +87,24 @@ static int plugin__load_single(mosquitto_plugin_id_t *plugin)
 	plugin->lib.version = version;
 	if(version == 5){
 		rc = plugin__load_v5(plugin, lib);
-		if(rc) return rc;
+		if(rc){
+			return rc;
+		}
 	}else if(version == 4){
 		rc = plugin__load_v4(plugin, lib);
-		if(rc) return rc;
+		if(rc){
+			return rc;
+		}
 	}else if(version == 3){
 		rc = plugin__load_v3(plugin, lib);
-		if(rc) return rc;
+		if(rc){
+			return rc;
+		}
 	}else if(version == 2){
 		rc = plugin__load_v2(plugin, lib);
-		if(rc) return rc;
+		if(rc){
+			return rc;
+		}
 	}else{
 		log__printf(NULL, MOSQ_LOG_ERR,
 				"Error: Unsupported auth plugin version (got %d, expected %d).",
@@ -115,7 +124,9 @@ int plugin__load_all(void)
 
 	for(int i=0; i<db.plugin_count; i++){
 		rc = plugin__load_single(db.plugins[i]);
-		if(rc) return rc;
+		if(rc){
+			return rc;
+		}
 	}
 	return MOSQ_ERR_SUCCESS;
 }
@@ -124,20 +135,6 @@ int plugin__load_all(void)
 static int plugin__security_init_single(mosquitto_plugin_id_t *plugin, bool reload)
 {
 	int rc;
-	struct mosquitto_evt_reload event_data;
-	struct mosquitto__callback *cb_base, *cb_next;
-
-	if(reload){
-		for(int i=0; i<plugin->config.security_option_count; i++){
-			DL_FOREACH_SAFE(plugin->config.security_options[i]->plugin_callbacks.reload, cb_base, cb_next){
-				memset(&event_data, 0, sizeof(event_data));
-
-				event_data.options = NULL;
-				event_data.option_count = 0;
-				cb_base->cb(MOSQ_EVT_RELOAD, &event_data, cb_base->userdata);
-			}
-		}
-	}
 
 	if(plugin->lib.version == 5){
 		rc = MOSQ_ERR_SUCCESS;
@@ -175,8 +172,10 @@ int mosquitto_security_init(bool reload)
 
 	for(int i=0; i<db.plugin_count; i++){
 		rc = plugin__security_init_single(db.plugins[i], reload);
-		if(rc != MOSQ_ERR_SUCCESS) return rc;
+		if(rc != MOSQ_ERR_SUCCESS){
+			return rc;
+		}
 	}
-	rc = mosquitto_security_init_default(reload);
+	rc = mosquitto_security_init_default();
 	return rc;
 }

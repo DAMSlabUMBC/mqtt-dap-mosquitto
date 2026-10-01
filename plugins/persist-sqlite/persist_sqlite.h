@@ -43,10 +43,18 @@ struct mosquitto_sqlite {
 	sqlite3_stmt *client_msg_clear_all_stmt;
 	sqlite3_stmt *base_msg_add_stmt;
 	sqlite3_stmt *base_msg_remove_stmt;
+	sqlite3_stmt *base_msg_remove_for_clientid_stmt;
 	sqlite3_stmt *base_msg_load_stmt;
 	sqlite3_stmt *retain_msg_set_stmt;
 	sqlite3_stmt *retain_msg_remove_stmt;
-	time_t last_transaction;
+	sqlite3_stmt *will_add_stmt;
+	sqlite3_stmt *will_remove_stmt;
+	sqlite3_stmt *dap_op_add_stmt;
+	sqlite3_stmt *dap_tracked_op_add_stmt;
+	sqlite3_stmt *dap_tracked_op_sub_add_stmt;
+	sqlite3_stmt *dap_tracked_op_response_stmt;
+	sqlite3_stmt *dap_tracked_op_settle_stmt;
+	sqlite3_stmt *dap_tracked_op_subs_clear_stmt;
 	int synchronous;
 	unsigned int event_count;
 	unsigned int flush_period;
@@ -58,7 +66,7 @@ void persist_sqlite__cleanup(struct mosquitto_sqlite *ms);
 
 int persist_sqlite__restore_cb(int event, void *event_data, void *userdata);
 
-int persist_sqlite__client_msg_remove(struct mosquitto_sqlite *ms, const char* clientid, int64_t store_id, int direction);
+int persist_sqlite__client_msg_remove(struct mosquitto_sqlite *ms, const char *clientid, int64_t store_id, int direction);
 
 int persist_sqlite__client_add_cb(int event, void *event_data, void *userdata);
 int persist_sqlite__client_update_cb(int event, void *event_data, void *userdata);
@@ -70,9 +78,21 @@ int persist_sqlite__client_msg_update_cb(int event, void *event_data, void *user
 int persist_sqlite__base_msg_add_cb(int event, void *event_data, void *userdata);
 int persist_sqlite__base_msg_load_cb(int event, void *event_data, void *userdata);
 int persist_sqlite__base_msg_remove_cb(int event, void *event_data, void *userdata);
+int persist_sqlite__base_msg_clear(struct mosquitto_sqlite *ms, const char *clientid);
 int persist_sqlite__retain_msg_set_cb(int event, void *event_data, void *userdata);
 int persist_sqlite__retain_msg_remove_cb(int event, void *event_data, void *userdata);
 int persist_sqlite__subscription_add_cb(int event, void *event_data, void *userdata);
 int persist_sqlite__subscription_remove_cb(int event, void *event_data, void *userdata);
+int persist_sqlite__will_add_cb(int event, void *event_data, void *userdata);
+int persist_sqlite__will_remove_cb(int event, void *event_data, void *userdata);
 int persist_sqlite__tick_cb(int event, void *event_data, void *userdata);
+
+/* MQTT-DAP pending operations (dap_ops.c) */
+int persist_sqlite__dap_init(struct mosquitto_sqlite *ms);
+void persist_sqlite__dap_cleanup(struct mosquitto_sqlite *ms);
+int persist_sqlite__dap_restore(struct mosquitto_sqlite *ms);
+int persist_sqlite__dap_op_add_cb(int event, void *event_data, void *userdata);
+int persist_sqlite__dap_tracked_op_add_cb(int event, void *event_data, void *userdata);
+int persist_sqlite__dap_tracked_op_response_cb(int event, void *event_data, void *userdata);
+int persist_sqlite__dap_tracked_op_delete_cb(int event, void *event_data, void *userdata);
 #endif

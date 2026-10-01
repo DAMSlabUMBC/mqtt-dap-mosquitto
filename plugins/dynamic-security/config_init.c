@@ -32,6 +32,7 @@ Contributors:
 
 const char pw_chars[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-=_+[]{}@#~,./<>?";
 
+
 static int add_default_access(cJSON *j_tree)
 {
 	cJSON *j_default_access;
@@ -81,7 +82,7 @@ static int get_password_from_init_file(struct dynsec__data *data, char **pw)
 	fclose(fptr);
 
 	pos = (int)strlen(buf)-1;
-	while(pos >= 0 && isspace(buf[pos])){
+	while(pos >= 0 && isspace((unsigned char)buf[pos])){
 		buf[pos] = '\0';
 		pos--;
 	}
@@ -110,10 +111,6 @@ static int get_password_from_init_file(struct dynsec__data *data, char **pw)
 static int generate_password(struct dynsec__data *data, cJSON *j_client, char **password)
 {
 	struct mosquitto_pw *pw;
-	int i;
-	unsigned char vb;
-	unsigned long v;
-	size_t len;
 	char *pwenv;
 
 	if(data->init_mode == dpwim_file){
@@ -131,12 +128,16 @@ static int generate_password(struct dynsec__data *data, cJSON *j_client, char **
 			return MOSQ_ERR_NOMEM;
 		}
 	}else{
-		*password = malloc(21);
+		unsigned char vb;
+		unsigned long v;
+		size_t len;
+		const size_t pwlen = 20;
+		*password = malloc(pwlen+1);
 		if(*password == NULL){
 			return MOSQ_ERR_NOMEM;
 		}
 		len = sizeof(pw_chars)-1;
-		for(i=0; i<20; i++){
+		for(size_t i=0; i<pwlen; i++){
 			do{
 				if(RAND_bytes(&vb, 1) != 1){
 					free(*password);
@@ -146,7 +147,7 @@ static int generate_password(struct dynsec__data *data, cJSON *j_client, char **
 			}while(v >= (RAND_MAX - (RAND_MAX % len)));
 			(*password)[i] = pw_chars[v%len];
 		}
-		(*password)[20] = '\0';
+		(*password)[pwlen] = '\0';
 	}
 
 	if(mosquitto_pw_new(&pw, MOSQ_PW_DEFAULT) != MOSQ_ERR_SUCCESS
@@ -208,8 +209,8 @@ static int client_add_admin(struct dynsec__data *data, FILE *pwfile, cJSON *j_cl
 	}
 
 	if(client_role_add(j_roles, "super-admin")
-	        || client_role_add(j_roles, "sys-observe")
-	        || client_role_add(j_roles, "topic-observe")){
+			|| client_role_add(j_roles, "sys-observe")
+			|| client_role_add(j_roles, "topic-observe")){
 
 		free(password);
 		return MOSQ_ERR_NOMEM;
@@ -222,6 +223,7 @@ static int client_add_admin(struct dynsec__data *data, FILE *pwfile, cJSON *j_cl
 
 	return MOSQ_ERR_SUCCESS;
 }
+
 
 static int client_add_user(struct dynsec__data *data, FILE *pwfile, cJSON *j_clients)
 {
@@ -263,6 +265,7 @@ static int client_add_user(struct dynsec__data *data, FILE *pwfile, cJSON *j_cli
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 static int add_clients(struct dynsec__data *data, cJSON *j_tree)
 {
 	cJSON *j_clients;
@@ -286,7 +289,9 @@ static int add_clients(struct dynsec__data *data, cJSON *j_tree)
 
 	j_clients = cJSON_AddArrayToObject(j_tree, "clients");
 	if(j_clients == NULL){
-		if(fptr) fclose(fptr);
+		if(fptr){
+			fclose(fptr);
+		}
 		return MOSQ_ERR_NOMEM;
 	}
 
@@ -294,11 +299,15 @@ static int add_clients(struct dynsec__data *data, cJSON *j_tree)
 			|| client_add_user(data, fptr, j_clients)
 			){
 
-		if(fptr) fclose(fptr);
+		if(fptr){
+			fclose(fptr);
+		}
 		return MOSQ_ERR_NOMEM;
 	}
 
-	if(fptr) fclose(fptr);
+	if(fptr){
+		fclose(fptr);
+	}
 	return MOSQ_ERR_SUCCESS;
 }
 
@@ -324,6 +333,7 @@ static int group_add_anon(cJSON *j_groups)
 
 	return MOSQ_ERR_SUCCESS;
 }
+
 
 static int add_groups(cJSON *j_tree)
 {
@@ -355,6 +365,7 @@ static int acl_add(cJSON *j_acls, const char *acltype, const char *topic, int pr
 	}
 }
 
+
 static int add_role_with_full_permission(cJSON *j_roles, const char *role_name, const char *text_description, const char *topic_pattern)
 {
 	cJSON *j_role, *j_acls;
@@ -366,19 +377,20 @@ static int add_role_with_full_permission(cJSON *j_roles, const char *role_name, 
 	cJSON_AddItemToArray(j_roles, j_role);
 
 	if(cJSON_AddStringToObject(j_role, "rolename", role_name) == NULL
-		   || cJSON_AddStringToObject(j_role, "textdescription", text_description) == NULL
-		   || (j_acls = cJSON_AddArrayToObject(j_role, "acls")) == NULL){
+			|| cJSON_AddStringToObject(j_role, "textdescription", text_description) == NULL
+			|| (j_acls = cJSON_AddArrayToObject(j_role, "acls")) == NULL){
 		return MOSQ_ERR_NOMEM;
 	}
 
 	if(acl_add(j_acls, "publishClientSend", topic_pattern, 0, true)
-		|| acl_add(j_acls, "publishClientReceive", topic_pattern, 0, true)
-		|| acl_add(j_acls, "subscribePattern", topic_pattern, 0, true)
-		|| acl_add(j_acls, "unsubscribePattern", topic_pattern, 0, true)){
+			|| acl_add(j_acls, "publishClientReceive", topic_pattern, 0, true)
+			|| acl_add(j_acls, "subscribePattern", topic_pattern, 0, true)
+			|| acl_add(j_acls, "unsubscribePattern", topic_pattern, 0, true)){
 		return MOSQ_ERR_NOMEM;
 	}
 	return MOSQ_ERR_SUCCESS;
 }
+
 
 static int role_add_sys_notify(cJSON *j_roles)
 {
@@ -392,7 +404,7 @@ static int role_add_sys_notify(cJSON *j_roles)
 
 	if(cJSON_AddStringToObject(j_role, "rolename", "sys-notify") == NULL
 			|| cJSON_AddStringToObject(j_role, "textdescription",
-				"Allow bridges to publish connection state messages.") == NULL
+			"Allow bridges to publish connection state messages.") == NULL
 			|| (j_acls = cJSON_AddArrayToObject(j_role, "acls")) == NULL
 			){
 
@@ -407,6 +419,7 @@ static int role_add_sys_notify(cJSON *j_roles)
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 static int role_add_sys_observe(cJSON *j_roles)
 {
 	cJSON *j_role, *j_acls;
@@ -419,7 +432,7 @@ static int role_add_sys_observe(cJSON *j_roles)
 
 	if(cJSON_AddStringToObject(j_role, "rolename", "sys-observe") == NULL
 			|| cJSON_AddStringToObject(j_role, "textdescription",
-				"Observe the $SYS topic hierarchy.") == NULL
+			"Observe the $SYS topic hierarchy.") == NULL
 			|| (j_acls = cJSON_AddArrayToObject(j_role, "acls")) == NULL
 			){
 
@@ -435,6 +448,7 @@ static int role_add_sys_observe(cJSON *j_roles)
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 static int role_add_topic_observe(cJSON *j_roles)
 {
 	cJSON *j_role, *j_acls;
@@ -447,7 +461,7 @@ static int role_add_topic_observe(cJSON *j_roles)
 
 	if(cJSON_AddStringToObject(j_role, "rolename", "topic-observe") == NULL
 			|| cJSON_AddStringToObject(j_role, "textdescription",
-				"Read only access to the full application topic hierarchy.") == NULL
+			"Read only access to the full application topic hierarchy.") == NULL
 			|| (j_acls = cJSON_AddArrayToObject(j_role, "acls")) == NULL
 			){
 
@@ -475,10 +489,10 @@ static int add_roles(cJSON *j_tree)
 	}
 
 	if(add_role_with_full_permission(j_roles, "client", "Read/write access to the full application topic hierarchy.", "#")
-		|| add_role_with_full_permission(j_roles, "broker-admin", "Grants access to administer general broker configuration.", "$CONTROL/broker/#")
-		|| add_role_with_full_permission(j_roles, "dynsec-admin", "Grants access to administer clients/groups/roles.", "$CONTROL/dynamic-security/#")
-		|| add_role_with_full_permission(j_roles, "super-admin", "Grants access to administer all kind of broker controls", "$CONTROL/#")
-		|| role_add_sys_notify(j_roles) || role_add_sys_observe(j_roles) || role_add_topic_observe(j_roles)){
+			|| add_role_with_full_permission(j_roles, "broker-admin", "Grants access to administer general broker configuration.", "$CONTROL/broker/#")
+			|| add_role_with_full_permission(j_roles, "dynsec-admin", "Grants access to administer clients/groups/roles.", "$CONTROL/dynamic-security/#")
+			|| add_role_with_full_permission(j_roles, "super-admin", "Grants access to administer all kind of broker controls", "$CONTROL/#")
+			|| role_add_sys_notify(j_roles) || role_add_sys_observe(j_roles) || role_add_topic_observe(j_roles)){
 		return MOSQ_ERR_NOMEM;
 	}
 

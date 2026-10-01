@@ -21,7 +21,10 @@ Contributors:
 #ifdef __APPLE__
 #include <mach/mach.h>
 #include <mach/mach_time.h>
-#include <sys/time.h>
+#endif
+
+#if defined(__APPLE__) || defined(__OpenBSD__)
+#  include <sys/time.h>
 #endif
 
 #ifdef WIN32
@@ -40,15 +43,16 @@ Contributors:
 static clockid_t time_clock = CLOCK_MONOTONIC;
 #endif
 
+
 void mosquitto_time_init(void)
 {
 #if _POSIX_TIMERS>0 && defined(_POSIX_MONOTONIC_CLOCK)
 	struct timespec tp;
 
 #ifdef CLOCK_BOOTTIME
-	if (clock_gettime(CLOCK_BOOTTIME, &tp) == 0) {
+	if(clock_gettime(CLOCK_BOOTTIME, &tp) == 0){
 		time_clock = CLOCK_BOOTTIME;
-	} else {
+	}else{
 		time_clock = CLOCK_MONOTONIC;
 	}
 #else
@@ -57,6 +61,7 @@ void mosquitto_time_init(void)
 #endif
 }
 
+
 time_t mosquitto_time(void)
 {
 #ifdef WIN32
@@ -64,13 +69,14 @@ time_t mosquitto_time(void)
 #elif _POSIX_TIMERS>0 && defined(_POSIX_MONOTONIC_CLOCK)
 	struct timespec tp;
 
-	if (clock_gettime(time_clock, &tp) == 0)
+	if(clock_gettime(time_clock, &tp) == 0){
 		return tp.tv_sec;
+	}
 
-	return (time_t) -1;
+	return (time_t)-1;
 #elif defined(__APPLE__)
 	static mach_timebase_info_data_t tb;
-    uint64_t ticks;
+	uint64_t ticks;
 	uint64_t sec;
 
 	ticks = mach_absolute_time();
@@ -85,6 +91,7 @@ time_t mosquitto_time(void)
 	return time(NULL);
 #endif
 }
+
 
 void mosquitto_time_ns(time_t *s, long *ns)
 {
@@ -106,4 +113,14 @@ void mosquitto_time_ns(time_t *s, long *ns)
 	*s = tv.tv_sec;
 	*ns = tv.tv_usec * 1000;
 #endif
+}
+
+
+long mosquitto_time_cmp(time_t t1_s, long t1_ns, time_t t2_s, long t2_ns)
+{
+	if(t1_s == t2_s){
+		return (long)(t1_ns - t2_ns);
+	}else{
+		return (long)(t1_s - t2_s);
+	}
 }

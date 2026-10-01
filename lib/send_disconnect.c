@@ -38,7 +38,7 @@ int send__disconnect(struct mosquitto *mosq, uint8_t reason_code, const mosquitt
 {
 	struct mosquitto__packet *packet = NULL;
 	int rc;
-	uint32_t remaining_length;
+	uint32_t remaining_length = 0;
 
 	assert(mosq);
 #ifdef WITH_BROKER
@@ -54,7 +54,6 @@ int send__disconnect(struct mosquitto *mosq, uint8_t reason_code, const mosquitt
 #else
 	log__printf(mosq, MOSQ_LOG_DEBUG, "Client %s sending DISCONNECT", SAFE_PRINT(mosq->id));
 #endif
-	assert(mosq);
 
 	if(mosq->protocol == mosq_p_mqtt5 && (reason_code != 0 || properties)){
 		remaining_length = 1;
@@ -70,7 +69,7 @@ int send__disconnect(struct mosquitto *mosq, uint8_t reason_code, const mosquitt
 		mosquitto_FREE(packet);
 		return rc;
 	}
-	if(mosq->protocol == mosq_p_mqtt5 && (reason_code != 0 || properties)){
+	if(remaining_length > 0){
 		packet__write_byte(packet, reason_code);
 		if(properties){
 			property__write_all(packet, properties, true);

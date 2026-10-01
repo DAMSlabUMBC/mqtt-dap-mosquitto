@@ -17,6 +17,7 @@ static int auth_delay = -1;
 
 MOSQUITTO_PLUGIN_DECLARE_VERSION(5);
 
+
 int mosquitto_plugin_init(mosquitto_plugin_id_t *identifier, void **user_data, struct mosquitto_opt *auth_opts, int auth_opt_count)
 {
 	(void)user_data;
@@ -30,6 +31,7 @@ int mosquitto_plugin_init(mosquitto_plugin_id_t *identifier, void **user_data, s
 
 	return MOSQ_ERR_SUCCESS;
 }
+
 
 int mosquitto_plugin_cleanup(void *user_data, struct mosquitto_opt *auth_opts, int auth_opt_count)
 {
@@ -47,6 +49,7 @@ int mosquitto_plugin_cleanup(void *user_data, struct mosquitto_opt *auth_opts, i
 	return MOSQ_ERR_SUCCESS;
 }
 
+
 static int tick_callback(int event, void *event_data, void *user_data)
 {
 	struct mosquitto_evt_tick *ed = event_data;
@@ -59,7 +62,7 @@ static int tick_callback(int event, void *event_data, void *user_data)
 
 	if(auth_delay == 0){
 		if(clientid && username && password
-			&& !strcmp(username, "delayed-username") && !strcmp(password, "good")){
+				&& !strcmp(username, "delayed-username") && !strcmp(password, "good")){
 
 			mosquitto_complete_basic_auth(clientid, MOSQ_ERR_SUCCESS);
 		}else{
@@ -76,10 +79,11 @@ static int tick_callback(int event, void *event_data, void *user_data)
 	}
 
 	/* fast turn around for quick testing */
-	ed->next_ms = 100;
+	ed->next_ms = 10;
 
 	return MOSQ_ERR_SUCCESS;
 }
+
 
 static int unpwd_check_callback(int event, void *event_data, void *user_data)
 {

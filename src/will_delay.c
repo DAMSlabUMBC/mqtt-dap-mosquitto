@@ -43,7 +43,9 @@ int will_delay__add(struct mosquitto *context)
 	}
 
 	item = mosquitto_calloc(1, sizeof(struct will_delay_list));
-	if(!item) return MOSQ_ERR_NOMEM;
+	if(!item){
+		return MOSQ_ERR_NOMEM;
+	}
 
 	item->context = context;
 	context->will_delay_entry = item;
@@ -72,6 +74,7 @@ void will_delay__send_all(void)
 	}
 }
 
+
 void will_delay__check(void)
 {
 	struct will_delay_list *item, *tmp;
@@ -91,7 +94,7 @@ void will_delay__check(void)
 			item->context->will_delay_interval = 0;
 			item->context->will_delay_entry = NULL;
 			context__send_will(item->context);
-			if(item->context->session_expiry_interval == 0){
+			if(item->context->session_expiry_interval == MQTT_SESSION_EXPIRY_IMMEDIATE){
 				context__add_to_disused(item->context);
 			}
 			mosquitto_FREE(item);

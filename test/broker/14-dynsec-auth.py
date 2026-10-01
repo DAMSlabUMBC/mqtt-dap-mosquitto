@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from mosq_test_helper import *
+from dynsec_helper import *
 import json
 import shutil
 
@@ -10,16 +11,6 @@ def write_config(filename, port):
         f.write("allow_anonymous false\n")
         f.write(f"plugin {mosq_test.get_build_root()}/plugins/dynamic-security/mosquitto_dynamic_security.so\n")
         f.write("plugin_opt_config_file %d/dynamic-security.json\n" % (port))
-
-def command_check(sock, command_payload, expected_response):
-    command_packet = mosq_test.gen_publish(topic="$CONTROL/dynamic-security/v1", qos=0, payload=json.dumps(command_payload))
-    sock.send(command_packet)
-    response = json.loads(mosq_test.read_publish(sock))
-    if response != expected_response:
-        print(expected_response)
-        print(response)
-        raise ValueError(response)
-
 
 
 port = mosq_test.get_port()
@@ -67,15 +58,15 @@ connack_packet_with_id1 = mosq_test.gen_connack(rc=0, proto_ver=5)
 
 # Fail - bad client id
 connect_packet_with_id2 = mosq_test.gen_connect("bad-cid", username="user_one", password="password", proto_ver=5)
-connack_packet_with_id2 = mosq_test.gen_connack(rc=mqtt5_rc.MQTT_RC_NOT_AUTHORIZED, proto_ver=5, property_helper=False)
+connack_packet_with_id2 = mosq_test.gen_connack(rc=mqtt5_rc.NOT_AUTHORIZED, proto_ver=5, property_helper=False)
 
 # Fail - bad password
 connect_packet_with_id3 = mosq_test.gen_connect("cid", username="user_one", password="ttt", proto_ver=5)
-connack_packet_with_id3 = mosq_test.gen_connack(rc=mqtt5_rc.MQTT_RC_NOT_AUTHORIZED, proto_ver=5, property_helper=False)
+connack_packet_with_id3 = mosq_test.gen_connack(rc=mqtt5_rc.NOT_AUTHORIZED, proto_ver=5, property_helper=False)
 
 # Fail - no password
 connect_packet_with_id4 = mosq_test.gen_connect("cid", username="user_one", proto_ver=5)
-connack_packet_with_id4 = mosq_test.gen_connack(rc=mqtt5_rc.MQTT_RC_NOT_AUTHORIZED, proto_ver=5, property_helper=False)
+connack_packet_with_id4 = mosq_test.gen_connack(rc=mqtt5_rc.NOT_AUTHORIZED, proto_ver=5, property_helper=False)
 
 # Success
 connect_packet_without_id1 = mosq_test.gen_connect("no-cid", username="user_two", password="asdfgh", proto_ver=5)
@@ -83,11 +74,11 @@ connack_packet_without_id1 = mosq_test.gen_connack(rc=0, proto_ver=5)
 
 # Fail - bad password
 connect_packet_without_id2 = mosq_test.gen_connect("no-cid", username="user_two", password="pass", proto_ver=5)
-connack_packet_without_id2 = mosq_test.gen_connack(rc=mqtt5_rc.MQTT_RC_NOT_AUTHORIZED, proto_ver=5, property_helper=False)
+connack_packet_without_id2 = mosq_test.gen_connack(rc=mqtt5_rc.NOT_AUTHORIZED, proto_ver=5, property_helper=False)
 
 # Fail - no password
 connect_packet_without_id3 = mosq_test.gen_connect("no-cid", username="user_two", proto_ver=5)
-connack_packet_without_id3 = mosq_test.gen_connack(rc=mqtt5_rc.MQTT_RC_NOT_AUTHORIZED, proto_ver=5, property_helper=False)
+connack_packet_without_id3 = mosq_test.gen_connack(rc=mqtt5_rc.NOT_AUTHORIZED, proto_ver=5, property_helper=False)
 
 # Success
 connect_packet_set_id1 = mosq_test.gen_connect("new-cid", username="user_two", password="asdfgh", proto_ver=5)
@@ -95,20 +86,20 @@ connack_packet_set_id1 = mosq_test.gen_connack(rc=0, proto_ver=5)
 
 # Fail - bad client id
 connect_packet_set_id2 = mosq_test.gen_connect("bad-cid", username="user_two", password="asdfgh", proto_ver=5)
-connack_packet_set_id2 = mosq_test.gen_connack(rc=mqtt5_rc.MQTT_RC_NOT_AUTHORIZED, proto_ver=5, property_helper=False)
+connack_packet_set_id2 = mosq_test.gen_connack(rc=mqtt5_rc.NOT_AUTHORIZED, proto_ver=5, property_helper=False)
 
 
 # Fail - bad password
 connect_packet_without_pw1 = mosq_test.gen_connect("cid2", username="user_three", password="pass", proto_ver=5)
-connack_packet_without_pw1 = mosq_test.gen_connack(rc=mqtt5_rc.MQTT_RC_NOT_AUTHORIZED, proto_ver=5, property_helper=False)
+connack_packet_without_pw1 = mosq_test.gen_connack(rc=mqtt5_rc.NOT_AUTHORIZED, proto_ver=5, property_helper=False)
 
 # Fail - no password
 connect_packet_without_pw2 = mosq_test.gen_connect("cid2", username="user_three", proto_ver=5)
-connack_packet_without_pw2 = mosq_test.gen_connack(rc=mqtt5_rc.MQTT_RC_NOT_AUTHORIZED, proto_ver=5, property_helper=False)
+connack_packet_without_pw2 = mosq_test.gen_connack(rc=mqtt5_rc.NOT_AUTHORIZED, proto_ver=5, property_helper=False)
 
 # Fail - no username
 connect_packet_without_un = mosq_test.gen_connect("cid3", proto_ver=5)
-connack_packet_without_un = mosq_test.gen_connack(rc=mqtt5_rc.MQTT_RC_NOT_AUTHORIZED, proto_ver=5, property_helper=False)
+connack_packet_without_un = mosq_test.gen_connack(rc=mqtt5_rc.NOT_AUTHORIZED, proto_ver=5, property_helper=False)
 
 try:
     os.mkdir(str(port))
@@ -169,6 +160,8 @@ try:
     # No username, anon disabled
     csock = mosq_test.do_client_connect(connect_packet_without_un, connack_packet_without_un, timeout=5, port=port, connack_error="without username")
     csock.close()
+
+    check_details(sock, 4, 0, 1, 4)
 
     rc = 0
 

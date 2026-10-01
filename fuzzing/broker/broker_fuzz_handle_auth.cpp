@@ -16,7 +16,9 @@ Contributors:
    Roger Light - initial implementation and documentation.
 */
 
+#define kMaxInputLength 100000
 #include "fuzz_packet_read_base.h"
+
 
 extern "C" int fuzz_packet_read_init(struct mosquitto *context)
 {
@@ -25,11 +27,13 @@ extern "C" int fuzz_packet_read_init(struct mosquitto *context)
 	return !context->auth_method;
 }
 
+
 extern "C" void fuzz_packet_read_cleanup(struct mosquitto *context)
 {
 	free(context->auth_method);
 	context->auth_method = NULL;
 }
+
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
