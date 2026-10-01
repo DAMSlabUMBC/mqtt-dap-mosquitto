@@ -19,8 +19,8 @@
 
 /* Expand a collection into the sorted purposes it describes. An empty or NULL
  * collection describes none. Returns MOSQ_ERR_SUCCESS, MOSQ_ERR_NOMEM, or
- * MOSQ_ERR_INVAL when it describes more than PURPOSE_SET_MAX purposes.
- * Free the result with purpose_set_free. */
+ * MOSQ_ERR_INVAL when a term contains a separator or a brace, or the collection
+ * describes more than PURPOSE_SET_MAX purposes. Free the result with purpose_set_free. */
 int purpose_set_expand(const char *filters, char ***purposes, uint32_t *count);
 void purpose_set_free(char **purposes, uint32_t count);
 

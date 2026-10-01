@@ -223,7 +223,7 @@ int handle__subscribe(struct mosquitto *context)
 					if(rc){
 						if(rc != MOSQ_ERR_NOMEM){
 							log__printf(NULL, MOSQ_LOG_INFO,
-								"Too many purposes in DAP-SP from %s, disconnecting.",
+								"Invalid DAP-SP from %s, disconnecting.",
 								context->address);
 							rc = MOSQ_ERR_MALFORMED_PACKET;
 						}

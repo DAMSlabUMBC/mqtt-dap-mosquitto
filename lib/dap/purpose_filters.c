@@ -39,6 +39,15 @@ static int pf__push(char ***set, uint32_t *count, char *str)
     return 0;
 }
 
+/* Append a term, which may not contain a separator or a brace. */
+static int pf__push_term(char ***terms, uint32_t *count, const char *term, size_t len)
+{
+    for(size_t i = 0; i < len; i++){
+        if(strchr("|,{}", term[i])) return MOSQ_ERR_INVAL;
+    }
+    return pf__push(terms, count, mosquitto_strndup(term, len)) ? MOSQ_ERR_NOMEM : MOSQ_ERR_SUCCESS;
+}
+
 /* The terms of one level: the members of a {a,b} set, or the level itself. */
 static int pf__level_terms(const char *level, size_t len, char ***terms, uint32_t *count)
 {
@@ -50,14 +59,15 @@ static int pf__level_terms(const char *level, size_t len, char ***terms, uint32_
         while(p <= end){
             const char *comma = memchr(p, ',', (size_t)(end - p));
             const char *term_end = comma ? comma : end;
-            if(term_end > p && pf__push(terms, count, mosquitto_strndup(p, (size_t)(term_end - p)))){
-                return 1;
+            if(term_end > p){
+                int rc = pf__push_term(terms, count, p, (size_t)(term_end - p));
+                if(rc) return rc;
             }
             p = term_end + 1;
         }
-        return 0;
+        return MOSQ_ERR_SUCCESS;
     }
-    return pf__push(terms, count, mosquitto_strndup(level, len));
+    return pf__push_term(terms, count, level, len);
 }
 
 static void pf__free_terms(char **terms, uint32_t count)
@@ -94,7 +104,9 @@ static int pf__expand_filter(const char *filter, size_t len, char ***out, uint32
             p = level_end + 1;
             continue; /* empty level */
         }
-        if(pf__level_terms(p, (size_t)(level_end - p), &terms, &term_count)) goto cleanup;
+        rc = pf__level_terms(p, (size_t)(level_end - p), &terms, &term_count);
+        if(rc) goto cleanup;
+        rc = MOSQ_ERR_NOMEM;
         for(uint32_t i = 0; i < exp_count; i++){
             for(uint32_t j = 0; j < (exp[i].ended ? 1 : term_count); j++){
                 struct pf_expansion *grown;

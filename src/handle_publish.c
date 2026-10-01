@@ -454,8 +454,8 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 	return rc;
 }
 
-/* Register a '<MP>:<topic>' DAP-MP value; a NULL value, one without ':', or an MP
- * describing more than PURPOSE_SET_MAX purposes is malformed. */
+/* Register a '<MP>:<topic>' DAP-MP value; a NULL value, one without ':', or an
+ * invalid MP is malformed. */
 static int register_mp_property(const char *client_id, const char *value)
 {
 	const char *sep = value ? strchr(value, ':') : NULL;

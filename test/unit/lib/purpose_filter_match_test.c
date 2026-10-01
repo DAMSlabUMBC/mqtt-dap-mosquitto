@@ -204,6 +204,21 @@ static void test_limit(void)
     printf("ok - a collection may describe at most PURPOSE_SET_MAX purposes\n");
 }
 
+static void test_invalid_terms(void)
+{
+    /* A term may not contain a separator or a brace: "x/{a|y}" must not describe "y". */
+    const char *bad[] = {"x/{a|y}", "{z|a}", "a{b}", "x/{a,{b}}", "x/a}", "{a"};
+    for(size_t i = 0; i < sizeof(bad)/sizeof(bad[0]); i++){
+        char **set = NULL;
+        uint32_t count = 99;
+        char *canon = (char *)"unset";
+        assert(purpose_set_expand(bad[i], &set, &count) != 0);
+        assert(set == NULL && count == 0);
+        assert(purpose_filter_canonical(bad[i], &canon) != 0 && canon == NULL);
+    }
+    printf("ok - a term containing a separator or a brace is invalid\n");
+}
+
 int main(void)
 {
     test_table1_descriptions();
@@ -212,6 +227,7 @@ int main(void)
     test_restrict();
     test_intersection();
     test_limit();
+    test_invalid_terms();
     printf("\nAll purpose_filter_match tests passed.\n");
     return 0;
 }
