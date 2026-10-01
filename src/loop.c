@@ -317,7 +317,7 @@ void do_disconnect(struct mosquitto *context, int reason)
 		return;
 	}
 	/* Data the client sent before the connection ended is handled first. */
-	dap_intake__flush(context);
+	(void)dap_intake__flush(context);
 #if defined(WITH_WEBSOCKETS) && WITH_WEBSOCKETS == WS_IS_LWS
 	if(context->wsi){
 		if(context->state == mosq_cs_duplicate){

@@ -745,6 +745,8 @@ int net__load_certificates(struct mosquitto__listener *listener);
  * Read handling functions
  * ============================================================ */
 int handle__packet(struct mosquitto *context);
+/* Tell a v5 client why the packet it sent ends its connection. */
+void handle__packet_error(struct mosquitto *context, int rc);
 int handle__connack(struct mosquitto *context);
 int handle__connect(struct mosquitto *context);
 int handle__disconnect(struct mosquitto *context);

@@ -129,9 +129,11 @@ class RawPublisher:
         connack = self.sock.recv(64)
         assert connack[0] == 0x20 and connack[3] == 0, "CONNACK failed"
 
-    def packet(self, topic, pairs, payload=b""):
+    def packet(self, topic, pairs, payload=b"", alias=None):
         props = b"".join(mqtt5_props.gen_string_pair_prop(mqtt5_props.USER_PROPERTY, k, v)
                          for k, v in [("DAP-Allow", "1")] + pairs)
+        if alias is not None:
+            props += mqtt5_props.gen_uint16_prop(mqtt5_props.TOPIC_ALIAS, alias)
         return mosq_test.gen_publish(topic, 0, payload, proto_ver=5, properties=props)
 
     def send(self, *packets):
@@ -579,6 +581,50 @@ def intake_disconnect_case(abrupt=False):
         check(broker.stop() == 0, "broker exits cleanly")
 
 
+def intake_alias_case():
+    """A PUBLISH that names its topic only by alias keeps its place behind the
+    PUBLISH that set the alias, even within one read."""
+    broker = Broker()
+    try:
+        sub = Subscriber("subL")
+        sub.subscribe("t/l/#", ["qa"])
+        pub = RawPublisher()
+        pub.send(pub.packet("$MP_REG", [("DAP-MP", "qa:t/l/a"), ("DAP-MP", "qa:t/l/b")]))
+        pub.send(pub.packet("t/l/a", [], b"m1", alias=1), pub.packet("", [], b"m2", alias=1))
+        pub.send(pub.packet("t/l/b", [], b"m3", alias=1), pub.packet("", [], b"m4", alias=1))
+        got = [(t, p) for t, p, _ in sub.read_publishes()]
+        expected = [("t/l/a", b"m1"), ("t/l/a", b"m2"), ("t/l/b", b"m3"), ("t/l/b", b"m4")]
+        check(got == expected, "aliases set and used within one read resolve in order (got %s)" % got)
+        pub.close()
+        sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
+def intake_own_order_case():
+    """A client's SUBSCRIBE does not go ahead of its own earlier PUBLISH."""
+    broker = Broker()
+    try:
+        client = Subscriber("subM2")
+        mp = b"".join(mqtt5_props.gen_string_pair_prop(mqtt5_props.USER_PROPERTY, k, v)
+                      for k, v in [("DAP-Allow", "1"), ("DAP-MP", "qa:t/o")])
+        client.sock.send(mosq_test.gen_publish("$MP_REG", 0, b"", proto_ver=5, properties=mp))
+        time.sleep(0.2)
+        allow = mqtt5_props.gen_string_pair_prop(mqtt5_props.USER_PROPERTY, "DAP-Allow", "1")
+        sp = mqtt5_props.gen_string_pair_prop(mqtt5_props.USER_PROPERTY, "DAP-SP", "qa")
+        client.sock.send(mosq_test.gen_publish("t/o", 0, b"m1", proto_ver=5, properties=allow)
+                         + mosq_test.gen_subscribe(1, "t/o", 0, proto_ver=5, properties=sp))
+        cmd, _ = client.read_packet(5)
+        check(cmd & 0xF0 == 0x90, "SUBACK comes first")
+        got = payloads(client.read_publishes(), "t/o")
+        check(got == [], "the client does not receive its own earlier PUBLISH (got %s)" % got)
+        client.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
 def stop_clients():
     for c in clients:
         c.stop()
@@ -613,6 +659,8 @@ def main():
     intake_delete_case()
     intake_disconnect_case()
     intake_disconnect_case(abrupt=True)
+    intake_alias_case()
+    intake_own_order_case()
 
     print()
     if failures:

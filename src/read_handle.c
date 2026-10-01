@@ -39,6 +39,15 @@ int handle__packet(struct mosquitto *context)
 		return MOSQ_ERR_INVAL;
 	}
 
+	/* The client's data set aside by DAP intake goes before its other packets. */
+	if((context->in_packet.command&0xF0) != CMD_PUBLISH){
+		rc = dap_intake__flush(context);
+		if(rc){
+			handle__packet_error(context, rc);
+			return rc;
+		}
+	}
+
 	switch((context->in_packet.command)&0xF0){
 		case CMD_PINGREQ:
 			metrics__int_inc(mosq_counter_mqtt_pingreq_received, 1);
@@ -73,8 +82,6 @@ int handle__packet(struct mosquitto *context)
 			return handle__connect(context);
 		case CMD_DISCONNECT:
 			metrics__int_inc(mosq_counter_mqtt_disconnect_received, 1);
-			/* Data the client sent before disconnecting is handled first. */
-			dap_intake__flush(context);
 			rc = handle__disconnect(context);
 			break;
 		case CMD_SUBSCRIBE:
@@ -107,6 +114,13 @@ int handle__packet(struct mosquitto *context)
 			rc = MOSQ_ERR_PROTOCOL;
 	}
 
+	handle__packet_error(context, rc);
+	return rc;
+}
+
+
+void handle__packet_error(struct mosquitto *context, int rc)
+{
 	if(context->protocol == mosq_p_mqtt5){
 		if(rc == MOSQ_ERR_PROTOCOL || rc == MOSQ_ERR_DUPLICATE_PROPERTY){
 			send__disconnect(context, MQTT_RC_PROTOCOL_ERROR, NULL);
@@ -124,5 +138,4 @@ int handle__packet(struct mosquitto *context)
 			send__disconnect(context, MQTT_RC_UNSPECIFIED, NULL);
 		}
 	}
-	return rc;
 }

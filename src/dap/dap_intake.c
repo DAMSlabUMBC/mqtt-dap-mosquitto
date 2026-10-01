@@ -6,6 +6,7 @@
 #include "mosquitto_broker_internal.h"
 #include "mosquitto/mqtt_protocol.h"
 #include "packet_mosq.h"
+#include "property_mosq.h"
 #include "utlist.h"
 #include "dap/dap_intake.h"
 
@@ -40,18 +41,28 @@ void dap_receipt__stamp(struct dap_receipt *receipt)
 }
 
 
-/* True when the PUBLISH in packet carries data rather than a state change. A topic
- * set only by alias, or one that cannot be read, is handled as read. */
+/* The length of the PUBLISH's topic, or -1 if it cannot be read. */
+static int dap_intake__topic_len(const struct mosquitto__packet_in *packet)
+{
+	uint16_t len;
+
+	if(packet->remaining_length < 2) return -1;
+	len = (uint16_t)((packet->payload[0] << 8) | packet->payload[1]);
+	if((uint32_t)len + 2 > packet->remaining_length) return -1;
+	return len;
+}
+
+
+/* True when the PUBLISH carries data rather than a state change. A topic given only
+ * by alias counts as data, so it keeps its place behind the PUBLISH that set it. */
 static bool dap_intake__is_data(const struct mosquitto__packet_in *packet)
 {
 	static const char *state_topics[] = {MOSQ_DAP_MP_REG_TOPIC, MOSQ_DAP_TOPIC_OSYS};
-	uint16_t len;
+	int len = dap_intake__topic_len(packet);
 
-	if(packet->remaining_length < 2) return false;
-	len = (uint16_t)((packet->payload[0] << 8) | packet->payload[1]);
-	if(len == 0 || (uint32_t)len + 2 > packet->remaining_length) return false;
+	if(len < 0) return false;
 	for(size_t i = 0; i < sizeof(state_topics)/sizeof(state_topics[0]); i++){
-		if(strlen(state_topics[i]) == len && !memcmp(&packet->payload[2], state_topics[i], len)){
+		if((int)strlen(state_topics[i]) == len && !memcmp(&packet->payload[2], state_topics[i], (size_t)len)){
 			return false;
 		}
 	}
@@ -59,8 +70,28 @@ static bool dap_intake__is_data(const struct mosquitto__packet_in *packet)
 }
 
 
+/* True when a state-change PUBLISH may go ahead of its client's own set-aside data:
+ * it is QoS 0, so no acknowledgement is reordered, and it sets no topic alias. */
+static bool dap_intake__may_overtake(struct mosquitto *context)
+{
+	struct mosquitto__packet_in packet = context->in_packet;
+	mosquitto_property *properties = NULL;
+	uint16_t alias;
+	bool has_alias;
+
+	if((packet.command & 0x06) != 0) return false;
+	if(context->protocol != mosq_p_mqtt5) return true;
+	packet.pos = (uint32_t)dap_intake__topic_len(&packet) + 2;
+	if(property__read_all(CMD_PUBLISH, &packet, &properties)) return false;
+	has_alias = mosquitto_property_read_int16(properties, MQTT_PROP_TOPIC_ALIAS, &alias, false) != NULL;
+	mosquitto_property_free_all(&properties);
+	return !has_alias;
+}
+
+
 static void dap_intake__free(struct dap_intake_packet *p)
 {
+	p->context->dap_set_aside--;
 	mosquitto_FREE(p->payload);
 	mosquitto_FREE(p);
 }
@@ -95,6 +126,7 @@ static void dap_intake__purge(struct mosquitto *context)
 {
 	struct dap_intake_packet *p, *tmp;
 
+	if(context->dap_set_aside == 0) return;
 	DL_FOREACH_SAFE(intake_head, p, tmp){
 		if(p->context == context){
 			DL_DELETE(intake_head, p);
@@ -108,25 +140,30 @@ int dap_intake__publish(struct mosquitto *context)
 {
 	struct dap_receipt receipt;
 	struct dap_intake_packet *p;
+	int rc;
 
 	dap_receipt__stamp(&receipt);
-	if(!intake_deferring || context->state != mosq_cs_active || !dap_intake__is_data(&context->in_packet)){
-		return handle__publish(context, &receipt);
+	if(intake_deferring && context->state == mosq_cs_active){
+		if(dap_intake__is_data(&context->in_packet)){
+			p = mosquitto_calloc(1, sizeof(*p));
+			if(p){
+				p->context = context;
+				p->receipt = receipt;
+				p->command = context->in_packet.command;
+				p->remaining_count = context->in_packet.remaining_count;
+				p->remaining_length = context->in_packet.remaining_length;
+				p->payload = context->in_packet.payload;
+				context->in_packet.payload = NULL;
+				context->dap_set_aside++;
+				DL_APPEND(intake_head, p);
+				return MOSQ_ERR_SUCCESS;
+			}
+		}else if(context->dap_set_aside > 0 && !dap_intake__may_overtake(context)){
+			rc = dap_intake__flush(context);
+			if(rc) return rc;
+		}
 	}
-
-	p = mosquitto_calloc(1, sizeof(*p));
-	if(!p){
-		return handle__publish(context, &receipt);
-	}
-	p->context = context;
-	p->receipt = receipt;
-	p->command = context->in_packet.command;
-	p->remaining_count = context->in_packet.remaining_count;
-	p->remaining_length = context->in_packet.remaining_length;
-	p->payload = context->in_packet.payload;
-	context->in_packet.payload = NULL;
-	DL_APPEND(intake_head, p);
-	return MOSQ_ERR_SUCCESS;
+	return handle__publish(context, &receipt);
 }
 
 
@@ -150,6 +187,7 @@ void dap_intake__end(void)
 		rc = dap_intake__handle(p);
 		dap_intake__free(p);
 		if(rc){
+			handle__packet_error(context, rc);
 			dap_intake__purge(context);
 			do_disconnect(context, rc);
 		}
@@ -157,27 +195,29 @@ void dap_intake__end(void)
 }
 
 
-void dap_intake__flush(struct mosquitto *context)
+int dap_intake__flush(struct mosquitto *context)
 {
 	struct dap_intake_packet *p;
 
+	if(context->dap_set_aside == 0) return MOSQ_ERR_SUCCESS;
 	if(context->state != mosq_cs_active){
 		dap_intake__purge(context);
-		return;
+		return MOSQ_ERR_SUCCESS;
 	}
 	/* Search from the head each time: handling one may flush or purge others. */
-	for(;;){
+	while(context->dap_set_aside > 0){
 		for(p = intake_head; p && p->context != context; p = p->next){
 		}
-		if(!p) return;
+		if(!p) break;
 		DL_DELETE(intake_head, p);
 		int rc = dap_intake__handle(p);
 		dap_intake__free(p);
 		if(rc){
 			dap_intake__purge(context);
-			return;
+			return rc;
 		}
 	}
+	return MOSQ_ERR_SUCCESS;
 }
 
 
@@ -187,7 +227,8 @@ void dap_intake__cleanup(void)
 
 	DL_FOREACH_SAFE(intake_head, p, tmp){
 		DL_DELETE(intake_head, p);
-		dap_intake__free(p);
+		mosquitto_FREE(p->payload);
+		mosquitto_FREE(p);
 	}
 	intake_deferring = false;
 }

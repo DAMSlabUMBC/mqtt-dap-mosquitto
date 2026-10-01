@@ -32,6 +32,7 @@ Contributors:
 #include "util_mosq.h"
 #include "will_mosq.h"
 #include "dap/rights_broker.h"
+#include "dap/dap_intake.h"
 
 #if defined(WITH_WEBSOCKETS) && WITH_WEBSOCKETS == WS_IS_LWS
 #  include <libwebsockets.h>
@@ -97,6 +98,8 @@ int connect__on_authorised(struct mosquitto *context, void *auth_data_out, uint1
 	HASH_FIND(hh_id, db.contexts_by_id, context->id, strlen(context->id), found_context);
 	if(found_context){
 		/* Found a matching client */
+		/* Data the old connection sent before being taken over is handled first. */
+		(void)dap_intake__flush(found_context);
 		if(!net__is_connected(found_context)){
 			/* Client is reconnecting after a disconnect */
 			/* FIXME - does anything need to be done here? */
