@@ -13,6 +13,9 @@
 #include "dap/dap_request_store.h"
 #include "dap/purpose_filters.h"
 
+/* Paper 6.2: requests and notifications are delivered at least once. */
+#define DAP_OP_QOS 1
+
 /* Finds a client context by ID by calling db__find_context_by_id(). */
 struct mosquitto *broker_find_context_by_id(const char *client_id)
 {
@@ -81,11 +84,11 @@ void broker_send_response_success(const char *publisher_id, const char *operatio
 
     if(payload)
     {
-        db__messages_easy_queue_with_purpose(NULL, response_topic, MOSQ_DAP_OP_PURPOSE, 0, (uint32_t)strlen(payload), payload, false, 0, &props);
+        db__messages_easy_queue_with_purpose(NULL, response_topic, MOSQ_DAP_OP_PURPOSE, DAP_OP_QOS, (uint32_t)strlen(payload), payload, false, 0, &props);
     }
     else
     {
-        db__messages_easy_queue_with_purpose(NULL, response_topic, MOSQ_DAP_OP_PURPOSE, 0, 0, NULL, false, 0, &props);
+        db__messages_easy_queue_with_purpose(NULL, response_topic, MOSQ_DAP_OP_PURPOSE, DAP_OP_QOS, 0, NULL, false, 0, &props);
     }
 
     mosquitto_property_free_all(&props);
@@ -129,7 +132,7 @@ void broker_send_response_pending(const char *publisher_id, struct dap__op_prope
         mosquitto_property_add_binary(&props, MQTT_PROP_CORRELATION_DATA, dap_op_properties->correlation_data, dap_op_properties->correlation_data_len);
     }
 
-    db__messages_easy_queue_with_purpose(NULL, onp_topic, MOSQ_DAP_OP_PURPOSE, 0, 0, NULL, false, 0, &props);
+    db__messages_easy_queue_with_purpose(NULL, onp_topic, MOSQ_DAP_OP_PURPOSE, DAP_OP_QOS, 0, NULL, false, 0, &props);
     mosquitto_property_free_all(&props);
 }
 
@@ -171,7 +174,7 @@ void broker_send_response_failure(const char *publisher_id, struct dap__op_prope
         mosquitto_property_add_binary(&props, MQTT_PROP_CORRELATION_DATA, dap_op_properties->correlation_data, dap_op_properties->correlation_data_len);
     }
 
-    db__messages_easy_queue_with_purpose(NULL, response_topic, MOSQ_DAP_OP_PURPOSE, 0, 0, NULL, false, 0, &props);
+    db__messages_easy_queue_with_purpose(NULL, response_topic, MOSQ_DAP_OP_PURPOSE, DAP_OP_QOS, 0, NULL, false, 0, &props);
     mosquitto_property_free_all(&props);
 }
 
@@ -271,11 +274,11 @@ static void dap__forward_request(const char *sub_id, struct mosquitto_base_msg *
     }
     if(dap__request_topic_ready(sub_id, topic)){
         uint32_t expiry_interval = until > db.now_real_s ? (uint32_t)(until - db.now_real_s) : 0;
-        db__messages_easy_queue_with_purpose(NULL, topic, MOSQ_DAP_OP_PURPOSE, msg_data->qos,
+        db__messages_easy_queue_with_purpose(NULL, topic, MOSQ_DAP_OP_PURPOSE, DAP_OP_QOS,
                 msg_data->payloadlen, msg_data->payload, false, expiry_interval, &props);
     }else if(db.dap_request_store){
         if(dap_request_store_add(db.dap_request_store, sub_id, dap_op_properties->op_id_num, until,
-                msg_data->qos, msg_data->payload, msg_data->payloadlen, props) == 0){
+                msg_data->payload, msg_data->payloadlen, props) == 0){
             props = NULL;
         }
     }
@@ -296,7 +299,7 @@ void broker_deliver_held_requests(struct mosquitto *context)
     if(dap__request_topic_ready(context->id, topic)){
         held = dap_request_store_take(db.dap_request_store, context->id, db.now_real_s);
         for(struct dap_stored_request *r = held; r; r = r->next){
-            db__messages_easy_queue_with_purpose(NULL, topic, MOSQ_DAP_OP_PURPOSE, r->qos,
+            db__messages_easy_queue_with_purpose(NULL, topic, MOSQ_DAP_OP_PURPOSE, DAP_OP_QOS,
                     r->payloadlen, r->payload, false, (uint32_t)(r->deadline - db.now_real_s), &r->properties);
         }
         dap_request_store_free_list(held);
@@ -412,7 +415,7 @@ void broker_send_deadline_failure(uint64_t op_id, const char *publisher_id,
         }
     }
 
-    db__messages_easy_queue_with_purpose(NULL, onp_topic, MOSQ_DAP_OP_PURPOSE, 0, 0, NULL, false, 0, &props);
+    db__messages_easy_queue_with_purpose(NULL, onp_topic, MOSQ_DAP_OP_PURPOSE, DAP_OP_QOS, 0, NULL, false, 0, &props);
     mosquitto_property_free_all(&props);
 }
 
@@ -446,7 +449,7 @@ void broker_send_deadline_success(uint64_t op_id, const char *publisher_id)
     mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY,
         MOSQ_DAP_REASON_KEY, "All subscribers responded");
 
-    db__messages_easy_queue_with_purpose(NULL, onp_topic, MOSQ_DAP_OP_PURPOSE, 0, 0, NULL, false, 0, &props);
+    db__messages_easy_queue_with_purpose(NULL, onp_topic, MOSQ_DAP_OP_PURPOSE, DAP_OP_QOS, 0, NULL, false, 0, &props);
     mosquitto_property_free_all(&props);
 }
 
@@ -489,7 +492,7 @@ void broker_forward_status_to_requester(const char *requester_id, struct dap__op
         mosquitto_property_add_binary(&props, MQTT_PROP_CORRELATION_DATA, dap_op_properties->correlation_data, dap_op_properties->correlation_data_len);
     }
 
-    db__messages_easy_queue_with_purpose(NULL, onp_topic, MOSQ_DAP_OP_PURPOSE, 0,
+    db__messages_easy_queue_with_purpose(NULL, onp_topic, MOSQ_DAP_OP_PURPOSE, DAP_OP_QOS,
         payloadlen, payload, false, 0, &props);
     mosquitto_property_free_all(&props);
 }

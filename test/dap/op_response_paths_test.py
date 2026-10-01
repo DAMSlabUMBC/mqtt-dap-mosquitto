@@ -101,7 +101,7 @@ class Client:
         self.id = client_id
         self.msgs = []
         self.c = mqtt.Client(CallbackAPIVersion.VERSION2, client_id=client_id, protocol=mqtt.MQTTv5)
-        self.c.on_message = lambda c, u, m: self.msgs.append((m.topic, m.payload, user_props(m)))
+        self.c.on_message = lambda c, u, m: self.msgs.append((m.topic, m.payload, user_props(m), m.qos))
         clients.append(self)
 
     def connect(self, clean_start=False):
@@ -276,6 +276,19 @@ def case_offline_request_on_session_resume(pub):
     return offline_request_case(pub, resume_session=True)
 
 
+def case_operation_traffic_is_qos1(pub):
+    # Requests and notifications are sent at QoS 1 to inboxes subscribed at QoS 1 (paper 6.2).
+    sub = subscribers_with_data(pub, ["subA"])[0]
+    pub.publish(OSYS, [("DAP-OpType", "DELETE"), ("DAP-OpTFs", TOPIC)], qos=0)
+    if not wait_for(lambda: sub.got(f"{OP_REQ}/subA") and pub.got(OP_NOTIF, **{"DAP-Status": "Pending"})):
+        return False
+    op_id = sub.got(f"{OP_REQ}/subA")[0][2].get("DAP-OpId")
+    sub.publish(OSYS, [("DAP-Status", "Success"), ("DAP-OpId", op_id)], qos=0)
+    if not wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Reason": "All subscribers responded"})):
+        return False
+    return all(m[3] == 1 for m in sub.got(OP_REQ) + pub.got(OP_NOTIF))
+
+
 def case_failure_to_response_topic(_):
     pub = requester(response_topic="op_resp/pub1")
     pub.publish(OSYS, [("DAP-OpType", "BOGUS")], response_topic="op_resp/pub1")
@@ -304,6 +317,7 @@ CASES = [
     ("an offline subscriber gets the request when it subscribes again", case_offline_request_on_resubscribe, True),
     ("an offline subscriber gets the request when its session resumes", case_offline_request_on_session_resume, True),
     ("a request waits for an inbox whose SP admits it", case_request_held_for_inbox_without_op_purpose, True),
+    ("requests and notifications use QoS 1", case_operation_traffic_is_qos1, True),
     ("AUDIT with no relevant subscribers gets a Failure", case_audit_no_relevant, True),
     ("relevance uses the SP in force at delivery", case_relevance_uses_delivery_time_sp, True),
     ("relevance matches DAP-OpTFs as MQTT topic filters", case_relevance_topic_wildcard, True),
