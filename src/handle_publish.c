@@ -522,10 +522,10 @@ static int register_mp_property(const char *client_id, const char *value)
 		return MOSQ_ERR_NOMEM;
 	}
 
-	mp__register_topic(client_id, topic, mp);
+	rc = mp__register_topic(client_id, topic, mp);
 	mosquitto_FREE(mp);
 	mosquitto_FREE(topic);
-	return MOSQ_ERR_SUCCESS;
+	return rc;
 }
 
 /* Replace *dst with a copy of value. */

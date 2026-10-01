@@ -114,10 +114,38 @@ static void test_mp_registration_topic_path_bumps_version(void)
     printf("ok - MP_reg topic path parses and bumps version on re-registration\n");
 }
 
+/* Publishers sharing a topic each keep their own MP, even when their entries share a
+ * hash bucket (2000 entries in the table make that all but certain). */
+static void test_mp_entries_are_per_publisher(void)
+{
+    char id[32], mp[32];
+
+    mp_registry_init();
+    for(int i = 0; i < 2000; i++){
+        snprintf(id, sizeof(id), "pub%d", i);
+        snprintf(mp, sizeof(mp), "purpose/%d", i);
+        mp__register_topic(id, "shared/topic", mp);
+    }
+    for(int i = 0; i < 2000; i++){
+        snprintf(id, sizeof(id), "pub%d", i);
+        snprintf(mp, sizeof(mp), "purpose/%d", i);
+        struct mp_entry *stored = mp__lookup(id, "shared/topic");
+        assert(stored != NULL);
+        assert(!strcmp(stored->purpose_filter, mp));
+        assert(stored->version == 1);
+    }
+    /* The id and topic do not run together: "pub1" + "2/t" is not "pub12" + "/t". */
+    mp__register_topic("pub12", "/t", "a");
+    assert(mp__lookup("pub1", "2/t") == NULL);
+    mp_registry_cleanup();
+    printf("ok - publishers on the same topic keep separate MPs\n");
+}
+
 int main(void)
 {
     test_mp_version_increments_on_update();
     test_mp_registration_topic_path_bumps_version();
+    test_mp_entries_are_per_publisher();
     printf("\nAll purpose version tests passed.\n");
     return 0;
 }
