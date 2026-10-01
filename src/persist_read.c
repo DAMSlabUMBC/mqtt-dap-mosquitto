@@ -380,6 +380,8 @@ static int persist__sub_chunk_restore(FILE *db_fptr)
 	struct mosquitto_subscription sub;
 
 	memset(&chunk, 0, sizeof(struct P_sub));
+	/* sub__add takes ownership of sub.purpose_filters, so it must start NULL. */
+	memset(&sub, 0, sizeof(sub));
 
 	if(db_version == 6 || db_version == 5){
 		rc = persist__chunk_sub_read_v56(db_fptr, &chunk);

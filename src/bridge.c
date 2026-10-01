@@ -291,6 +291,7 @@ static int bridge__connect_step1(struct mosquitto *context)
 				qos = cur_topic->qos;
 			}
 			struct mosquitto_subscription sub;
+			memset(&sub, 0, sizeof(sub));
 			sub.topic_filter = cur_topic->local_topic;
 			sub.identifier = 0;
 			sub.options = MQTT_SUB_OPT_NO_LOCAL | MQTT_SUB_OPT_RETAIN_AS_PUBLISHED | qos;
@@ -529,6 +530,7 @@ int bridge__connect(struct mosquitto *context)
 				qos = cur_topic->qos;
 			}
 			struct mosquitto_subscription sub;
+			memset(&sub, 0, sizeof(sub));
 			sub.topic_filter = cur_topic->local_topic;
 			sub.identifier = 0;
 			sub.options = MQTT_SUB_OPT_NO_LOCAL | MQTT_SUB_OPT_RETAIN_AS_PUBLISHED | qos;
