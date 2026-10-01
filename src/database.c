@@ -613,6 +613,10 @@ int db__message_delete_outgoing(struct mosquitto *context, uint16_t mid, enum mo
 						context->id, client_msg->data.state, expect_state);
 				return MOSQ_ERR_PROTOCOL;
 			}
+			/* Acknowledged before it was written, so it never reached the send-path gate. */
+			if(client_msg->data.state == mosq_ms_publish_qos1 || client_msg->data.state == mosq_ms_publish_qos2){
+				db__dap_discard_stamp(context, client_msg);
+			}
 			db__message_remove_inflight(context, &context->msgs_out, client_msg);
 			deleted = true;
 			break;
@@ -627,6 +631,7 @@ int db__message_delete_outgoing(struct mosquitto *context, uint16_t mid, enum mo
 				}else if(qos == 2 && client_msg->data.state != expect_state && expect_state != mosq_ms_any){
 					return MOSQ_ERR_PROTOCOL;
 				}
+				db__dap_discard_stamp(context, client_msg);
 				db__message_remove_queued(context, &context->msgs_out, client_msg);
 				break;
 			}
