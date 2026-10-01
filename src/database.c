@@ -583,7 +583,8 @@ void db__message_dequeue_first(struct mosquitto *context, struct mosquitto_msg_d
 	client_msg = msg_data->queued;
 	DL_DELETE(msg_data->queued, client_msg);
 	DL_APPEND(msg_data->inflight, client_msg);
-	if(msg_data->inflight_quota > 0){
+	/* QoS 0 is never acknowledged, so it must not take send quota. */
+	if(client_msg->data.qos > 0 && msg_data->inflight_quota > 0){
 		msg_data->inflight_quota--;
 	}
 

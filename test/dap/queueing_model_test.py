@@ -356,6 +356,31 @@ def stale_mp_case():
         check(broker.stop() == 0, "broker exits cleanly")
 
 
+def qos0_quota_case():
+    """QoS 0 messages sent from the offline queue leave the QoS 1 send quota intact."""
+    broker = Broker("queue_qos0_messages true\n")
+    try:
+        sub = Subscriber("subG", persistent=True, receive_maximum=2)
+        sub.subscribe("t/g", ["qa"])
+        pub = Publisher()
+        pub.register("qa", "t/g")
+        sub.disconnect()
+        for i in range(1, 4):
+            pub.publish("t/g", [], payload=b"z%d" % i, qos=0)
+        pub.register("qa", "t/g")  # stale stamps: each queued message is bumped once
+        sub.connect()
+        got = payloads(sub.read_publishes(), "t/g")
+        check(got == [b"z1", b"z2", b"z3"], "queued QoS 0 messages are delivered (got %s)" % got)
+        for i in range(1, 4):
+            pub.publish("t/g", [], payload=b"q%d" % i, qos=1)
+        got = payloads(sub.read_publishes(), "t/g")
+        check(got == [b"q1", b"q2", b"q3"], "QoS 1 messages still flow afterwards (got %s)" % got)
+        sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
 def sp_change_case(new_sps, still_allowed):
     """A message waiting while the subscriber's SP changes is re-checked against the new SP."""
     broker = Broker()
@@ -428,6 +453,7 @@ def main():
     print("# re-verification of stale stamps")
     stale_mp_case()
     drop_then_stale_case()
+    qos0_quota_case()
     sp_change_case(["qb"], still_allowed=False)
     sp_change_case(["qa", "qz"], still_allowed=True)
     print("# op/PBMR priority")
