@@ -743,7 +743,7 @@ int handle__publish(struct mosquitto *context)
 					context->id);
 			mosquitto_property_free_all(&properties);
 			db__msg_store_free(base_msg);
-			return MOSQ_ERR_TOPIC_ALIAS_INVALID;
+			return MOSQ_ERR_MALFORMED_PACKET;
 		}
 		
 
