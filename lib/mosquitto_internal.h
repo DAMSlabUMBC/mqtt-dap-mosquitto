@@ -190,6 +190,7 @@ struct mosquitto__packet {
 	uint16_t mid;
 	uint8_t command;
 	int8_t remaining_count;
+	bool dap_priority; /* MQTT-DAP op/PBMR publish, written ahead of queued data */
 	uint8_t payload[];
 };
 

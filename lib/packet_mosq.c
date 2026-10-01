@@ -143,6 +143,26 @@ void packet__cleanup_all(struct mosquitto *mosq)
 }
 
 
+#ifdef WITH_BROKER
+/* Insert an MQTT-DAP op/PBMR packet ahead of the queued data publishes. It never
+ * overtakes the head, which may be partly written, earlier op/PBMR packets, or
+ * non-PUBLISH packets, so it only moves ahead of data. */
+static void packet__queue_insert_priority(struct mosquitto *mosq, struct mosquitto__packet *packet)
+{
+	struct mosquitto__packet *prev = mosq->out_packet;
+
+	while(prev->next && (prev->next->dap_priority || (prev->next->command & 0xF0) != CMD_PUBLISH)){
+		prev = prev->next;
+	}
+	packet->next = prev->next;
+	prev->next = packet;
+	if(!packet->next){
+		mosq->out_packet_last = packet;
+	}
+}
+#endif
+
+
 static void packet__queue_append(struct mosquitto *mosq, struct mosquitto__packet *packet)
 {
 #ifdef WITH_BROKER
@@ -160,12 +180,17 @@ static void packet__queue_append(struct mosquitto *mosq, struct mosquitto__packe
 #endif
 
 	COMPAT_pthread_mutex_lock(&mosq->out_packet_mutex);
-	if(mosq->out_packet){
-		mosq->out_packet_last->next = packet;
-	}else{
+	if(!mosq->out_packet){
 		mosq->out_packet = packet;
+		mosq->out_packet_last = packet;
+#ifdef WITH_BROKER
+	}else if(packet->dap_priority){
+		packet__queue_insert_priority(mosq, packet);
+#endif
+	}else{
+		mosq->out_packet_last->next = packet;
+		mosq->out_packet_last = packet;
 	}
-	mosq->out_packet_last = packet;
 	mosq->out_packet_count++;
 	mosq->out_packet_bytes += packet->packet_length;
 	metrics__int_inc(mosq_gauge_out_packets, 1);

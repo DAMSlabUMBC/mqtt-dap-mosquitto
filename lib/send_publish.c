@@ -38,6 +38,9 @@ Contributors:
 #include "property_mosq.h"
 #include "property_common.h"
 #include "send_mosq.h"
+#ifdef WITH_BROKER
+#  include "dap/dap_topics.h"
+#endif
 #include "utlist.h"
 
 
@@ -218,6 +221,7 @@ int send__real_publish(struct mosquitto *mosq, uint16_t mid, const char *topic, 
 	mosquitto_property topic_alias_prop;
 	uint16_t topic_alias = 0;
 	mosquitto_property subscription_id_prop;
+	bool dap_priority;
 #endif
 
 #ifndef WITH_BROKER
@@ -225,6 +229,11 @@ int send__real_publish(struct mosquitto *mosq, uint16_t mid, const char *topic, 
 #endif
 
 	assert(mosq);
+
+#ifdef WITH_BROKER
+	/* Before topic is replaced by an alias below. */
+	dap_priority = topic && dap_is_op_system_topic(topic);
+#endif
 
 #ifdef WITH_BROKER
 	if(mosq->protocol == mosq_p_mqtt5){
@@ -304,6 +313,9 @@ int send__real_publish(struct mosquitto *mosq, uint16_t mid, const char *topic, 
 		return rc;
 	}
 	packet->mid = mid;
+#ifdef WITH_BROKER
+	packet->dap_priority = dap_priority;
+#endif
 	/* Variable header (topic string) */
 	if(topic){
 		packet__write_string(packet, topic, (uint16_t)strlen(topic));
