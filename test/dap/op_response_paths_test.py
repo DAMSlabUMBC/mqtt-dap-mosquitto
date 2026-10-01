@@ -278,6 +278,25 @@ def case_offline_request_on_session_resume(pub):
     return offline_request_case(pub, resume_session=True)
 
 
+def case_client_defined_operation(pub):
+    # O:<name> operations reuse the subscriber workflow (paper 6.2).
+    sub = subscribers_with_data(pub, ["subA"])[0]
+    pub.publish(OSYS, [("DAP-OpType", "O:CONSENT-WITHDRAW"), ("DAP-OpTFs", TOPIC)], payload=b"why")
+    if not wait_for(lambda: sub.got(f"{OP_REQ}/subA", **{"DAP-OpType": "O:CONSENT-WITHDRAW"})
+                    and pub.got(OP_NOTIF, **{"DAP-Status": "Pending"})):
+        return False
+    request = sub.got(f"{OP_REQ}/subA")[0]
+    sub.publish(OSYS, [("DAP-Status", "Success"), ("DAP-OpId", request[2].get("DAP-OpId"))])
+    return request[1] == b"why" and wait_for(
+        lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Success", "DAP-Reason": "All subscribers responded"}))
+
+
+def case_client_defined_operation_needs_a_name(pub):
+    subscribers_with_data(pub, ["subA"])
+    pub.publish(OSYS, [("DAP-OpType", "O:"), ("DAP-OpTFs", TOPIC)])
+    return wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Failure", "DAP-Reason": "Unknown Operation"}))
+
+
 def case_deadline_in_the_past(pub):
     subscribers_with_data(pub, ["subA"])
     pub.publish(OSYS, [("DAP-OpType", "DELETE"), ("DAP-OpTFs", TOPIC), ("DAP-Deadline", str(int(time.time()) - 5))])
@@ -321,6 +340,8 @@ CASES = [
     ("HISTORY with an offline subscriber gets a Pending ack", case_history_subscriber_offline, True),
     ("HISTORY with many offline subscribers lists every one at the requested deadline", case_history_many_offline, True),
     ("a deadline that has already passed gets a Failure", case_deadline_in_the_past, True),
+    ("an O: operation runs the subscriber workflow", case_client_defined_operation, True),
+    ("an O: operation without a name is unknown", case_client_defined_operation_needs_a_name, True),
     ("HISTORY gets a Success once its subscriber responds", case_history_success, True),
     ("AUDIT returns the relevant subscriber ids", case_audit_lists_subscribers, True),
     ("an offline subscriber gets the request when it subscribes again", case_offline_request_on_resubscribe, True),

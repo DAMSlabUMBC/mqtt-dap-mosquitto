@@ -163,11 +163,19 @@ static int process_bad_message(struct mosquitto *context, struct mosquitto__base
 }
 
 
+/* True for a client-defined operation: "O:" and a name (paper 6.2). */
+static bool is_client_defined_operation(const char *op)
+{
+	size_t prefix = strlen(MOSQ_DAP_OP_PREFIX);
+	return !strncmp(op, MOSQ_DAP_OP_PREFIX, prefix) && op[prefix] != '\0';
+}
+
 /* True for the operations whose workflow involves subscribers (paper 6.2). */
 static bool is_subscriber_operation(const char *op)
 {
 	return !strcmp(op, MOSQ_DAP_OP_DELETE) || !strcmp(op, MOSQ_DAP_OP_RESTRICT)
-		|| !strcmp(op, MOSQ_DAP_OP_HISTORY) || !strcmp(op, MOSQ_DAP_OP_UPDATE);
+		|| !strcmp(op, MOSQ_DAP_OP_HISTORY) || !strcmp(op, MOSQ_DAP_OP_UPDATE)
+		|| is_client_defined_operation(op);
 }
 
 /* The deadline of an operation received at `received`: the one it requests, or
@@ -373,12 +381,13 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 				}
 			}
 
-			/* HISTORY and UPDATE are subscriber-involving like DELETE/RESTRICT but
-				* do not apply to in-flight messages, so they get no pending-ops entry.
-				* Allocate an op id, forward to the relevant subscribers and track the
-				* deadline. UPDATE's replacement payload rides along in the forwarded
-				* request (stored->data.payload). */
-			else if(!strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_HISTORY) || !strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_UPDATE))
+			/* HISTORY, UPDATE and client-defined operations involve subscribers like
+				* DELETE/RESTRICT but do not apply to in-flight messages, so they get no
+				* pending-ops entry. Allocate an op id, forward to the relevant subscribers
+				* and track the deadline. The request's payload (UPDATE's replacement
+				* data, for one) rides along in the forwarded request. */
+			else if(!strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_HISTORY) || !strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_UPDATE)
+					|| is_client_defined_operation(dap_op_properties->op_id))
 			{	
 				dap_op_properties->op_id_num = dap_pending_ops_allocate_op_id(db.dap_pending_ops);
 				struct dr_sublist *relevant = dr__find_relevant_subscribers(context->id, dap_op_properties);
@@ -386,13 +395,6 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 				broker_dispatch_pending_operation(context->id,
 						relevant, &stored->data, dap_op_properties, deadline);
 				dr__free_sublist(relevant);
-			}
-
-			/* Generic operator-defined operation ("O:" prefix), also not implemented. */
-			else if(!strncmp(dap_op_properties->op_id, MOSQ_DAP_OP_PREFIX, strlen(MOSQ_DAP_OP_PREFIX)))
-			{
-				log__printf(NULL, MOSQ_LOG_INFO,
-						"DAP generic operation %s from %s not yet implemented", dap_op_properties->op_id, context->id);
 			}
 
 			else

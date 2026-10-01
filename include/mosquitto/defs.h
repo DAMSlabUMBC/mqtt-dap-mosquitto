@@ -154,15 +154,14 @@ enum mosq_transport_t {
 #define MOSQ_DAP_TOPIC_ORS "OP_REQ"    
 #define MOSQ_DAP_TOPIC_ONP "OP_NOTIF"  
 
-/* DAP operation types. DELETE and RESTRICT reuse the right constants above. The
- * rest are not yet implemented. */
+/* DAP operation types (paper Table 2). */
 #define MOSQ_DAP_OP_AUDIT "AUDIT"
 #define MOSQ_DAP_OP_HISTORY "HISTORY"
 #define MOSQ_DAP_OP_UPDATE "UPDATE"
 #define MOSQ_DAP_OP_DELETE "DELETE"    /* was "Erasure" */
 #define MOSQ_DAP_OP_RESTRICT "RESTRICT" /* was "Restriction" */
 #define MOSQ_DAP_OP_REGISTER_INFO "REGISTER-INFO"
-#define MOSQ_DAP_OP_PREFIX "O:" /* generic operator-defined operation prefix */
+#define MOSQ_DAP_OP_PREFIX "O:" /* prefix of client-defined operations */
 
 /* MQTT-DAP Misc */
 #define MOSQ_DAP_OP_PURPOSE "DAP_OP"    /* paper 5.1: operation-processing consent value (was "DAP_op") */
