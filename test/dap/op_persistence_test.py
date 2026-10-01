@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""DAP pending operations survive a broker crash + restart (persist-sqlite), and are
-reclaimed once their deadline passes.
+"""DAP pending operations, flows, subscription SPs and held requests survive a broker
+crash + restart (persist-sqlite), and operations are reclaimed once their deadline passes.
 
-MPs/SPs are not persisted, so clients re-declare them after the restart.
+MPs are not persisted, so publishers re-register them after the restart.
 
 Usage: python3 test/dap/op_persistence_test.py [broker] [plugin.so] [port]
 """
@@ -115,7 +115,8 @@ class Client:
 
     def subscribe(self, topic, sp, qos=1):
         props = Properties(PacketTypes.SUBSCRIBE)
-        props.UserProperty = [("DAP-SP", sp)]
+        if sp is not None:
+            props.UserProperty = [("DAP-SP", sp)]
         self.c.subscribe(topic, qos=qos, properties=props)
 
     def publish(self, topic, pairs, payload=b"", qos=1):
@@ -181,6 +182,7 @@ def main():
         s.subscribe("sensors/humidity", MP)
         s.subscribe(f"{OP_REQ}/{s.id}", OP_PURPOSE)
     pub1.subscribe(f"{OP_NOTIF}/pub1", OP_PURPOSE)
+    pub1.subscribe(OSYS, None)  # an operation topic needs no SP; its row has none
     time.sleep(0.3)
     subZ.disconnect()  # offline, so messages queue for it
 

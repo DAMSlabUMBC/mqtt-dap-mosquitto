@@ -277,7 +277,7 @@ static int subscription_restore(struct mosquitto_sqlite *ms)
 		/* The SP is a '|'-joined purpose set; mosquitto_subscription_add copies it. */
 		char *purposes = sqlite3_column_text(stmt, 4) ? strdup((const char *)sqlite3_column_text(stmt, 4)) : NULL;
 		char *purpose_list[MOSQ_DAP_MAX_FILTERS_PER_SUB];
-		for(char *p = purposes, *save = NULL, *tok; (tok = strtok_r(p, "|", &save)) != NULL; p = NULL){
+		for(char *p = purposes, *save = NULL, *tok; purposes && (tok = strtok_r(p, "|", &save)) != NULL; p = NULL){
 			if(sub.purpose_filter_count == MOSQ_DAP_MAX_FILTERS_PER_SUB) break;
 			purpose_list[sub.purpose_filter_count++] = tok;
 		}
