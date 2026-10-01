@@ -298,7 +298,7 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 					* Object/AutoDecision) falls through to the unchanged immediate path. */
 				uint64_t pending_op_id = 0;
 				bool is_pending_op = (dap_op_request_insert(db.dap_pending_ops, context->id, dap_op_properties,
-							stored->dap_recv_time, &pending_op_id) == 0);
+							stored->dap_order, &pending_op_id) == 0);
 
 				if(is_pending_op)
 				{
@@ -642,6 +642,10 @@ int handle__publish(struct mosquitto *context)
 		clock_gettime(CLOCK_MONOTONIC, &ts_mono);
 		base_msg->dap_recv_time_ns_wall = (uint64_t)ts_wall.tv_sec * 1000000000ULL + (uint64_t)ts_wall.tv_nsec;
 		base_msg->dap_recv_time_ns_mono = (uint64_t)ts_mono.tv_sec * 1000000000ULL + (uint64_t)ts_mono.tv_nsec;
+		/* Paper 5.2(i): a total order over receipts, kept monotone if the clock steps back. */
+		base_msg->dap_order = base_msg->dap_recv_time_ns_wall > db.dap_last_order
+				? base_msg->dap_recv_time_ns_wall : db.dap_last_order + 1;
+		db.dap_last_order = base_msg->dap_order;
 	}
 
 	dup = (header & 0x08)>>3;

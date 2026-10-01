@@ -814,6 +814,8 @@ BROKER_EXPORT int mosquitto_persist_base_msg_add(struct mosquitto_base_msg *msg_
 	base_msg->data.properties = msg_add->properties;
 	msg_add->properties = NULL;
 	base_msg->dap_recv_time = dap_persist__recv_time(base_msg->data.properties);
+	/* Persistence keeps whole seconds: order a restored message at the start of its second. */
+	base_msg->dap_order = (uint64_t)base_msg->dap_recv_time * 1000000000ULL;
 	base_msg->dap_restored = true;
 
 	if(msg_add->source_port){

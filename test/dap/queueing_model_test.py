@@ -269,7 +269,6 @@ def delete_case(overflow=False, gap=False):
 
         sub.disconnect()
         pub.publish("t/a", [], payload=b"m3")
-        time.sleep(1.1)  # the DELETE must be received after m3 (1 s resolution)
         pub.operation("DELETE", "t/a")
         check(wait_for(lambda: pub.got_status("Pending")), "requester gets a Pending ack for the DELETE")
         sub.connect()
@@ -301,7 +300,6 @@ def scoped_op_case(op, topic_filter, purposes, sps_kept):
             check(payloads(sub.read_publishes(), "t/s/1") == [b"m0"], "SP %s receives data before the %s" % (sp, op))
             sub.disconnect()
         pub.publish("t/s/1", [], payload=b"m1")
-        time.sleep(1.1)  # the operation is received after m1 (1 s resolution)
         pub.operation(op, topic_filter, purposes)
         check(wait_for(lambda: pub.msgs), "requester gets a reply to the %s" % op)
         for sp, sub in subs.items():
@@ -311,6 +309,30 @@ def scoped_op_case(op, topic_filter, purposes, sps_kept):
             check(got == expected, "%s on %s for %s: SP %s got %s (expected %s)"
                   % (op, topic_filter, purposes, sp, got, expected))
             sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
+def same_second_case():
+    """A DELETE covers exactly the messages received before it, even within one second."""
+    broker = Broker("use_metadata_operation_support true\n")
+    try:
+        sub = Subscriber("subT", persistent=True)
+        sub.subscribe("t/t", ["qa"])
+        pub = Publisher()
+        pub.register("qa", "t/t")
+        pub.publish("t/t", [], payload=b"m0")
+        check(payloads(sub.read_publishes(), "t/t") == [b"m0"], "subscriber receives data before the DELETE")
+        sub.disconnect()
+        pub.publish("t/t", [], payload=b"m1")
+        pub.operation("DELETE", "t/t")
+        pub.publish("t/t", [], payload=b"m2")
+        check(wait_for(lambda: pub.got_status("Pending")), "requester gets a Pending ack for the DELETE")
+        sub.connect()
+        got = payloads(sub.read_publishes(), "t/t")
+        check(got == [b"m2"], "the DELETE drops m1 but not m2 published right after it (got %s)" % got)
+        sub.close()
     finally:
         stop_clients()
         check(broker.stop() == 0, "broker exits cleanly")
@@ -328,10 +350,8 @@ def drop_then_stale_case():
         check(payloads(sub.read_publishes(), "t/e") == [b"m0"], "subscriber receives data before the DELETE")
         sub.disconnect()
         pub.publish("t/e", [], payload=b"m1")
-        time.sleep(1.1)  # the DELETE covers m1 only
         pub.operation("DELETE", "t/e")
         check(wait_for(lambda: pub.got_status("Pending")), "requester gets a Pending ack for the DELETE")
-        time.sleep(1.1)  # m2-m4 are received after the DELETE
         for i in range(2, 5):
             pub.publish("t/e", [], payload=b"m%d" % i)
         pub.register("qa", "t/e")  # MP version 2: the stamps of m2-m4 are stale
@@ -356,10 +376,8 @@ def drop_refill_case():
         pub.publish("t/f", [], payload=b"m2")
         first = sub.read_publishes(idle=0.5, ack=False)
         check(payloads(first, "t/f") == [b"m1"], "only m1 is in flight (receive maximum 1)")
-        time.sleep(1.1)  # the DELETE covers m1 and m2, not m3
         pub.operation("DELETE", "t/f")
         check(wait_for(lambda: pub.got_status("Pending")), "requester gets a Pending ack for the DELETE")
-        time.sleep(1.1)  # m3 is received after the DELETE
         pub.publish("t/f", [], payload=b"m3")
         sub.puback(first[0][2])
         got = payloads(sub.read_publishes(), "t/f")
@@ -483,6 +501,7 @@ def main():
     delete_case(overflow=True)
     delete_case(gap=True)
     drop_refill_case()
+    same_second_case()
     scoped_op_case("DELETE", "t/+/1", "qb", {"qa": True, "qb": False, "qa|qc": True, "qb|qc": False})
     scoped_op_case("DELETE", "t/s/#", "qx", {"qa": True, "qb": True})
     scoped_op_case("DELETE", "t/other", None, {"qa": True})

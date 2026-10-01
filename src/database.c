@@ -1667,7 +1667,7 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 		const char *revoked = NULL;
 		enum dap_op_action action = dap_pending_ops_match(db.dap_pending_ops, pub_id, topic,
 				leaf->purpose_filters, leaf->purpose_filter_count, client_id,
-				base_msg->dap_recv_time, &op_id, &revoked);
+				base_msg->dap_order, &op_id, &revoked);
 		if(is_holding){
 			/* Re-verify candidate: a DELETE drops it, and so does a publisher's current
 			 * MP, less the purposes a RESTRICT revoked, that no longer permits its
@@ -1690,7 +1690,7 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 	/* Restored messages have no stamp or subscription; still apply DELETE. */
 	if(!has_stamp && base_msg->dap_restored && db.dap_pending_ops){
 		if(dap_pending_ops_match(db.dap_pending_ops, base_msg->data.source_id, topic,
-				NULL, 0, client_id, base_msg->dap_recv_time, NULL, NULL) == DAP_OP_ACTION_DROP){
+				NULL, 0, client_id, base_msg->dap_order, NULL, NULL) == DAP_OP_ACTION_DROP){
 
 			disp = DAP_DISP_DROP;
 		}

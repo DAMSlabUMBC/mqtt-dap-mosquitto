@@ -23,7 +23,7 @@
 /* Match a message queued for a subscription whose SP is the collection sp_filters
  * (NULL for an unknown SP). */
 static enum dap_op_action match(struct dap_pending_ops *map, const char *pub, const char *topic,
-                                const char *sp_filters, const char *sub, time_t ts,
+                                const char *sp_filters, const char *sub, uint64_t order,
                                 uint64_t *op_id, const char **revoked)
 {
     char **sp = NULL;
@@ -33,7 +33,7 @@ static enum dap_op_action match(struct dap_pending_ops *map, const char *pub, co
     if(sp_filters){
         assert(purpose_set_expand(sp_filters, &sp, &n) == 0);
     }
-    a = dap_pending_ops_match(map, pub, topic, sp_filters ? sp : NULL, n, sub, ts, op_id, revoked);
+    a = dap_pending_ops_match(map, pub, topic, sp_filters ? sp : NULL, n, sub, order, op_id, revoked);
     purpose_set_free(sp, n);
     return a;
 }
@@ -90,15 +90,15 @@ static void test_enqueue_time_gate(void)
     /* DELETE invoked at t=100, matching anything. */
     dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 100, "*", "*", "*", NULL);
 
-    /* A message enqueued before the op is affected... */
+    /* A message received before the op is affected... */
     assert(match(&map, "pub1", "t/a", "p", "sub1", 50, NULL, NULL) == DAP_OP_ACTION_DROP);
-    /* ...as is one enqueued at exactly the op's timestamp... */
+    /* ...as is one at exactly the op's order... */
     assert(match(&map, "pub1", "t/a", "p", "sub1", 100, NULL, NULL) == DAP_OP_ACTION_DROP);
-    /* ...but a message enqueued after the op is not. */
+    /* ...but a message received after the op is not. */
     assert(match(&map, "pub1", "t/a", "p", "sub1", 150, NULL, NULL) == DAP_OP_ACTION_NONE);
 
     dap_pending_ops_destroy(&map);
-    printf("ok - operations apply only to messages enqueued at or before them\n");
+    printf("ok - operations apply only to messages received at or before them\n");
 }
 
 static void test_only_requesting_publisher(void)

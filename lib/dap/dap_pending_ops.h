@@ -5,7 +5,6 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <time.h>
 
 #include "uthash.h"
 
@@ -36,7 +35,7 @@ enum dap_op_action {
  */
 struct dap_pending_op {
     uint64_t op_id;              /* broker-assigned, unique within the map */
-    time_t timestamp;            /* when the publisher invoked the operation */
+    uint64_t order;              /* broker receipt order of the operation request */
     enum dap_op_type type;
     char **topic_filters;        /* DAP-OpTFs; any element may match, "*" = any */
     size_t num_topic_filters;
@@ -72,7 +71,7 @@ int dap_pending_ops_init(struct dap_pending_ops *map);
 int dap_pending_ops_insert_operation(struct dap_pending_ops *map,
                                      const char *pub_id,
                                      enum dap_op_type type,
-                                     time_t timestamp,
+                                     uint64_t order,
                                      const char *topic_filter,
                                      const char *purpose_filter,
                                      const char *subscriber_filter,
@@ -91,7 +90,7 @@ int dap_pending_ops_restore_operation(struct dap_pending_ops *map,
                                       uint64_t op_id,
                                       const char *pub_id,
                                       enum dap_op_type type,
-                                      time_t timestamp,
+                                      uint64_t order,
                                       const char *topic_filter,
                                       const char *purpose_filter,
                                       const char *subscriber_filter);
@@ -117,7 +116,7 @@ void dap_pending_ops_destroy(struct dap_pending_ops *map);
  * Decide what happens to a message from pub_id queued for a subscription with the
  * sorted purpose set sp (NULL when the subscription is unknown, which every purpose
  * filter matches). An operation applies when each of its filters matches and the
- * message was enqueued at or before the operation (msg_timestamp <= op->timestamp).
+ * broker received the message before the operation (msg_order <= op->order).
  * DELETE supersedes RESTRICT: any applicable DELETE gives DAP_OP_ACTION_DROP,
  * otherwise the most recent applicable RESTRICT wins. The deciding op id is written
  * to *op_id_out for DROP and RESTRICT, or 0 for NONE. For RESTRICT, *revoked_out is
@@ -129,7 +128,7 @@ enum dap_op_action dap_pending_ops_match(struct dap_pending_ops *map,
                                          char *const *sp,
                                          uint32_t sp_count,
                                          const char *subscriber_id,
-                                         time_t msg_timestamp,
+                                         uint64_t msg_order,
                                          uint64_t *op_id_out,
                                          const char **revoked_out);
 

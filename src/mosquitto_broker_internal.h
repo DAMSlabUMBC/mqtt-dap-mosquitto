@@ -465,6 +465,8 @@ struct mosquitto__base_msg {
 	time_t dap_recv_time; /* DAP receipt timestamp: single reference time for ordering
 	                       * and operation matching, stamped once at PUBLISH receipt */
 	bool dap_restored;    /* restored from persistence, has no DAP stamp */
+	uint64_t dap_order;   /* strictly increasing receipt order (ns since the epoch), which
+	                       * orders data against operations */
 	uint64_t dap_recv_time_ns_wall; /* CLOCK_REALTIME at PUBLISH receipt, for the metrics row */
 	uint64_t dap_recv_time_ns_mono; /* CLOCK_MONOTONIC at PUBLISH receipt, for delta computation */
 	int dap_subs_matched;           /* leaves the message fanned out to */
@@ -544,6 +546,7 @@ struct mosquitto_db {
 #endif
 	struct mosquitto__message_v5 *plugin_msgs;
 	struct dap_pending_ops *dap_pending_ops; /* DAP pending-operation map */
+	uint64_t dap_last_order; /* the most recent PUBLISH receipt order */
 	struct dap_deadline_tracker *dap_deadline_tracker; /* DAP operation deadline tracker */
 	struct dap_holding_list *dap_holding_list; /* DAP per-client send-path hold list */
 	struct dap_op_requester *dap_op_requester; /* DAP op id -> requesting publisher */

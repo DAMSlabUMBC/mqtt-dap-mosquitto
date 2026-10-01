@@ -104,7 +104,7 @@ static int dap__add_operation(struct dap_pending_ops *map,
                               uint64_t op_id,
                               const char *pub_id,
                               enum dap_op_type type,
-                              time_t timestamp,
+                              uint64_t order,
                               const char *topic_filters,
                               const char *purpose_filters,
                               const char *subscriber_filters)
@@ -112,7 +112,7 @@ static int dap__add_operation(struct dap_pending_ops *map,
     struct dap_pending_op *op = mosquitto_calloc(1, sizeof(*op));
     if(!op) return 1;
     op->op_id     = op_id;
-    op->timestamp = timestamp;
+    op->order     = order;
     op->type      = type;
     if(dap__parse_filter_list(topic_filters, &op->topic_filters, &op->num_topic_filters)
             || dap__parse_filter_list(subscriber_filters, &op->subscriber_filters, &op->num_subscriber_filters)){
@@ -165,7 +165,7 @@ static bool dap__op_id_present(struct dap_pending_ops *map, uint64_t op_id)
 int dap_pending_ops_insert_operation(struct dap_pending_ops *map,
                                      const char *pub_id,
                                      enum dap_op_type type,
-                                     time_t timestamp,
+                                     uint64_t order,
                                      const char *topic_filters,
                                      const char *purpose_filters,
                                      const char *subscriber_filters,
@@ -174,7 +174,7 @@ int dap_pending_ops_insert_operation(struct dap_pending_ops *map,
     if(!map || !pub_id) return 1;
 
     uint64_t op_id = map->next_op_id;
-    if(dap__add_operation(map, op_id, pub_id, type, timestamp,
+    if(dap__add_operation(map, op_id, pub_id, type, order,
                           topic_filters, purpose_filters, subscriber_filters)){
         return 1;
     }
@@ -188,7 +188,7 @@ int dap_pending_ops_restore_operation(struct dap_pending_ops *map,
                                       uint64_t op_id,
                                       const char *pub_id,
                                       enum dap_op_type type,
-                                      time_t timestamp,
+                                      uint64_t order,
                                       const char *topic_filters,
                                       const char *purpose_filters,
                                       const char *subscriber_filters)
@@ -196,7 +196,7 @@ int dap_pending_ops_restore_operation(struct dap_pending_ops *map,
     if(!map || !pub_id || op_id == 0) return 1;
     if(dap__op_id_present(map, op_id)) return 1;
 
-    if(dap__add_operation(map, op_id, pub_id, type, timestamp,
+    if(dap__add_operation(map, op_id, pub_id, type, order,
                           topic_filters, purpose_filters, subscriber_filters)){
         return 1;
     }
@@ -302,12 +302,12 @@ static bool dap__topic_list_matches(char **list, size_t n, const char *topic)
     return false;
 }
 
-/* True when every filter matches and the message was enqueued at or before the op. */
+/* True when every filter matches and the message was received before the op. */
 static bool dap__op_applies(const struct dap_pending_op *op, const char *topic,
                             char *const *sp, uint32_t sp_count,
-                            const char *subscriber_id, time_t msg_timestamp)
+                            const char *subscriber_id, uint64_t msg_order)
 {
-    if(msg_timestamp > op->timestamp) return false;
+    if(msg_order > op->order) return false;
     if(!dap__topic_list_matches(op->topic_filters, op->num_topic_filters, topic)) return false;
     if(op->purposes && sp && !purpose_set_intersects(op->purposes, sp, sp_count)) return false;
     if(!dap__filter_list_matches(op->subscriber_filters, op->num_subscriber_filters, subscriber_id)) return false;
@@ -320,7 +320,7 @@ enum dap_op_action dap_pending_ops_match(struct dap_pending_ops *map,
                                          char *const *sp,
                                          uint32_t sp_count,
                                          const char *subscriber_id,
-                                         time_t msg_timestamp,
+                                         uint64_t msg_order,
                                          uint64_t *op_id_out,
                                          const char **revoked_out)
 {
@@ -335,14 +335,14 @@ enum dap_op_action dap_pending_ops_match(struct dap_pending_ops *map,
      * keeping the most recent matching RESTRICT. */
     struct dap_pending_op *best_restrict = NULL;
     for(struct dap_pending_op *op = entry->ops; op; op = op->next){
-        if(!dap__op_applies(op, topic, sp, sp_count, subscriber_id, msg_timestamp)){
+        if(!dap__op_applies(op, topic, sp, sp_count, subscriber_id, msg_order)){
             continue;
         }
         if(op->type == DAP_OP_DELETE){
             if(op_id_out) *op_id_out = op->op_id;
             return DAP_OP_ACTION_DROP;
         }
-        if(!best_restrict || op->timestamp > best_restrict->timestamp){
+        if(!best_restrict || op->order > best_restrict->order){
             best_restrict = op;
         }
     }

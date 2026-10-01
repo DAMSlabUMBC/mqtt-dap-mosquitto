@@ -26,14 +26,14 @@
 
 /* Match a message queued for a subscription whose SP is the collection sp_filters. */
 static enum dap_op_action match(struct dap_pending_ops *map, const char *pub, const char *topic,
-                                const char *sp_filters, const char *sub, time_t ts, uint64_t *op_id)
+                                const char *sp_filters, const char *sub, uint64_t order, uint64_t *op_id)
 {
     char **sp = NULL;
     uint32_t n = 0;
     enum dap_op_action a;
 
     assert(purpose_set_expand(sp_filters, &sp, &n) == 0);
-    a = dap_pending_ops_match(map, pub, topic, sp, n, sub, ts, op_id, NULL);
+    a = dap_pending_ops_match(map, pub, topic, sp, n, sub, order, op_id, NULL);
     purpose_set_free(sp, n);
     return a;
 }
@@ -41,7 +41,7 @@ static enum dap_op_action match(struct dap_pending_ops *map, const char *pub, co
 /* Wrap the args into the dap__op_property the API now takes. */
 static int request_insert(struct dap_pending_ops *map, const char *pub_id, const char *op_type,
                           const char *topic_filters, const char *purpose_filters,
-                          const char *client_filters, time_t timestamp, uint64_t *op_id_out)
+                          const char *client_filters, uint64_t order, uint64_t *op_id_out)
 {
     struct dap__op_property props;
     memset(&props, 0, sizeof(props));
@@ -49,7 +49,7 @@ static int request_insert(struct dap_pending_ops *map, const char *pub_id, const
     props.op_topic_filters = (char *)topic_filters;
     props.op_purpose_filters = (char *)purpose_filters;
     props.op_client_filters = (char *)client_filters;
-    return dap_op_request_insert(map, pub_id, &props, timestamp, op_id_out);
+    return dap_op_request_insert(map, pub_id, &props, order, op_id_out);
 }
 
 /* How many ops are currently tracked for a publisher. */
