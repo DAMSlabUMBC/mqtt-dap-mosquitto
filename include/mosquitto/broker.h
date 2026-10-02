@@ -152,9 +152,9 @@ struct mosquitto_dap_tracked_op {
 	const char *const *expected_subs;
 	const bool *responded;             /* restore only, may be NULL */
 	size_t num_expected;
-	bool settled;                      /* restore, and _DELETE: every subscriber responded before the deadline */
-	const char *const *statuses;       /* restore only, may be NULL, as may each entry */
-	const char *const *reasons;        /* restore only, may be NULL, as may each entry */
+	bool settled;                      /* every subscriber responded */
+	const char *const *statuses;       /* restore only, may be NULL */
+	const char *const *reasons;        /* restore only, may be NULL */
 	void *future[2];
 };
 
@@ -456,9 +456,8 @@ struct mosquitto_evt_persist_dap_flow {
 };
 
 
-/* Data for MOSQ_EVT_PERSIST_DAP_REQUEST_ADD and _DELETE. _DELETE removes the requests
- * held for subscriber_id or, when that is NULL, those whose deadline is at or before
- * deadline. */
+/* Data for MOSQ_EVT_PERSIST_DAP_REQUEST_ADD and _DELETE. _DELETE removes
+ * subscriber_id's requests or, if that is NULL, the expired ones. */
 struct mosquitto_evt_persist_dap_request {
 	void *future;
 	struct mosquitto_dap_request data;
@@ -466,9 +465,8 @@ struct mosquitto_evt_persist_dap_request {
 };
 
 
-/* Data for MOSQ_EVT_PERSIST_DAP_TRACKED_OP_*. _RESPONSE sets subscriber_id, status and
- * reason (may be NULL). _DELETE sets op_id and settled: true when the op settled and
- * stays queryable until its deadline, false once the deadline has passed. */
+/* Data for MOSQ_EVT_PERSIST_DAP_TRACKED_OP_*. _RESPONSE sets subscriber_id, status
+ * and reason; _DELETE sets op_id and settled. */
 struct mosquitto_evt_persist_dap_tracked_op {
 	void *future;
 	struct mosquitto_dap_tracked_op data;

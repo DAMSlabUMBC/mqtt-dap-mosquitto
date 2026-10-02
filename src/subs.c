@@ -129,8 +129,7 @@ static int subs__dap_send(struct mosquitto__subleaf *leaf, const char *source_id
 
 	if(db.config->metadata_operation_handling && source_id)
 	{
-		/* If this is the first time a publisher has sent data, to a subscriber
-		they need to trigger right to be informed */
+		/* On a publisher's first data to this subscriber, send it the subscriber's registered info. */
 		if(!ri__has_sent_to_pub(source_id, leaf->context->id))
 		{
 			const char *info = ri__lookup_info(leaf->context->id);
@@ -145,11 +144,7 @@ static int subs__dap_send(struct mosquitto__subleaf *leaf, const char *source_id
 	uint64_t cmsg_id = 0;
 	rc = subs__send(leaf, topic, qos, retain, stored, &cmsg_id);
 
-	/* Alongside the per-client queue subs__send filled above, stamp the queued
-	 * message into the subscription's own topic queue (created on first use). The
-	 * send-path gate consults the pending-op map at delivery time and produces a
-	 * PASS, DROP, or BUMP verdict. The stored message is borrowed, not owned by
-	 * the queue. */
+	/* Stamp the message into the subscription's topic queue for the send-path gate. */
 	if(cmsg_id && leaf->context->id){
 		if(!leaf->dap_queues){
 			leaf->dap_queues = mosquitto_calloc(1, sizeof(struct dap_subscription_queues));
@@ -286,8 +281,7 @@ static int sub__add_leaf(struct mosquitto *context, const struct mosquitto_subsc
 			 * indicate this to the calling function. */
 			leaf->identifier = sub->identifier;
 			leaf->subscription_options = sub->options;
-			/* The DAP SP lives on the leaf, which always adopts the incoming set so
-			 * the caller's copy stays valid; only a changed set bumps the SP version. */
+			/* The leaf adopts the incoming SP set; only a changed set bumps the SP version. */
 			if(!sub__purpose_filters_equal(leaf->purpose_filters, leaf->purpose_filter_count,
 					sub->purpose_filters, sub->purpose_filter_count)){
 				leaf->sp_version++;

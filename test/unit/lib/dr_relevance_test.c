@@ -281,8 +281,7 @@ static void test_delivery_time_sp(void)
     printf("ok - a flow keeps the SP in force at delivery\n");
 }
 
-/* A flow reports a change when it is new or its receipt times move, so it can be
- * persisted; a restored flow is relevant like a recorded one. */
+/* New flows and moved receipt times are reported; restored flows are relevant. */
 static void test_flow_changes_and_restore(void)
 {
     char **sp = NULL;

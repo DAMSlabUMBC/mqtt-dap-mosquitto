@@ -20,8 +20,7 @@ void dap_persist__op_delete(uint64_t op_id);
 void dap_persist__request_add(const char *subscriber_id, uint64_t op_id, time_t deadline,
 		const void *payload, uint32_t payloadlen, const struct mqtt5__property *properties);
 
-/* Requests held for subscriber_id delivered or, with a NULL subscriber_id, those
- * whose deadline is at or before deadline expired. */
+/* Requests held for subscriber_id delivered or, if that is NULL, the expired ones. */
 void dap_persist__request_delete(const char *subscriber_id, time_t deadline);
 
 /* Flow added, or its receipt times moved. */
@@ -34,8 +33,7 @@ void dap_persist__tracked_op_add(uint64_t op_id, const char *publisher_id,
 /* Subscriber responded to an op with status and reason (may be NULL). */
 void dap_persist__tracked_op_response(uint64_t op_id, const char *subscriber_id, const char *status, const char *reason);
 
-/* Op settled (settled = true), keeping its statuses until its deadline, or its deadline
- * passed (false); only its requester mapping is kept after that. */
+/* Op settled, kept until its deadline, or (settled false) past its deadline. */
 void dap_persist__tracked_op_delete(uint64_t op_id, bool settled);
 
 /* DAP-Timestamp from a message's properties, or 0. */

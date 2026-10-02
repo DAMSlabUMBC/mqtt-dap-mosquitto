@@ -424,8 +424,7 @@ int persist_sqlite__dap_tracked_op_delete_cb(int event, void *event_data, void *
 
 	UNUSED(event);
 
-	/* Keep the requester row for late responses, and the per-subscriber rows until
-	 * the deadline so a settled op's status can still be requested. */
+	/* Keep the requester row; a settled op keeps its subscriber rows until its deadline. */
 	if(sqlite3_bind_int64(ms->dap_tracked_op_settle_stmt, 1, (int64_t)ed->data.op_id) != SQLITE_OK){
 		sqlite3_reset(ms->dap_tracked_op_settle_stmt);
 		return MOSQ_ERR_UNKNOWN;
@@ -515,8 +514,7 @@ static char *column_strdup(sqlite3_stmt *stmt, int col)
 }
 
 
-/* Load an op's expected subscribers and their responses (copied; sqlite reuses
- * column text). */
+/* Load an op's expected subscribers and their responses, copied. */
 static int dap_tracked_op_load_subs(struct mosquitto_sqlite *ms, struct mosquitto_dap_tracked_op *op,
 		struct dap_tracked_subs *t)
 {

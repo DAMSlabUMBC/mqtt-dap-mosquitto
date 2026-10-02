@@ -246,8 +246,7 @@ static int retain__process(struct mosquitto__retainhier *branch, struct mosquitt
 
 	retained = branch->retained;
 
-	/* Paper 4.2: a retained message reaches the subscription only if its MP permits
-	 * the SP, and the publisher's current MP, which can only narrow it, does too. */
+	/* Paper 4.2: the message's MP and the publisher's current MP must both permit the SP. */
 	if(!sub__purpose_set_allows(sub->purpose_filters, sub->purpose_filter_count, retained)){
 		return MOSQ_ERR_SUCCESS;
 	}

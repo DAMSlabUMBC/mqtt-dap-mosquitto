@@ -200,21 +200,17 @@ static void dap_deadline__check(void)
 		}else if(e->num_unresponded > 0){
 			broker_send_deadline_failure(e->op_id, e->publisher_id, e->unresponded_subs, e->num_unresponded);
 		}else{
-			/* Every relevant subscriber responded before the deadline: Success.
-			 * A fully-responded op is normally settled the moment its last response
-			 * arrives (handle_dap_status_notification), so this is a fallback for any
-			 * tracked op that still reaches its deadline unsettled with nothing
-			 * outstanding. */
+			/* Every subscriber responded, but the op was not settled when the last one did. */
 			broker_send_deadline_success(e->op_id, e->publisher_id);
 		}
 	}
 	dap_deadline_tracker_free_expired(expired);
 
-	/* Paper 6.3: operation state is reclaimed once its deadline elapses. The
-	 * requester mapping stays, so late responses still reach the requester. */
+	/* Paper 6.3: reclaim operation state after its deadline. The requester mapping
+	 * stays for late responses. */
 	static time_t last_expiry = 0;
 	if(db.now_real_s != last_expiry){
-		/* Data an expiring operation covers is dropped before the operation goes. */
+		/* First drop the data an expiring operation covers. */
 		if(dap_pending_ops_any_expired(db.dap_pending_ops, db.now_real_s)){
 			db__dap_drop_covered();
 		}

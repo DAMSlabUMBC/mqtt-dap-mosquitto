@@ -425,8 +425,7 @@ static void test_cover_stored(void)
     dap_pending_ops_init(&map);
     dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_RESTRICT, 100, 0, "t/#", "qa", "subX", &id);
 
-    /* A stored message is covered whatever DAP-OpClients names, when its MP shares a
-     * purpose with DAP-OpPFs. */
+    /* DAP-OpClients is ignored; the MP must share a purpose with DAP-OpPFs. */
     assert(dap_pending_ops_cover_stored(&map, "pub1", "t/a", "qa|qb", 50));
     assert(dap_pending_ops_cover_stored(&map, "pub1", "t/a", "*", 50));
     assert(dap_pending_ops_cover_stored(&map, "pub1", "t/a", NULL, 50));

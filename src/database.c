@@ -522,8 +522,7 @@ static void db__dap_discard_stamp(struct mosquitto *context, struct mosquitto__c
 	}
 }
 
-/* Count a message whose delivery to one subscription has been decided, and log its
- * metrics once every subscription it reached is decided. */
+/* Count one subscription's delivery as decided; log the metrics once all are. */
 static void db__dap_resolved(struct mosquitto__base_msg *base_msg)
 {
 	if(base_msg->data.has_purpose_filter){
@@ -573,8 +572,8 @@ static void db__message_remove_queued(struct mosquitto *context, struct mosquitt
 }
 
 
-/* Whether a pending DELETE or RESTRICT covers an outgoing message that has not
- * reached the send-path gate. A restored message has no SP, so only DELETE applies. */
+/* Whether a pending DELETE or RESTRICT covers an undelivered message. A restored
+ * message has no SP, so only DELETE applies. */
 static bool db__dap_covered(struct mosquitto *context, struct mosquitto__client_msg *client_msg)
 {
 	struct mosquitto__base_msg *base_msg = client_msg->base_msg;
@@ -607,7 +606,7 @@ void db__dap_drop_covered(void)
 	if(!db.dap_pending_ops || !db.dap_pending_ops->publishers){
 		return;
 	}
-	/* Retained data set aside behind the operation was stored after it was applied. */
+	/* Also catches retained data stored after the operation by prioritized intake. */
 	retain__dap_drop_covered();
 	HASH_ITER(hh_id, db.contexts_by_id, context, ctx_tmp){
 		DL_FOREACH_SAFE(context->msgs_out.inflight, client_msg, tmp){

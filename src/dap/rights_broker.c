@@ -24,9 +24,7 @@ struct mosquitto *broker_find_context_by_id(const char *client_id)
     return db__find_context_by_id(client_id);
 }
 
-/* True when the will of publisher_id on topic falls under a DELETE: the topic matches
- * one of its DAP-OpTFs, and the publisher's MP for it, when known, shares a purpose
- * with its DAP-OpPFs. */
+/* True when a DELETE covers the will of publisher_id on topic. */
 static bool dap__will_covered(const char *publisher_id, const char *topic,
     struct dap__op_property *dap_op_properties)
 {
@@ -548,8 +546,7 @@ void broker_send_operation_status(const char *requester_id, struct dap__op_prope
         return;
     }
 
-    /* Each subscriber's latest status and the reason it gave, if any, or the seconds
-     * left before the deadline while it has not responded. */
+    /* Each subscriber's status and reason, or its seconds left while it hasn't responded. */
     cJSON *root = cJSON_CreateObject();
     cJSON *subs = root ? cJSON_AddArrayToObject(root, "subscribers") : NULL;
     for(const struct dap_expected_sub *sub = op->expected; subs && sub; sub = sub->next){

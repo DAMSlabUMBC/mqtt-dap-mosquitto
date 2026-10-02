@@ -68,7 +68,7 @@ int dap_pending_ops_init(struct dap_pending_ops *map);
  * Insert a pending operation for pub_id. topic_filters and subscriber_filters are
  * comma-separated lists, and purpose_filters a purpose filter collection. Pass "*"
  * or NULL for a filter that matches anything. The strings are copied. The operation
- * is kept until dap_pending_ops_remove_expired finds its deadline passed (0 = never).
+ * is kept until its deadline passes (0 = never).
  * The assigned operation id is written to *op_id_out when non-NULL. Returns 0 on
  * success, non-zero on a bad argument, an invalid filter or allocation failure.
  */
@@ -115,18 +115,15 @@ struct dap_pending_op *dap_pending_ops_lookup_operations_for_publisher(struct da
  */
 int dap_pending_ops_remove_operation_by_id(struct dap_pending_ops *map, uint64_t op_id);
 
-/* True when an operation of pub_id covers a message it stored earlier on topic under
- * MP mp (NULL = none): the topic matches the operation's DAP-OpTFs, and its DAP-OpPFs,
- * if any, share a purpose with mp. DAP-OpClients is not considered, since a retained
- * message has no subscriber yet. */
+/* True when an operation of pub_id covers a stored message on topic under MP mp
+ * (NULL = none). DAP-OpClients is ignored, since the message has no subscriber yet. */
 bool dap_pending_ops_cover_stored(struct dap_pending_ops *map, const char *pub_id,
                                   const char *topic, const char *mp, uint64_t msg_order);
 
 /* True when some operation's deadline is at or before now. */
 bool dap_pending_ops_any_expired(struct dap_pending_ops *map, time_t now);
 
-/* Remove every operation whose deadline is at or before now (paper 6.3: operation
- * state is reclaimed once its deadline elapses), calling removed for each. */
+/* Remove every operation whose deadline is at or before now, calling removed for each. */
 void dap_pending_ops_remove_expired(struct dap_pending_ops *map, time_t now,
                                     void (*removed)(uint64_t op_id, void *arg), void *arg);
 

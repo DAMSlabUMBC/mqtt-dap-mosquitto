@@ -169,8 +169,7 @@ def held_request_case():
 
 
 def status_after_restart_case():
-    """Each subscriber's status and reason survive a restart, for an unsettled operation
-    and for one that settled before its deadline (paper 6.3)."""
+    """Operation statuses survive a restart, also for a settled operation (paper 6.3)."""
     workdir = tempfile.mkdtemp(prefix="dap-persist-status-")
     broker = Broker(workdir)
     broker.start("status-1")

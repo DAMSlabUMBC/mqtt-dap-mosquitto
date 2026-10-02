@@ -361,8 +361,7 @@ def case_delete_scopes_retained(pub):
 
 
 def case_restrict_scopes_retained(pub):
-    # A RESTRICT removes the requester's retained messages whose topic it covers and
-    # whose MP shares a purpose with its DAP-OpPFs.
+    # A RESTRICT removes only the retained messages it covers.
     pub.publish("$MP_REG", [("DAP-MP", f"{MP}|maintenance:sensors/r1"),
                             ("DAP-MP", "maintenance:sensors/r2")], qos=0)
     time.sleep(0.2)

@@ -77,8 +77,7 @@ def props(packet_type, pairs):
 
 
 def rejection_cases():
-    """Data without consent or without a registered MP is discarded, not the client:
-    QoS 1 is acknowledged with Not authorized and the connection stays up."""
+    """Data without consent or a registered MP is discarded; the client stays connected."""
     acks = {}
     c = mqtt.Client(CallbackAPIVersion.VERSION2, client_id="pubR", protocol=mqtt.MQTTv5)
     c.on_publish = lambda cl, u, mid, rc, p: acks.__setitem__(mid, rc.value)
@@ -114,8 +113,7 @@ def rejection_cases():
 
 
 def retained_case():
-    """A retained message reaches a new subscription only when its MP, and the
-    publisher's current MP, permit the subscription's SP."""
+    """A retained message reaches a subscription only if its MP and the current MP permit the SP."""
     pub = client("pubT")
     time.sleep(0.2)
     pub.publish("$MP_REG", payload="", qos=0,

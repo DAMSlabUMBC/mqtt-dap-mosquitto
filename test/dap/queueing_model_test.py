@@ -365,8 +365,7 @@ def same_second_case():
 
 
 def op_outlives_deadline_case(op, purposes=None):
-    """Data a DELETE or RESTRICT covers stays dropped for a subscriber that returns
-    after the operation's deadline, when the operation itself has been reclaimed."""
+    """Covered data stays dropped for a subscriber that returns after the deadline."""
     broker = Broker("use_metadata_operation_support true\n")
     try:
         sub = Subscriber("subO", persistent=True)

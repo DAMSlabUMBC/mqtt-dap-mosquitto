@@ -783,8 +783,7 @@ int db__message_remove_incoming(struct mosquitto *context, uint16_t mid);
 int db__message_release_incoming(struct mosquitto *context, uint16_t mid);
 int db__message_update_outgoing(struct mosquitto *context, uint16_t mid, enum mosquitto_msg_state state, int qos, bool persist);
 void db__message_dequeue_first(struct mosquitto *context, struct mosquitto_msg_data *msg_data);
-/* Drop the undelivered messages a pending DELETE or RESTRICT covers, before the
- * operation is reclaimed at its deadline. */
+/* Drop the undelivered messages a pending DELETE or RESTRICT covers. */
 void db__dap_drop_covered(void);
 int db__messages_delete(struct mosquitto *context, bool force_free);
 int db__messages_delete_incoming(struct mosquitto *context);
