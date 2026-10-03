@@ -43,6 +43,10 @@ bool purpose_mp_permits(const char *mp, char *const *sp, uint32_t sp_count);
 /* As purpose_mp_permits, with the canonical revoked purposes (a RESTRICT) taken out of the MP. */
 bool purpose_mp_permits_unrevoked(const char *mp, const char *revoked, char *const *sp, uint32_t sp_count);
 
+/* True when the canonical recognized set (NULL = any) contains every purpose of the
+ * sorted set (paper 4.3). */
+bool purpose_set_recognized(const char *recognized, char *const *set, uint32_t n);
+
 /* True when a canonical set and a sorted set share a purpose; "*" shares one with any
  * non-empty set. */
 bool purpose_set_intersects(const char *canonical, char *const *sorted, uint32_t n);

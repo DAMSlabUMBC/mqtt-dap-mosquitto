@@ -122,17 +122,66 @@ static int subs__send(struct mosquitto__subleaf *leaf, const char *topic, uint8_
 }
 
 
-static int subs__shared_process(struct mosquitto__subhier *hier, const char *topic, uint8_t qos, int retain, struct mosquitto__base_msg *stored)
+/* Send a matched message to one subscription, with the DAP work around it. */
+static int subs__dap_send(struct mosquitto__subleaf *leaf, const char *source_id, const char *topic, uint8_t qos, int retain, struct mosquitto__base_msg *stored)
+{
+	int rc;
+
+	if(db.config->metadata_operation_handling && source_id)
+	{
+		/* On a publisher's first data to this subscriber, send it the subscriber's registered info. */
+		if(!ri__has_sent_to_pub(source_id, leaf->context->id))
+		{
+			const char *info = ri__lookup_info(leaf->context->id);
+
+			if(info){
+				broker_send_response_success(source_id, MOSQ_DAP_OP_REGISTER_INFO, NULL, 0, info, NULL);
+				ri__mark_sent_to_pub(source_id, leaf->context->id);
+			}
+		}
+	}
+
+	uint64_t cmsg_id = 0;
+	rc = subs__send(leaf, topic, qos, retain, stored, &cmsg_id);
+
+	/* Stamp the message into the subscription's topic queue for the send-path gate. */
+	if(cmsg_id && leaf->context->id){
+		if(!leaf->dap_queues){
+			leaf->dap_queues = mosquitto_calloc(1, sizeof(struct dap_subscription_queues));
+			if(leaf->dap_queues){
+				dap_subscription_queues_init(leaf->dap_queues);
+			}
+		}
+		if(leaf->dap_queues){
+			dap_stamp_and_enqueue(leaf->dap_queues, stored->data.source_id, topic,
+					cmsg_id, leaf->sp_version, stored, stored->dap_recv_time);
+			if(stored->data.has_purpose_filter){
+				stored->dap_subs_matched++;
+			}
+		}
+	}
+
+	/* Write here; the send-path gate consults the stamp queued above. */
+	(void)db__message_write_inflight_out_latest(leaf->context);
+	(void)db__message_write_queued_out(leaf->context);
+	return rc;
+}
+
+
+static int subs__shared_process(struct mosquitto__subhier *hier, const char *source_id, const char *topic, uint8_t qos, int retain, struct mosquitto__base_msg *stored)
 {
 	int rc = 0, rc2;
 	struct mosquitto__subshared *shared, *shared_tmp;
 	struct mosquitto__subleaf *leaf;
 
 	HASH_ITER(hh, hier->shared, shared, shared_tmp){
-		leaf = shared->subs;
-		rc2 = subs__send(leaf, topic, qos, retain, stored, NULL);
-		(void)db__message_write_inflight_out_latest(leaf->context);
-		(void)db__message_write_queued_out(leaf->context);
+		/* Paper 4.2: the next member of the group whose SP the MP permits. */
+		for(leaf = shared->subs; leaf && !sub__purpose_allows(leaf, stored); leaf = leaf->next){
+		}
+		if(!leaf){
+			continue;
+		}
+		rc2 = subs__dap_send(leaf, source_id, topic, qos, retain, stored);
 		/* Remove current from the top, add back to the bottom */
 		DL_DELETE(shared->subs, leaf);
 		DL_APPEND(shared->subs, leaf);
@@ -146,15 +195,20 @@ static int subs__shared_process(struct mosquitto__subhier *hier, const char *top
 }
 
 
-bool sub__purpose_allows(const struct mosquitto__subleaf *leaf, const struct mosquitto__base_msg *stored)
+bool sub__purpose_set_allows(char *const *sp, uint32_t sp_count, const struct mosquitto__base_msg *stored)
 {
 	if(!stored->data.has_purpose_filter){
 		return false;
 	}
 	/* Paper 4.2: the MP must permit every purpose of the SP, or be "*". An empty SP
 	 * (consent withdrawn) matches nothing. */
-	return purpose_mp_permits(stored->data.purpose_filter,
-			leaf->purpose_filters, leaf->purpose_filter_count);
+	return purpose_mp_permits(stored->data.purpose_filter, sp, sp_count);
+}
+
+
+bool sub__purpose_allows(const struct mosquitto__subleaf *leaf, const struct mosquitto__base_msg *stored)
+{
+	return sub__purpose_set_allows(leaf->purpose_filters, leaf->purpose_filter_count, stored);
 }
 
 
@@ -164,7 +218,7 @@ static int subs__process(struct mosquitto__subhier *hier, const char *source_id,
 	int rc2;
 	struct mosquitto__subleaf *leaf;
 
-	rc = subs__shared_process(hier, topic, qos, retain, stored);
+	rc = subs__shared_process(hier, source_id, topic, qos, retain, stored);
 
 	leaf = hier->subs;
 	while(source_id && leaf){
@@ -179,49 +233,7 @@ static int subs__process(struct mosquitto__subhier *hier, const char *source_id,
 			continue;
 		}
 
-		if(db.config->metadata_operation_handling)
-		{
-			/* If this is the first time a publisher has sent data, to a subscriber
-			they need to trigger right to be informed */
-			if(!ri__has_sent_to_pub(source_id, leaf->context->id))
-			{
-				const char *info = ri__lookup_info(leaf->context->id);
-
-				if(info){
-					broker_send_response_success(source_id, MOSQ_DAP_OP_REGISTER_INFO, NULL, 0, info, NULL);
-					ri__mark_sent_to_pub(source_id, leaf->context->id);
-				}
-			}
-		}
-
-		uint64_t cmsg_id = 0;
-		rc2 = subs__send(leaf, topic, qos, retain, stored, &cmsg_id);
-
-		/* Alongside the per-client queue subs__send filled above, stamp the queued
-		 * message into the subscription's own topic queue (created on first use). The
-		 * send-path gate consults the pending-op map at delivery time and produces a
-		 * PASS, DROP, or BUMP verdict. The stored message is borrowed, not owned by
-		 * the queue. */
-		if(cmsg_id && leaf->context->id){
-			if(!leaf->dap_queues){
-				leaf->dap_queues = mosquitto_calloc(1, sizeof(struct dap_subscription_queues));
-				if(leaf->dap_queues){
-					dap_subscription_queues_init(leaf->dap_queues);
-				}
-			}
-			if(leaf->dap_queues){
-				dap_stamp_and_enqueue(leaf->dap_queues, stored->data.source_id, topic,
-						cmsg_id, leaf->sp_version, stored, stored->dap_recv_time);
-				if(stored->data.has_purpose_filter){
-					stored->dap_subs_matched++;
-				}
-			}
-		}
-
-		/* Write here; the send-path gate consults the stamp queued above. */
-		(void)db__message_write_inflight_out_latest(leaf->context);
-		(void)db__message_write_queued_out(leaf->context);
-
+		rc2 = subs__dap_send(leaf, source_id, topic, qos, retain, stored);
 		if(rc2){
 			rc = 1;
 		}
@@ -269,19 +281,14 @@ static int sub__add_leaf(struct mosquitto *context, const struct mosquitto_subsc
 			 * indicate this to the calling function. */
 			leaf->identifier = sub->identifier;
 			leaf->subscription_options = sub->options;
-			/* The DAP SP lives on the leaf. A re-subscribe that changes the
-			 * purpose-filter set replaces it and bumps the SP version; an unchanged
-			 * re-subscribe frees the duplicate incoming set, which is not adopted
-			 * elsewhere. */
+			/* The leaf adopts the incoming SP set; only a changed set bumps the SP version. */
 			if(!sub__purpose_filters_equal(leaf->purpose_filters, leaf->purpose_filter_count,
 					sub->purpose_filters, sub->purpose_filter_count)){
-				sub__free_purpose_filters(leaf->purpose_filters, leaf->purpose_filter_count);
-				leaf->purpose_filters = sub->purpose_filters;
-				leaf->purpose_filter_count = sub->purpose_filter_count;
 				leaf->sp_version++;
-			}else{
-				sub__free_purpose_filters(sub->purpose_filters, sub->purpose_filter_count);
 			}
+			sub__free_purpose_filters(leaf->purpose_filters, leaf->purpose_filter_count);
+			leaf->purpose_filters = sub->purpose_filters;
+			leaf->purpose_filter_count = sub->purpose_filter_count;
 			return MOSQ_ERR_SUB_EXISTS;
 		}
 		leaf = leaf->next;

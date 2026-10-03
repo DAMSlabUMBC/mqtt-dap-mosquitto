@@ -27,6 +27,9 @@ Contributors:
 #include "util_mosq.h"
 
 #include "utlist.h"
+#include "dap/dap_pending_ops.h"
+#include "dap/mp_registry.h"
+#include "dap/purpose_filters.h"
 
 static time_t next_expire_check = 0;
 
@@ -243,6 +246,28 @@ static int retain__process(struct mosquitto__retainhier *branch, struct mosquitt
 
 	retained = branch->retained;
 
+	/* Paper 4.2: the message's MP and the publisher's current MP must both permit the SP. */
+	if(!sub__purpose_set_allows(sub->purpose_filters, sub->purpose_filter_count, retained)){
+		return MOSQ_ERR_SUCCESS;
+	}
+	if(retained->data.source_id){
+		struct mp_entry *current = mp__lookup(retained->data.source_id, retained->data.topic);
+		const char *revoked = NULL;
+		enum dap_op_action action;
+
+		if(current && !purpose_mp_permits(current->purpose_filter, sub->purpose_filters, sub->purpose_filter_count)){
+			return MOSQ_ERR_SUCCESS;
+		}
+		/* A pending DELETE or RESTRICT applies as at the send-path gate. */
+		action = dap_pending_ops_match(db.dap_pending_ops, retained->data.source_id, retained->data.topic,
+				sub->purpose_filters, sub->purpose_filter_count, context->id, retained->dap_order, NULL, &revoked);
+		if(action == DAP_OP_ACTION_DROP
+				|| (action == DAP_OP_ACTION_RESTRICT && !purpose_mp_permits_unrevoked(retained->data.purpose_filter,
+						revoked, sub->purpose_filters, sub->purpose_filter_count))){
+			return MOSQ_ERR_SUCCESS;
+		}
+	}
+
 	rc = mosquitto_acl_check(context, retained->data.topic, retained->data.payloadlen, retained->data.payload,
 			retained->data.qos, retained->data.retain, retained->data.properties, MOSQ_ACL_READ);
 	if(rc == MOSQ_ERR_ACL_DENIED){
@@ -374,6 +399,41 @@ int retain__queue(struct mosquitto *context, const struct mosquitto_subscription
 	mosquitto_FREE(split_topics);
 
 	return MOSQ_ERR_SUCCESS;
+}
+
+
+static void retain__dap_drop_covered_branch(struct mosquitto__retainhier **retainhier)
+{
+	struct mosquitto__retainhier *peer, *retainhier_tmp;
+
+	HASH_ITER(hh, *retainhier, peer, retainhier_tmp){
+		struct mosquitto__base_msg *retained = peer->retained;
+
+		retain__dap_drop_covered_branch(&peer->children);
+		if(retained && retained->data.source_id
+				&& dap_pending_ops_cover_stored(db.dap_pending_ops, retained->data.source_id, retained->data.topic,
+						retained->data.has_purpose_filter ? retained->data.purpose_filter : NULL, retained->dap_order)){
+
+			plugin_persist__handle_retain_msg_delete(retained);
+			db__msg_store_ref_dec(&peer->retained);
+			peer->retained = NULL;
+#ifdef WITH_SYS_TREE
+			db.retained_count--;
+#endif
+		}
+		if(!peer->retained && !peer->children && peer->parent){
+			HASH_DELETE(hh, *retainhier, peer);
+			mosquitto_FREE(peer);
+		}
+	}
+}
+
+
+void retain__dap_drop_covered(void)
+{
+	if(db.dap_pending_ops && db.dap_pending_ops->publishers){
+		retain__dap_drop_covered_branch(&db.retains);
+	}
 }
 
 

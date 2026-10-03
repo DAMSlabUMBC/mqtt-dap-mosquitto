@@ -27,7 +27,8 @@ static void flow(const char *pub, const char *topic, const char *sub, const char
     char **sp = NULL;
     uint32_t n = 0;
     assert(purpose_set_expand(sp_filters, &sp, &n) == 0);
-    assert(dr__record_flow(pub, topic, sub, sp, n, t) == 0);
+    const struct dr_sublist *changed;
+    assert(dr__record_flow(pub, topic, sub, sp, n, t, &changed) == 0);
     purpose_set_free(sp, n);
 }
 
@@ -280,6 +281,33 @@ static void test_delivery_time_sp(void)
     printf("ok - a flow keeps the SP in force at delivery\n");
 }
 
+/* New flows and moved receipt times are reported; restored flows are relevant. */
+static void test_flow_changes_and_restore(void)
+{
+    char **sp = NULL;
+    uint32_t n = 0;
+    const struct dr_sublist *changed;
+
+    dr_registry_init();
+    assert(purpose_set_expand("qa", &sp, &n) == 0);
+    assert(dr__record_flow("pubA", "t/a", "subA", sp, n, 100, &changed) == 0 && changed
+           && changed->first_time == 100 && changed->last_time == 100 && !strcmp(changed->sp, "qa"));
+    assert(dr__record_flow("pubA", "t/a", "subA", sp, n, 100, &changed) == 0 && changed == NULL);
+    assert(dr__record_flow("pubA", "t/a", "subA", sp, n, 101, &changed) == 0 && changed && changed->last_time == 101);
+    purpose_set_free(sp, n);
+
+    assert(dr__restore_flow("pubA", "t/b", "subB", "qb|qc", 50, 60) == 0);
+    struct dr_sublist *r = relevant("pubA", "t/b", "qc", "*", 0, 0);
+    assert(sublist_count(r) == 1 && sublist_has(r, "subB"));
+    dr__free_sublist(r);
+    r = relevant("pubA", "*", "*", "*", 70, 0);
+    assert(sublist_count(r) == 1 && sublist_has(r, "subB"));
+    dr__free_sublist(r);
+
+    dr_registry_cleanup();
+    printf("ok - flows report their changes and restored flows are relevant\n");
+}
+
 int main(void)
 {
     test_all_recipients_when_no_filters();
@@ -290,6 +318,7 @@ int main(void)
     test_all_four_conditions_combined();
     test_time_bounds();
     test_delivery_time_sp();
+    test_flow_changes_and_restore();
     printf("\nAll dr relevance tests passed.\n");
     return 0;
 }

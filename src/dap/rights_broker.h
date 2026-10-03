@@ -16,8 +16,8 @@ struct dr_sublist; /* lib/dr_registry.h: relevant-subscriber list node */
 /* Look up a client context by ID. */
 struct mosquitto *broker_find_context_by_id(const char *client_id);
 
-/* Removes Will or retained messages. */
-void handle_remove_stored_messages(const char *publisher_id);
+/* A DELETE also removes the requester's will if it covers it. */
+void handle_remove_will(const char *publisher_id, struct dap__op_property *dap_op_properties);
 
 /* Replace the request's failure reason with a copy of reason. */
 void dap_op_set_reason(struct dap__op_property *dap_op_properties, const char *reason);
@@ -52,6 +52,10 @@ void broker_send_deadline_success(uint64_t op_id, const char *publisher_id);
  * the responding subscriber id (DAP-ClientID), plus any payload/correlation data. */
 void broker_forward_status_to_requester(const char *requester_id, struct dap__op_property *dap_op_properties, const char *responder_id,
     const void *payload, uint32_t payloadlen);
+
+/* Answer requester_id's status request for DAP-OpId with each relevant subscriber's
+ * status, as JSON (paper 6.3). */
+void broker_send_operation_status(const char *requester_id, struct dap__op_property *dap_op_properties);
 
 /* Deliver the requests held for a subscriber that is now connected and subscribed
  * to its request topic. */

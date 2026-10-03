@@ -6,7 +6,6 @@
 
 
 struct dr_entry *dr_head = NULL;
-struct dr_retained_entry *dr_retained_head = NULL;
 /* The entries of dr_head, hashed by publisher and topic. */
 static struct dr_entry *dr_index = NULL;
 
@@ -14,7 +13,6 @@ void dr_registry_init(void)
 {
     dr_head = NULL;
     dr_index = NULL;
-    dr_retained_head = NULL;
 }
 
 void dr_registry_cleanup(void)
@@ -27,15 +25,6 @@ void dr_registry_cleanup(void)
         mosquitto_FREE(e->topic);
         mosquitto_FREE(e->key);
         dr__free_sublist(e->sub_list);
-        mosquitto_FREE(e);
-    }
-
-    while(dr_retained_head)
-    {
-        struct dr_retained_entry *e = dr_retained_head;
-        dr_retained_head = dr_retained_head->next;
-        mosquitto_FREE(e->pub_id);
-        mosquitto_FREE(e->topic);
         mosquitto_FREE(e);
     }
 }
@@ -76,54 +65,62 @@ static struct dr_entry *dr__find_or_create(const char *pub_id, const char *topic
     return e;
 }
 
+/* Add a flow with the given SP and receipt times to an entry. */
+static struct dr_sublist *dr__add_flow(struct dr_entry *entry, const char *sub_id, char *sp,
+                                       time_t first_time, time_t last_time)
+{
+    struct dr_sublist *s = mosquitto_calloc(1, sizeof(*s));
+
+    if(s) s->sub_id = mosquitto_strdup(sub_id);
+    if(!s || !s->sub_id || !sp){
+        mosquitto_FREE(sp);
+        dr__free_sublist(s);
+        return NULL;
+    }
+    s->sp = sp;
+    s->first_time = first_time;
+    s->last_time = last_time;
+    s->next = entry->sub_list;
+    entry->sub_list = s;
+    return s;
+}
+
 int dr__record_flow(const char *pub_id, const char *topic, const char *sub_id,
-                    char *const *sp, uint32_t sp_count, time_t recv_time)
+                    char *const *sp, uint32_t sp_count, time_t recv_time,
+                    const struct dr_sublist **changed)
 {
     struct dr_entry *entry = dr__find_or_create(pub_id, topic);
     struct dr_sublist *s;
 
+    *changed = NULL;
     if(!entry) return MOSQ_ERR_NOMEM;
     for(s = entry->sub_list; s; s = s->next){
         if(!strcmp(s->sub_id, sub_id) && purpose_set_is(s->sp, sp, sp_count)){
-            if(recv_time < s->first_time) s->first_time = recv_time;
-            if(recv_time > s->last_time) s->last_time = recv_time;
+            if(recv_time < s->first_time){
+                s->first_time = recv_time;
+                *changed = s;
+            }
+            if(recv_time > s->last_time){
+                s->last_time = recv_time;
+                *changed = s;
+            }
             return MOSQ_ERR_SUCCESS;
         }
     }
-    s = mosquitto_calloc(1, sizeof(*s));
+    s = dr__add_flow(entry, sub_id, purpose_set_join(sp, sp_count), recv_time, recv_time);
     if(!s) return MOSQ_ERR_NOMEM;
-    s->sub_id = mosquitto_strdup(sub_id);
-    s->sp = purpose_set_join(sp, sp_count);
-    if(!s->sub_id || !s->sp){
-        dr__free_sublist(s);
-        return MOSQ_ERR_NOMEM;
-    }
-    s->first_time = recv_time;
-    s->last_time = recv_time;
-    s->next = entry->sub_list;
-    entry->sub_list = s;
+    *changed = s;
     return MOSQ_ERR_SUCCESS;
 }
 
-void dr__record_retained_publisher(const char* pub_id, const char * topic)
+int dr__restore_flow(const char *pub_id, const char *topic, const char *sub_id,
+                     const char *sp, time_t first_time, time_t last_time)
 {
-    struct dr_retained_entry *cur = dr_retained_head;
-    while(cur){
-        if(!strcmp(cur->topic, topic)){
-            mosquitto_FREE(cur->pub_id);
-            cur->pub_id = mosquitto_strdup(pub_id);
-            return;
-        }
-        cur = cur->next;
-    }
+    struct dr_entry *entry = dr__find_or_create(pub_id, topic);
 
-    struct dr_retained_entry *e = mosquitto_calloc(1, sizeof(*e));
-    if(!e) return;
-    e->pub_id = mosquitto_strdup(pub_id);
-    e->topic  = mosquitto_strdup(topic);
-    e->next = dr_retained_head;
-    dr_retained_head = e;
-    return;
+    if(!entry) return MOSQ_ERR_NOMEM;
+    return dr__add_flow(entry, sub_id, mosquitto_strdup(sp ? sp : ""), first_time, last_time)
+            ? MOSQ_ERR_SUCCESS : MOSQ_ERR_NOMEM;
 }
 
 void dr__free_sublist(struct dr_sublist *list)

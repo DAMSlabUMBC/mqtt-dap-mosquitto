@@ -25,6 +25,7 @@ Contributors:
 #include "will_mosq.h"
 #include "utlist.h"
 #include "dap/dap_persist.h"
+#include "dap/purpose_filters.h"
 #include "will_mosq.h"
 
 #ifdef WITH_TLS
@@ -751,12 +752,35 @@ BROKER_EXPORT int mosquitto_subscription_add(const struct mosquitto_subscription
 	}
 
 	HASH_FIND(hh_id, db.contexts_by_id, sub->clientid, strlen(sub->clientid), context);
-
-	if(context){
-		return sub__add(context, sub);
-	}else{
+	if(!context){
 		return MOSQ_ERR_NOT_FOUND;
 	}
+
+	/* sub__add takes the SP set, so give it a sorted copy of the caller's. */
+	struct mosquitto_subscription copy = *sub;
+	int rc;
+	copy.purpose_filters = NULL;
+	copy.purpose_filter_count = 0;
+	if(sub->purpose_filter_count > 0){
+		copy.purpose_filters = mosquitto_calloc(sub->purpose_filter_count, sizeof(char *));
+		if(!copy.purpose_filters){
+			return MOSQ_ERR_NOMEM;
+		}
+		for(uint32_t i = 0; i < sub->purpose_filter_count; i++){
+			copy.purpose_filters[i] = mosquitto_strdup(sub->purpose_filters[i]);
+			if(!copy.purpose_filters[i]){
+				purpose_set_free(copy.purpose_filters, i);
+				return MOSQ_ERR_NOMEM;
+			}
+		}
+		copy.purpose_filter_count = sub->purpose_filter_count;
+		purpose_set_normalize(copy.purpose_filters, &copy.purpose_filter_count);
+	}
+	rc = sub__add(context, &copy);
+	if(rc > 0){
+		purpose_set_free(copy.purpose_filters, copy.purpose_filter_count);
+	}
+	return rc;
 }
 
 
@@ -811,6 +835,9 @@ BROKER_EXPORT int mosquitto_persist_base_msg_add(struct mosquitto_base_msg *msg_
 	msg_add->payload = NULL;
 	base_msg->data.topic = msg_add->topic;
 	msg_add->topic = NULL;
+	base_msg->data.has_purpose_filter = msg_add->has_purpose_filter;
+	base_msg->data.purpose_filter = msg_add->purpose_filter;
+	msg_add->purpose_filter = NULL;
 	base_msg->data.properties = msg_add->properties;
 	msg_add->properties = NULL;
 	base_msg->dap_recv_time = dap_persist__recv_time(base_msg->data.properties);
@@ -834,6 +861,7 @@ BROKER_EXPORT int mosquitto_persist_base_msg_add(struct mosquitto_base_msg *msg_
 error:
 	mosquitto_property_free_all(&msg_add->properties);
 	mosquitto_free(msg_add->topic);
+	mosquitto_free(msg_add->purpose_filter);
 	mosquitto_free(msg_add->payload);
 	mosquitto_free(base_msg);
 

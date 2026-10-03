@@ -57,6 +57,7 @@ Contributors:
 #include "dap/dap_request_store.h"
 #include "dap/dap_intake.h"
 #include "dap/dap_persist.h"
+#include "dap/dap_pending_ops.h"
 
 extern int g_run;
 
@@ -177,6 +178,13 @@ void loop__update_next_event(time_t new_ms)
 }
 
 
+static void dap_deadline__reclaimed(uint64_t op_id, void *arg)
+{
+	UNUSED(arg);
+	dap_persist__op_delete(op_id);
+}
+
+
 /* Sweep the deadline tracker for operations whose deadline has passed and notify the
  * requesting publisher of any subscriber that never responded. Cheap when nothing is
  * tracked; db.now_real_s is refreshed each iteration by mux__handle. */
@@ -186,24 +194,31 @@ static void dap_deadline__check(void)
 
 	struct dap_expired_op *expired = dap_deadline_tracker_check_expired(db.dap_deadline_tracker, db.now_real_s);
 	for(struct dap_expired_op *e = expired; e; e = e->next){
-		dap_persist__tracked_op_delete(e->op_id);
-		if(e->num_unresponded > 0){
+		dap_persist__tracked_op_delete(e->op_id, false);
+		if(e->settled){
+			/* Its final Success went out when the last subscriber responded. */
+		}else if(e->num_unresponded > 0){
 			broker_send_deadline_failure(e->op_id, e->publisher_id, e->unresponded_subs, e->num_unresponded);
 		}else{
-			/* Every relevant subscriber responded before the deadline: Success.
-			 * A fully-responded op is normally settled and removed the moment its last
-			 * response arrives (handle_dap_status_notification), so this is a fallback
-			 * for any tracked op that still reaches its deadline with nothing
-			 * outstanding. */
+			/* Every subscriber responded, but the op was not settled when the last one did. */
 			broker_send_deadline_success(e->op_id, e->publisher_id);
 		}
 	}
 	dap_deadline_tracker_free_expired(expired);
 
-	/* Requests held past their deadline are no longer delivered. */
+	/* Paper 6.3: reclaim operation state after its deadline. The requester mapping
+	 * stays for late responses. */
 	static time_t last_expiry = 0;
-	if(db.dap_request_store && db.dap_request_store->inboxes && db.now_real_s != last_expiry){
-		dap_request_store_expire(db.dap_request_store, db.now_real_s);
+	if(db.now_real_s != last_expiry){
+		/* First drop the data an expiring operation covers. */
+		if(dap_pending_ops_any_expired(db.dap_pending_ops, db.now_real_s)){
+			db__dap_drop_covered();
+		}
+		dap_pending_ops_remove_expired(db.dap_pending_ops, db.now_real_s, dap_deadline__reclaimed, NULL);
+		if(db.dap_request_store && db.dap_request_store->inboxes){
+			dap_request_store_expire(db.dap_request_store, db.now_real_s);
+			dap_persist__request_delete(NULL, db.now_real_s);
+		}
 		last_expiry = db.now_real_s;
 	}
 }

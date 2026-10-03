@@ -10,6 +10,7 @@ int dap_op_request_insert(struct dap_pending_ops *map,
                           const char *pub_id,
                           struct dap__op_property *dap_op_properties,
                           uint64_t order,
+                          time_t deadline,
                           uint64_t *op_id_out)
 {
     if(!map || !pub_id || !dap_op_properties->op_id) return 1;
@@ -27,7 +28,7 @@ int dap_op_request_insert(struct dap_pending_ops *map,
 
     /* The filter strings are forwarded as-is; insert_operation copies and parses each
      * comma-separated list (NULL/"" -> "any"). */
-    return dap_pending_ops_insert_operation(map, pub_id, type, order,
+    return dap_pending_ops_insert_operation(map, pub_id, type, order, deadline,
                                             dap_op_properties->op_topic_filters, dap_op_properties->op_purpose_filters,
                                             dap_op_properties->op_client_filters, op_id_out);
 }

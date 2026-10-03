@@ -198,6 +198,10 @@ struct plugin__callbacks {
 	struct mosquitto__callback *persist_dap_tracked_op_add;
 	struct mosquitto__callback *persist_dap_tracked_op_response;
 	struct mosquitto__callback *persist_dap_tracked_op_delete;
+	struct mosquitto__callback *persist_dap_op_delete;
+	struct mosquitto__callback *persist_dap_flow_add;
+	struct mosquitto__callback *persist_dap_request_add;
+	struct mosquitto__callback *persist_dap_request_delete;
 };
 
 /* This is owned by mosquitto__config or mosquitto__listener, and only referred
@@ -374,6 +378,7 @@ struct mosquitto__config {
 	bool upgrade_outgoing_qos;
 	char *user;
 	bool metadata_operation_handling;
+	char *dap_recognized_purposes; /* canonical set of recognized purposes; NULL = any (paper 4.3) */
 #if defined(WITH_WEBSOCKETS) && WITH_WEBSOCKETS == WS_IS_LWS
 	int websockets_log_level;
 #endif
@@ -778,6 +783,8 @@ int db__message_remove_incoming(struct mosquitto *context, uint16_t mid);
 int db__message_release_incoming(struct mosquitto *context, uint16_t mid);
 int db__message_update_outgoing(struct mosquitto *context, uint16_t mid, enum mosquitto_msg_state state, int qos, bool persist);
 void db__message_dequeue_first(struct mosquitto *context, struct mosquitto_msg_data *msg_data);
+/* Drop the undelivered messages a pending DELETE or RESTRICT covers. */
+void db__dap_drop_covered(void);
 int db__messages_delete(struct mosquitto *context, bool force_free);
 int db__messages_delete_incoming(struct mosquitto *context);
 int db__messages_delete_outgoing(struct mosquitto *context);
@@ -818,6 +825,8 @@ int sub__clean_session(struct mosquitto *context);
 int sub__messages_queue(const char *source_id, const char *topic, uint8_t qos, int retain, struct mosquitto__base_msg **base_msg);
 /* True when the subscription's current SP admits the message's purpose. */
 bool sub__purpose_allows(const struct mosquitto__subleaf *leaf, const struct mosquitto__base_msg *stored);
+/* As sub__purpose_allows, for a subscription's sorted SP. */
+bool sub__purpose_set_allows(char *const *sp, uint32_t sp_count, const struct mosquitto__base_msg *stored);
 int sub__topic_tokenise(const char *subtopic, char **local_sub, char ***topics, const char **sharename);
 void sub__topic_tokens_free(struct sub__token *tokens);
 
@@ -968,6 +977,8 @@ int retain__queue(struct mosquitto *context, const struct mosquitto_subscription
 int retain__store(const char *topic, struct mosquitto__base_msg *base_msg, char **split_topics, bool persist);
 void retain__expiry_check(void);
 void retain__expire(struct mosquitto__retainhier **retainhier);
+/* Remove the retained messages a pending DELETE or RESTRICT covers. */
+void retain__dap_drop_covered(void);
 
 /* ============================================================
  * Security related functions

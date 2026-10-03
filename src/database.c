@@ -36,6 +36,7 @@ Contributors:
 #include "dap/mp_registry.h"
 #include "dap/purpose_filters.h"
 #include "dap/dr_registry.h"
+#include "dap/dap_persist.h"
 #include "dap/dap_metrics.h"
 
 /**
@@ -521,6 +522,20 @@ static void db__dap_discard_stamp(struct mosquitto *context, struct mosquitto__c
 	}
 }
 
+/* Count one subscription's delivery as decided; log the metrics once all are. */
+static void db__dap_resolved(struct mosquitto__base_msg *base_msg)
+{
+	if(base_msg->data.has_purpose_filter){
+		base_msg->dap_subs_resolved++;
+		if(base_msg->dap_fanout_complete
+				&& !base_msg->dap_metrics_emitted
+				&& base_msg->dap_subs_matched == base_msg->dap_subs_resolved){
+			dap_metrics_log_message(base_msg);
+			base_msg->dap_metrics_emitted = true;
+		}
+	}
+}
+
 static void db__message_remove_inflight(struct mosquitto *context, struct mosquitto_msg_data *msg_data, struct mosquitto__client_msg *item)
 {
 	if(!context || !msg_data || !item){
@@ -554,6 +569,69 @@ static void db__message_remove_queued(struct mosquitto *context, struct mosquitt
 	}
 
 	mosquitto_FREE(item);
+}
+
+
+/* Whether a pending DELETE or RESTRICT covers an undelivered message. A restored
+ * message has no SP, so only DELETE applies. */
+static bool db__dap_covered(struct mosquitto *context, struct mosquitto__client_msg *client_msg)
+{
+	struct mosquitto__base_msg *base_msg = client_msg->base_msg;
+	struct mosquitto__subleaf *leaf = NULL;
+	const char *revoked = NULL;
+	enum dap_op_action action;
+
+	if(!base_msg || !base_msg->data.has_purpose_filter || !base_msg->data.source_id){
+		return false;
+	}
+	if(db__dap_find_stamp(context, client_msg, &leaf)){
+		action = dap_pending_ops_match(db.dap_pending_ops, base_msg->data.source_id, base_msg->data.topic,
+				leaf->purpose_filters, leaf->purpose_filter_count, context->id,
+				base_msg->dap_order, NULL, &revoked);
+		return action == DAP_OP_ACTION_DROP
+			|| (action == DAP_OP_ACTION_RESTRICT && !purpose_mp_permits_unrevoked(base_msg->data.purpose_filter,
+					revoked, leaf->purpose_filters, leaf->purpose_filter_count));
+	}
+	return base_msg->dap_restored
+		&& dap_pending_ops_match(db.dap_pending_ops, base_msg->data.source_id, base_msg->data.topic,
+				NULL, 0, context->id, base_msg->dap_order, NULL, NULL) == DAP_OP_ACTION_DROP;
+}
+
+
+void db__dap_drop_covered(void)
+{
+	struct mosquitto *context, *ctx_tmp;
+	struct mosquitto__client_msg *client_msg, *tmp;
+
+	if(!db.dap_pending_ops || !db.dap_pending_ops->publishers){
+		return;
+	}
+	/* Also catches retained data stored after the operation by prioritized intake. */
+	retain__dap_drop_covered();
+	HASH_ITER(hh_id, db.contexts_by_id, context, ctx_tmp){
+		DL_FOREACH_SAFE(context->msgs_out.inflight, client_msg, tmp){
+			if((client_msg->data.state == mosq_ms_publish_qos0
+						|| client_msg->data.state == mosq_ms_publish_qos1
+						|| client_msg->data.state == mosq_ms_publish_qos2)
+					&& db__dap_covered(context, client_msg)){
+
+				db__dap_discard_stamp(context, client_msg);
+				db__dap_resolved(client_msg->base_msg);
+				if(client_msg->data.qos > 0){
+					util__increment_send_quota(context);
+				}
+				db__message_remove_inflight(context, &context->msgs_out, client_msg);
+				context->dap_write_again = true;
+			}
+		}
+		DL_FOREACH_SAFE(context->msgs_out.queued, client_msg, tmp){
+			if(db__dap_covered(context, client_msg)){
+				db__dap_discard_stamp(context, client_msg);
+				db__dap_resolved(client_msg->base_msg);
+				db__message_remove_queued(context, &context->msgs_out, client_msg);
+			}
+		}
+	}
 }
 
 
@@ -1718,9 +1796,12 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 				if(!is_op_system && base_msg->data.source_id){
 					/* Paper 6.1: the flow keeps the SP in force at delivery. A message
 					 * restored without its subscription records an empty SP. */
-					dr__record_flow(base_msg->data.source_id, topic, client_id,
+					const struct dr_sublist *changed;
+					if(dr__record_flow(base_msg->data.source_id, topic, client_id,
 							leaf ? leaf->purpose_filters : NULL, leaf ? leaf->purpose_filter_count : 0,
-							base_msg->dap_recv_time);
+							base_msg->dap_recv_time, &changed) == MOSQ_ERR_SUCCESS && changed){
+						dap_persist__flow_add(base_msg->data.source_id, topic, changed);
+					}
 				}
 			}
 			if(has_stamp){
@@ -1733,15 +1814,7 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 				dap_holding_list_free_held(dap_holding_list_flush(hl, client_id));
 				context->dap_write_again = true;
 			}
-			if(base_msg->data.has_purpose_filter){
-				base_msg->dap_subs_resolved++;
-				if(base_msg->dap_fanout_complete
-						&& !base_msg->dap_metrics_emitted
-						&& base_msg->dap_subs_matched == base_msg->dap_subs_resolved){
-					dap_metrics_log_message(base_msg);
-					base_msg->dap_metrics_emitted = true;
-				}
-			}
+			db__dap_resolved(base_msg);
 			return DAP_HOOK_SEND;
 
 		case DAP_DISP_DROP:
@@ -1761,15 +1834,7 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 			if(client_msg->data.direction == mosq_md_out && client_msg->data.qos > 0){
 				util__increment_send_quota(context);
 			}
-			if(base_msg->data.has_purpose_filter){
-				base_msg->dap_subs_resolved++;
-				if(base_msg->dap_fanout_complete
-						&& !base_msg->dap_metrics_emitted
-						&& base_msg->dap_subs_matched == base_msg->dap_subs_resolved){
-					dap_metrics_log_message(base_msg);
-					base_msg->dap_metrics_emitted = true;
-				}
-			}
+			db__dap_resolved(base_msg);
 			db__message_remove_inflight(context, &context->msgs_out, client_msg);
 			return DAP_HOOK_HANDLED;
 

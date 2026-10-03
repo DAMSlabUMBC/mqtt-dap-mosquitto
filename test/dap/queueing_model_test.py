@@ -106,10 +106,12 @@ class Publisher:
         self.publish("$MP_REG", [("DAP-MP", f"{mp}:{topic}")], qos=0)
         time.sleep(0.2)
 
-    def operation(self, op, topic_filter, purposes=None):
+    def operation(self, op, topic_filter, purposes=None, deadline=None):
         pairs = [("DAP-OpType", op), ("DAP-OpTFs", topic_filter)]
         if purposes is not None:
             pairs.append(("DAP-OpPFs", purposes))
+        if deadline is not None:
+            pairs.append(("DAP-Deadline", str(deadline)))
         self.publish(OSYS, pairs)
 
     def got_status(self, status):
@@ -129,9 +131,9 @@ class RawPublisher:
         connack = self.sock.recv(64)
         assert connack[0] == 0x20 and connack[3] == 0, "CONNACK failed"
 
-    def packet(self, topic, pairs, payload=b"", alias=None, qos=0, mid=0, allow=True):
+    def packet(self, topic, pairs, payload=b"", alias=None, qos=0, mid=0):
         props = b"".join(mqtt5_props.gen_string_pair_prop(mqtt5_props.USER_PROPERTY, k, v)
-                         for k, v in ([("DAP-Allow", "1")] if allow else []) + pairs)
+                         for k, v in [("DAP-Allow", "1")] + pairs)
         if alias is not None:
             props += mqtt5_props.gen_uint16_prop(mqtt5_props.TOPIC_ALIAS, alias)
         return mosq_test.gen_publish(topic, qos, payload, mid=mid, proto_ver=5, properties=props)
@@ -362,6 +364,31 @@ def same_second_case():
         check(broker.stop() == 0, "broker exits cleanly")
 
 
+def op_outlives_deadline_case(op, purposes=None):
+    """Covered data stays dropped for a subscriber that returns after the deadline."""
+    broker = Broker("use_metadata_operation_support true\n")
+    try:
+        sub = Subscriber("subO", persistent=True)
+        sub.subscribe("t/o", ["qa"])
+        pub = Publisher()
+        pub.register("qa|qb", "t/o")
+        pub.publish("t/o", [], payload=b"m0")
+        check(payloads(sub.read_publishes(), "t/o") == [b"m0"], "subscriber receives data before the %s" % op)
+        sub.disconnect()
+        pub.publish("t/o", [], payload=b"m1")
+        pub.operation(op, "t/o", purposes, deadline=int(time.time()) + 2)
+        check(wait_for(lambda: pub.got_status("Pending")), "requester gets a Pending ack for the %s" % op)
+        time.sleep(3.5)  # past the deadline: the operation is reclaimed
+        pub.publish("t/o", [], payload=b"m2")
+        sub.connect()
+        got = payloads(sub.read_publishes(), "t/o")
+        check(got == [b"m2"], "data the %s covered is not delivered after its deadline (got %s)" % (op, got))
+        sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
 def drop_then_stale_case():
     """After a reconnect, a DELETEd message followed by stale ones keeps publish order."""
     broker = Broker("use_metadata_operation_support true\n")
@@ -486,9 +513,9 @@ def sp_change_case(new_sps, still_allowed):
         check(broker.stop() == 0, "broker exits cleanly")
 
 
-def mp_change_case(new_mp, still_allowed):
+def mp_change_case(new_mp, still_allowed, conf=""):
     """A message waiting while its publisher changes the topic's MP is re-checked against the new MP."""
-    broker = Broker()
+    broker = Broker(conf)
     try:
         sub = Subscriber("subM", receive_maximum=1)
         sub.subscribe("t/m", ["qa"])
@@ -506,7 +533,8 @@ def mp_change_case(new_mp, still_allowed):
         pub.publish("t/m", [], payload=b"m3")
         got = payloads(sub.read_publishes(), "t/m")
         expected = [b"m2", b"m3"] if still_allowed else [b"m3"]
-        check(got == expected, "after the MP becomes %s, delivered %s (expected %s)" % (new_mp, got, expected))
+        check(got == expected, "after the MP becomes %s%s, delivered %s (expected %s)"
+              % (new_mp, " behind a mount point" if conf else "", got, expected))
         sub.close()
     finally:
         stop_clients()
@@ -628,16 +656,27 @@ def intake_own_order_case():
 def intake_error_order_case():
     """A state change that goes ahead of the client's data and fails still lets that
     data be acknowledged before the DISCONNECT, which must be the last packet."""
-    broker = Broker("use_metadata_operation_support true\n")
+    broker = Broker()
     try:
         sub = Subscriber("subN")
         sub.subscribe("t/n", ["qa"])
         pub = RawPublisher()
         pub.send(pub.packet("$MP_REG", [("DAP-MP", "qa:t/n")]))
         pub.sock.sendall(pub.packet("t/n", [], b"m1", qos=1, mid=7)
-                         + pub.packet(OSYS, [("DAP-OpType", "DELETE")], allow=False))
+                         + pub.packet("$MP_REG", [("DAP-MP", "no-separator")]))
         first = pub.sock.recv(1)
         check(first == b"\x40", "the PUBACK for the earlier data comes before the DISCONNECT (got %s)" % first.hex())
+        # The PUBACK and DISCONNECT may arrive in separate reads; the broker then closes.
+        rest = b""
+        try:
+            while b"\xe0" not in rest:
+                chunk = pub.sock.recv(64)
+                if not chunk:
+                    break
+                rest += chunk
+        except OSError:
+            pass
+        check(b"\xe0" in rest, "the malformed registration then ends the connection")
         check(payloads(sub.read_publishes(), "t/n") == [b"m1"], "the earlier data is delivered")
         pub.close()
         sub.close()
@@ -685,6 +724,8 @@ def main():
     delete_case(gap=True)
     drop_refill_case()
     same_second_case()
+    op_outlives_deadline_case("DELETE")
+    op_outlives_deadline_case("RESTRICT", "qa")
     scoped_op_case("DELETE", "t/+/1", "qb", {"qa": True, "qb": False, "qa|qc": True, "qb|qc": False})
     scoped_op_case("DELETE", "t/s/#", "qx", {"qa": True, "qb": True})
     scoped_op_case("DELETE", "t/other", None, {"qa": True})
@@ -701,6 +742,7 @@ def main():
     sp_change_case(["qa", "qb"], still_allowed=False)
     mp_change_case("qa|qb", still_allowed=True)
     mp_change_case("qz", still_allowed=False)
+    mp_change_case("qz", still_allowed=False, conf="mount_point m/\n")
     mp_widen_case()
     print("# prioritized intake")
     intake_mp_case()

@@ -154,19 +154,20 @@ enum mosq_transport_t {
 #define MOSQ_DAP_TOPIC_ORS "OP_REQ"    
 #define MOSQ_DAP_TOPIC_ONP "OP_NOTIF"  
 
-/* DAP operation types. DELETE and RESTRICT reuse the right constants above. The
- * rest are not yet implemented. */
+/* DAP operation types (paper Table 2). */
 #define MOSQ_DAP_OP_AUDIT "AUDIT"
 #define MOSQ_DAP_OP_HISTORY "HISTORY"
 #define MOSQ_DAP_OP_UPDATE "UPDATE"
 #define MOSQ_DAP_OP_DELETE "DELETE"    /* was "Erasure" */
 #define MOSQ_DAP_OP_RESTRICT "RESTRICT" /* was "Restriction" */
 #define MOSQ_DAP_OP_REGISTER_INFO "REGISTER-INFO"
-#define MOSQ_DAP_OP_PREFIX "O:" /* generic operator-defined operation prefix */
+#define MOSQ_DAP_OP_PREFIX "O:" /* prefix of client-defined operations */
+#define MOSQ_DAP_OP_STATUS "STATUS" /* a requester's status request for one of its operations */
 
 /* MQTT-DAP Misc */
 #define MOSQ_DAP_OP_PURPOSE "DAP_OP"    /* paper 5.1: operation-processing consent value (was "DAP_op") */
-#define MOSQ_DAP_DEFAULT_DEADLINE_SECS 30 /* operation deadline = receipt time + this; TODO make configurable */
+#define MOSQ_DAP_DEFAULT_DEADLINE_SECS 30 /* deadline after receipt when a request gives none */
+#define MOSQ_DAP_MAX_DEADLINE_SECS (31*24*3600) /* latest DAP-Deadline accepted, after receipt */
 #define MOSQ_DAP_MAX_FILTERS_PER_SUB 100
 #define MOSQ_DAP_ALLOW_ALL_FILTER "*"
 

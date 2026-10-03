@@ -24,11 +24,36 @@ Contributors:
 #include "persist_sqlite.h"
 
 
+/* A subscription's SP as one '|'-joined string, or NULL when it has none. */
+static char *purposes_join(const struct mosquitto_subscription *sub)
+{
+	size_t len = 1;
+	char *joined, *q;
+
+	if(sub->purpose_filter_count == 0) return NULL;
+	for(uint32_t i = 0; i < sub->purpose_filter_count; i++){
+		len += strlen(sub->purpose_filters[i]) + 1;
+	}
+	joined = mosquitto_malloc(len);
+	if(!joined) return NULL;
+	q = joined;
+	for(uint32_t i = 0; i < sub->purpose_filter_count; i++){
+		size_t n = strlen(sub->purpose_filters[i]);
+		if(i > 0) *q++ = '|';
+		memcpy(q, sub->purpose_filters[i], n);
+		q += n;
+	}
+	*q = '\0';
+	return joined;
+}
+
+
 int persist_sqlite__subscription_add_cb(int event, void *event_data, void *userdata)
 {
 	struct mosquitto_evt_persist_subscription *ed = event_data;
 	struct mosquitto_sqlite *ms = userdata;
 	int rc = MOSQ_ERR_UNKNOWN;
+	char *purposes = purposes_join(&ed->data);
 
 	UNUSED(event);
 
@@ -42,7 +67,10 @@ int persist_sqlite__subscription_add_cb(int event, void *event_data, void *userd
 					ed->data.options) == SQLITE_OK){
 
 				if(sqlite3_bind_int(ms->subscription_add_stmt, 4,
-						(int)ed->data.identifier) == SQLITE_OK){
+						(int)ed->data.identifier) == SQLITE_OK
+						&& (purposes
+							? sqlite3_bind_text(ms->subscription_add_stmt, 5, purposes, (int)strlen(purposes), SQLITE_STATIC)
+							: sqlite3_bind_null(ms->subscription_add_stmt, 5)) == SQLITE_OK){
 
 					ms->event_count++;
 					rc = sqlite3_step(ms->subscription_add_stmt);
@@ -56,6 +84,7 @@ int persist_sqlite__subscription_add_cb(int event, void *event_data, void *userd
 		}
 	}
 	sqlite3_reset(ms->subscription_add_stmt);
+	mosquitto_free(purposes);
 
 	return rc;
 }

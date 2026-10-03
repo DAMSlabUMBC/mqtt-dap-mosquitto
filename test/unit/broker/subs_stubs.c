@@ -132,6 +132,11 @@ void retain__clean(struct mosquitto__retainhier **retainhier)
 }
 
 
+void retain__dap_drop_covered(void)
+{
+}
+
+
 int retain__queue(struct mosquitto *context, const struct mosquitto_subscription *sub)
 {
 	UNUSED(context);
@@ -271,4 +276,15 @@ void broker_send_response_success(const char *publisher_id, const char *operatio
 	UNUSED(correlation_data_len);
 	UNUSED(payload);
 	UNUSED(response_topic);
+}
+
+
+struct dr_sublist;
+
+/* The real one in src/dap/dap_persist.c needs the plugin machinery. */
+void dap_persist__flow_add(const char *publisher_id, const char *topic, const struct dr_sublist *flow)
+{
+	UNUSED(publisher_id);
+	UNUSED(topic);
+	UNUSED(flow);
 }

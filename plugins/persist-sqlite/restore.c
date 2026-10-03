@@ -58,7 +58,7 @@ static uint8_t hex2nibble(char c)
 }
 
 
-static mosquitto_property *json_to_properties(const char *json)
+mosquitto_property *json_to_properties(const char *json)
 {
 	mosquitto_property *properties = NULL;
 	cJSON *array, *obj, *j_value;
@@ -259,7 +259,7 @@ static int subscription_restore(struct mosquitto_sqlite *ms)
 	long count = 0, failed = 0;
 
 	rc = sqlite3_prepare_v2(ms->db,
-			"SELECT client_id,topic,subscription_options,subscription_identifier "
+			"SELECT client_id,topic,subscription_options,subscription_identifier,purposes "
 			"FROM subscriptions",
 			-1, &stmt, NULL);
 
@@ -274,8 +274,17 @@ static int subscription_restore(struct mosquitto_sqlite *ms)
 		sub.topic_filter = (char *)sqlite3_column_text(stmt, 1);
 		sub.options = (uint8_t)sqlite3_column_int(stmt, 2);
 		sub.identifier = (uint32_t)sqlite3_column_int(stmt, 3);
+		/* The SP is a '|'-joined purpose set; mosquitto_subscription_add copies it. */
+		char *purposes = sqlite3_column_text(stmt, 4) ? strdup((const char *)sqlite3_column_text(stmt, 4)) : NULL;
+		char *purpose_list[MOSQ_DAP_MAX_FILTERS_PER_SUB];
+		for(char *p = purposes, *save = NULL, *tok; purposes && (tok = strtok_r(p, "|", &save)) != NULL; p = NULL){
+			if(sub.purpose_filter_count == MOSQ_DAP_MAX_FILTERS_PER_SUB) break;
+			purpose_list[sub.purpose_filter_count++] = tok;
+		}
+		sub.purpose_filters = purpose_list;
 
 		rc = mosquitto_subscription_add(&sub);
+		free(purposes);
 		if(rc == MOSQ_ERR_SUCCESS){
 			count++;
 		}else{
@@ -300,7 +309,7 @@ static int base_msg_restore(struct mosquitto_sqlite *ms)
 	const void *payload;
 
 	rc = sqlite3_prepare_v2(ms->db,
-			"SELECT store_id, expiry_time, topic, payload, source_id, source_username, payloadlen, source_mid, source_port, qos, retain, properties "
+			"SELECT store_id, expiry_time, topic, payload, source_id, source_username, payloadlen, source_mid, source_port, qos, retain, properties, purpose_filter "
 			"FROM base_msgs",
 			-1, &stmt, NULL);
 
@@ -341,6 +350,10 @@ static int base_msg_restore(struct mosquitto_sqlite *ms)
 		base_msg.qos = (uint8_t)sqlite3_column_int(stmt, 9);
 		base_msg.retain = sqlite3_column_int(stmt, 10);
 		base_msg.properties = json_to_properties((const char *)sqlite3_column_text(stmt, 11));
+		if(sqlite3_column_text(stmt, 12)){
+			base_msg.purpose_filter = mosquitto_strdup((const char *)sqlite3_column_text(stmt, 12));
+			base_msg.has_purpose_filter = base_msg.purpose_filter != NULL;
+		}
 
 		rc = mosquitto_persist_base_msg_add(&base_msg);
 		if(rc == MOSQ_ERR_SUCCESS){

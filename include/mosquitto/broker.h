@@ -118,6 +118,29 @@ struct mosquitto_dap_op {
 	const char *topic_filters;   /* NULL = any */
 	const char *purpose_filters; /* NULL = any */
 	const char *client_filters;  /* NULL = any */
+	time_t deadline;             /* reclaimed after this; 0 = unknown */
+	void *future[3];
+};
+
+/* A DAP flow: deliveries from a publisher on a topic to a subscriber under one SP. */
+struct mosquitto_dap_flow {
+	const char *publisher_id;
+	const char *topic;
+	const char *subscriber_id;
+	const char *purposes;        /* the SP at delivery, '|'-joined */
+	time_t first_time;
+	time_t last_time;
+	void *future[4];
+};
+
+/* A DAP operation request held for a subscriber until it can receive it. */
+struct mosquitto_dap_request {
+	const char *subscriber_id;
+	uint64_t op_id;
+	time_t deadline;
+	const void *payload;
+	uint32_t payloadlen;
+	const mosquitto_property *properties;
 	void *future[4];
 };
 
@@ -129,8 +152,10 @@ struct mosquitto_dap_tracked_op {
 	const char *const *expected_subs;
 	const bool *responded;             /* restore only, may be NULL */
 	size_t num_expected;
-	bool settled;                      /* restore only */
-	void *future[4];
+	bool settled;                      /* every subscriber responded */
+	const char *const *statuses;       /* restore only, may be NULL */
+	const char *const *reasons;        /* restore only, may be NULL */
+	void *future[2];
 };
 
 struct mosquitto_client_msg {
@@ -203,6 +228,10 @@ enum mosquitto_plugin_event {
 	MOSQ_EVT_PERSIST_DAP_TRACKED_OP_ADD = 101,
 	MOSQ_EVT_PERSIST_DAP_TRACKED_OP_RESPONSE = 102,
 	MOSQ_EVT_PERSIST_DAP_TRACKED_OP_DELETE = 103,
+	MOSQ_EVT_PERSIST_DAP_OP_DELETE = 104,
+	MOSQ_EVT_PERSIST_DAP_FLOW_ADD = 105,
+	MOSQ_EVT_PERSIST_DAP_REQUEST_ADD = 106,
+	MOSQ_EVT_PERSIST_DAP_REQUEST_DELETE = 107,
 };
 
 /* Data for the MOSQ_EVT_RELOAD event */
@@ -411,7 +440,7 @@ struct mosquitto_evt_persist_will_msg {
 };
 
 
-/* Data for the MOSQ_EVT_PERSIST_DAP_OP_ADD event */
+/* Data for MOSQ_EVT_PERSIST_DAP_OP_ADD and _DELETE. _DELETE sets only op_id. */
 struct mosquitto_evt_persist_dap_op {
 	void *future;
 	struct mosquitto_dap_op data;
@@ -419,12 +448,32 @@ struct mosquitto_evt_persist_dap_op {
 };
 
 
-/* Data for MOSQ_EVT_PERSIST_DAP_TRACKED_OP_*. _RESPONSE sets subscriber_id; _DELETE sets only op_id. */
+/* Data for MOSQ_EVT_PERSIST_DAP_FLOW_ADD, which adds or updates a flow. */
+struct mosquitto_evt_persist_dap_flow {
+	void *future;
+	struct mosquitto_dap_flow data;
+	void *future2[8];
+};
+
+
+/* Data for MOSQ_EVT_PERSIST_DAP_REQUEST_ADD and _DELETE. _DELETE removes
+ * subscriber_id's requests or, if that is NULL, the expired ones. */
+struct mosquitto_evt_persist_dap_request {
+	void *future;
+	struct mosquitto_dap_request data;
+	void *future2[8];
+};
+
+
+/* Data for MOSQ_EVT_PERSIST_DAP_TRACKED_OP_*. _RESPONSE sets subscriber_id, status
+ * and reason; _DELETE sets op_id and settled. */
 struct mosquitto_evt_persist_dap_tracked_op {
 	void *future;
 	struct mosquitto_dap_tracked_op data;
 	const char *subscriber_id;
-	void *future2[8];
+	const char *status;
+	const char *reason;
+	void *future2[6];
 };
 
 
@@ -1299,10 +1348,25 @@ mosq_EXPORT int mosquitto_persist_dap_op_add(const struct mosquitto_dap_op *op);
 
 /* Function: mosquitto_persist_dap_tracked_op_add
  *
- * Restore a DAP op's requester and, unless settled, its deadline tracking. For
+ * Restore a DAP op's requester and, until its deadline, its deadline tracking. For
  * persistence plugins during MOSQ_EVT_PERSIST_RESTORE.
  */
 mosq_EXPORT int mosquitto_persist_dap_tracked_op_add(const struct mosquitto_dap_tracked_op *op);
+
+
+/* Function: mosquitto_persist_dap_flow_add
+ *
+ * Restore a DAP flow. For persistence plugins during MOSQ_EVT_PERSIST_RESTORE.
+ */
+mosq_EXPORT int mosquitto_persist_dap_flow_add(const struct mosquitto_dap_flow *flow);
+
+
+/* Function: mosquitto_persist_dap_request_add
+ *
+ * Restore an operation request held for a subscriber. The payload and properties
+ * are copied. For persistence plugins during MOSQ_EVT_PERSIST_RESTORE.
+ */
+mosq_EXPORT int mosquitto_persist_dap_request_add(const struct mosquitto_dap_request *request);
 
 /* Function: mosquitto_persistence_location
  *

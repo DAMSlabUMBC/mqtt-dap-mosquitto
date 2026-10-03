@@ -10,10 +10,12 @@
 #include "dap/dap_pending_ops.h"
 #include "dap/dap_deadline_tracker.h"
 #include "dap/dap_op_requester.h"
+#include "dap/dr_registry.h"
+#include "dap/dap_request_store.h"
 
 
 void dap_persist__op_add(uint64_t op_id, const char *publisher_id, int op_type, time_t timestamp,
-		const char *topic_filters, const char *purpose_filters, const char *client_filters)
+		time_t deadline, const char *topic_filters, const char *purpose_filters, const char *client_filters)
 {
 	struct mosquitto_evt_persist_dap_op event_data;
 	struct mosquitto__callback *cb_base, *cb_next;
@@ -29,6 +31,7 @@ void dap_persist__op_add(uint64_t op_id, const char *publisher_id, int op_type, 
 	event_data.data.publisher_id = publisher_id;
 	event_data.data.op_type = op_type;
 	event_data.data.timestamp = timestamp;
+	event_data.data.deadline = deadline;
 	event_data.data.topic_filters = topic_filters;
 	event_data.data.purpose_filters = purpose_filters;
 	event_data.data.client_filters = client_filters;
@@ -36,6 +39,122 @@ void dap_persist__op_add(uint64_t op_id, const char *publisher_id, int op_type, 
 	DL_FOREACH_SAFE(opts->plugin_callbacks.persist_dap_op_add, cb_base, cb_next){
 		cb_base->cb(MOSQ_EVT_PERSIST_DAP_OP_ADD, &event_data, cb_base->userdata);
 	}
+}
+
+
+void dap_persist__op_delete(uint64_t op_id)
+{
+	struct mosquitto_evt_persist_dap_op event_data;
+	struct mosquitto__callback *cb_base, *cb_next;
+	struct mosquitto__security_options *opts;
+
+	if(db.shutdown){
+		return;
+	}
+
+	opts = &db.config->security_options;
+	memset(&event_data, 0, sizeof(event_data));
+	event_data.data.op_id = op_id;
+
+	DL_FOREACH_SAFE(opts->plugin_callbacks.persist_dap_op_delete, cb_base, cb_next){
+		cb_base->cb(MOSQ_EVT_PERSIST_DAP_OP_DELETE, &event_data, cb_base->userdata);
+	}
+}
+
+
+void dap_persist__flow_add(const char *publisher_id, const char *topic, const struct dr_sublist *flow)
+{
+	struct mosquitto_evt_persist_dap_flow event_data;
+	struct mosquitto__callback *cb_base, *cb_next;
+	struct mosquitto__security_options *opts;
+
+	if(db.shutdown){
+		return;
+	}
+
+	opts = &db.config->security_options;
+	memset(&event_data, 0, sizeof(event_data));
+	event_data.data.publisher_id = publisher_id;
+	event_data.data.topic = topic;
+	event_data.data.subscriber_id = flow->sub_id;
+	event_data.data.purposes = flow->sp;
+	event_data.data.first_time = flow->first_time;
+	event_data.data.last_time = flow->last_time;
+
+	DL_FOREACH_SAFE(opts->plugin_callbacks.persist_dap_flow_add, cb_base, cb_next){
+		cb_base->cb(MOSQ_EVT_PERSIST_DAP_FLOW_ADD, &event_data, cb_base->userdata);
+	}
+}
+
+
+static void dap_persist__request_event(int event, struct mosquitto__callback *callbacks,
+		const char *subscriber_id, uint64_t op_id, time_t deadline,
+		const void *payload, uint32_t payloadlen, const mosquitto_property *properties)
+{
+	struct mosquitto_evt_persist_dap_request event_data;
+	struct mosquitto__callback *cb_base, *cb_next;
+
+	if(db.shutdown){
+		return;
+	}
+
+	memset(&event_data, 0, sizeof(event_data));
+	event_data.data.subscriber_id = subscriber_id;
+	event_data.data.op_id = op_id;
+	event_data.data.deadline = deadline;
+	event_data.data.payload = payload;
+	event_data.data.payloadlen = payloadlen;
+	event_data.data.properties = properties;
+
+	DL_FOREACH_SAFE(callbacks, cb_base, cb_next){
+		cb_base->cb(event, &event_data, cb_base->userdata);
+	}
+}
+
+
+void dap_persist__request_add(const char *subscriber_id, uint64_t op_id, time_t deadline,
+		const void *payload, uint32_t payloadlen, const mosquitto_property *properties)
+{
+	dap_persist__request_event(MOSQ_EVT_PERSIST_DAP_REQUEST_ADD,
+			db.config->security_options.plugin_callbacks.persist_dap_request_add,
+			subscriber_id, op_id, deadline, payload, payloadlen, properties);
+}
+
+
+void dap_persist__request_delete(const char *subscriber_id, time_t deadline)
+{
+	dap_persist__request_event(MOSQ_EVT_PERSIST_DAP_REQUEST_DELETE,
+			db.config->security_options.plugin_callbacks.persist_dap_request_delete,
+			subscriber_id, 0, deadline, NULL, 0, NULL);
+}
+
+
+BROKER_EXPORT int mosquitto_persist_dap_request_add(const struct mosquitto_dap_request *request)
+{
+	mosquitto_property *properties = NULL;
+
+	if(request == NULL || request->subscriber_id == NULL || db.dap_request_store == NULL){
+		return MOSQ_ERR_INVAL;
+	}
+	if(request->properties && mosquitto_property_copy_all(&properties, request->properties)){
+		return MOSQ_ERR_NOMEM;
+	}
+	if(dap_request_store_add(db.dap_request_store, request->subscriber_id, request->op_id, request->deadline,
+			request->payload, request->payloadlen, properties)){
+		mosquitto_property_free_all(&properties);
+		return MOSQ_ERR_NOMEM;
+	}
+	return MOSQ_ERR_SUCCESS;
+}
+
+
+BROKER_EXPORT int mosquitto_persist_dap_flow_add(const struct mosquitto_dap_flow *flow)
+{
+	if(flow == NULL || flow->publisher_id == NULL || flow->topic == NULL || flow->subscriber_id == NULL){
+		return MOSQ_ERR_INVAL;
+	}
+	return dr__restore_flow(flow->publisher_id, flow->topic, flow->subscriber_id, flow->purposes,
+			flow->first_time, flow->last_time);
 }
 
 
@@ -64,7 +183,7 @@ void dap_persist__tracked_op_add(uint64_t op_id, const char *publisher_id,
 }
 
 
-void dap_persist__tracked_op_response(uint64_t op_id, const char *subscriber_id)
+void dap_persist__tracked_op_response(uint64_t op_id, const char *subscriber_id, const char *status, const char *reason)
 {
 	struct mosquitto_evt_persist_dap_tracked_op event_data;
 	struct mosquitto__callback *cb_base, *cb_next;
@@ -78,6 +197,8 @@ void dap_persist__tracked_op_response(uint64_t op_id, const char *subscriber_id)
 	memset(&event_data, 0, sizeof(event_data));
 	event_data.data.op_id = op_id;
 	event_data.subscriber_id = subscriber_id;
+	event_data.status = status;
+	event_data.reason = reason;
 
 	DL_FOREACH_SAFE(opts->plugin_callbacks.persist_dap_tracked_op_response, cb_base, cb_next){
 		cb_base->cb(MOSQ_EVT_PERSIST_DAP_TRACKED_OP_RESPONSE, &event_data, cb_base->userdata);
@@ -85,7 +206,7 @@ void dap_persist__tracked_op_response(uint64_t op_id, const char *subscriber_id)
 }
 
 
-void dap_persist__tracked_op_delete(uint64_t op_id)
+void dap_persist__tracked_op_delete(uint64_t op_id, bool settled)
 {
 	struct mosquitto_evt_persist_dap_tracked_op event_data;
 	struct mosquitto__callback *cb_base, *cb_next;
@@ -98,6 +219,7 @@ void dap_persist__tracked_op_delete(uint64_t op_id)
 	opts = &db.config->security_options;
 	memset(&event_data, 0, sizeof(event_data));
 	event_data.data.op_id = op_id;
+	event_data.data.settled = settled;
 
 	DL_FOREACH_SAFE(opts->plugin_callbacks.persist_dap_tracked_op_delete, cb_base, cb_next){
 		cb_base->cb(MOSQ_EVT_PERSIST_DAP_TRACKED_OP_DELETE, &event_data, cb_base->userdata);
@@ -144,8 +266,10 @@ BROKER_EXPORT int mosquitto_persist_dap_op_add(const struct mosquitto_dap_op *op
 	 * second, so it still covers every message received before it, and order every
 	 * message received from now on after it. */
 	uint64_t order = (uint64_t)op->timestamp * 1000000000ULL + 999999999ULL;
+	/* Rows written before deadlines were persisted get the default one. */
+	time_t deadline = op->deadline ? op->deadline : op->timestamp + MOSQ_DAP_DEFAULT_DEADLINE_SECS;
 	if(dap_pending_ops_restore_operation(db.dap_pending_ops, op->op_id, op->publisher_id,
-			(enum dap_op_type)op->op_type, order,
+			(enum dap_op_type)op->op_type, order, deadline,
 			op->topic_filters, op->purpose_filters, op->client_filters)){
 
 		return MOSQ_ERR_INVAL;
@@ -175,7 +299,8 @@ BROKER_EXPORT int mosquitto_persist_dap_tracked_op_add(const struct mosquitto_da
 	if(dap_op_requester_record(db.dap_op_requester, op->op_id, op->publisher_id)){
 		return MOSQ_ERR_NOMEM;
 	}
-	if(op->settled){
+	/* A settled op is tracked only so its status can be requested until its deadline. */
+	if(op->settled && op->deadline <= db.now_real_s){
 		return MOSQ_ERR_SUCCESS;
 	}
 
@@ -186,11 +311,22 @@ BROKER_EXPORT int mosquitto_persist_dap_tracked_op_add(const struct mosquitto_da
 	}
 	if(op->responded){
 		for(size_t i=0; i<op->num_expected; i++){
-			if(op->responded[i]){
+			const char *status = op->statuses ? op->statuses[i] : NULL;
+			if(!op->responded[i]){
+				continue;
+			}
+			/* Rows written before statuses were persisted only know a response came. */
+			if(status){
+				dap_deadline_tracker_record_status(db.dap_deadline_tracker, op->op_id,
+						op->expected_subs[i], status, op->reasons ? op->reasons[i] : NULL);
+			}else{
 				dap_deadline_tracker_mark_subscriber_responded(db.dap_deadline_tracker,
 						op->op_id, op->expected_subs[i]);
 			}
 		}
+	}
+	if(op->settled){
+		dap_deadline_tracker_settle(db.dap_deadline_tracker, op->op_id);
 	}
 	return MOSQ_ERR_SUCCESS;
 }

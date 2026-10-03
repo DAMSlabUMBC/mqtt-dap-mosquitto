@@ -49,7 +49,7 @@ static int request_insert(struct dap_pending_ops *map, const char *pub_id, const
     props.op_topic_filters = (char *)topic_filters;
     props.op_purpose_filters = (char *)purpose_filters;
     props.op_client_filters = (char *)client_filters;
-    return dap_op_request_insert(map, pub_id, &props, order, op_id_out);
+    return dap_op_request_insert(map, pub_id, &props, order, 0, op_id_out);
 }
 
 /* How many ops are currently tracked for a publisher. */
