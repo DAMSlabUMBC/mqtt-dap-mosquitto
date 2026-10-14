@@ -593,6 +593,8 @@ int handle__publish(struct mosquitto *context, const struct dap_receipt *receipt
 		return MOSQ_ERR_NOMEM;
 	}
 
+	base_msg->is_op = false; // Assume no operation
+
 	/* The receipt stamp from when the packet was read drives both queue ordering and
 	 * pending-operation matching. */
 	base_msg->dap_recv_time = receipt->time;
@@ -802,9 +804,10 @@ int handle__publish(struct mosquitto *context, const struct dap_receipt *receipt
 			{
 				/* Operation-system/control topic: no MP required. Leave
 					* delivery ungated as before (deny-all filter). */
-				base_msg->data.purpose_filter = mosquitto_strdup("");
+				base_msg->data.purpose_filter = mosquitto_strdup(MOSQ_DAP_OP_PURPOSE);
 				base_msg->data.purpose_filter_version = 0;
 				base_msg->data.has_purpose_filter = true;
+				base_msg->is_op = true;
 			}
 			else
 			{

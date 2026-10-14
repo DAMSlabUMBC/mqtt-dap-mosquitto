@@ -1132,7 +1132,7 @@ int db__messages_easy_queue(struct mosquitto *context, const char *topic, uint8_
 	return sub__messages_queue(source_id, base_msg->data.topic, base_msg->data.qos, base_msg->data.retain, &base_msg);
 }
 
-int db__messages_easy_queue_with_purpose(struct mosquitto *context, const char *topic, const char *purpose, uint8_t qos, uint32_t payloadlen, const void *payload, int retain, uint32_t message_expiry_interval, mosquitto_property **properties)
+int db__messages_easy_queue_with_purpose(struct mosquitto *context, const char *topic, const char *purpose, uint8_t qos, uint32_t payloadlen, const void *payload, int retain, uint32_t message_expiry_interval, mosquitto_property **properties, bool is_op)
 {
 	struct mosquitto__base_msg *base_msg;
 	const char *source_id;
@@ -1152,6 +1152,8 @@ int db__messages_easy_queue_with_purpose(struct mosquitto *context, const char *
 	base_msg->data.has_purpose_filter = true;
 	base_msg->data.purpose_filter_version = 0;
 	base_msg->data.purpose_filter = mosquitto_strdup(purpose);
+
+	base_msg->is_op = is_op;
 
 	base_msg->data.qos = qos;
 	if(db.config->retain_available == false){
