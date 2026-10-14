@@ -498,6 +498,25 @@ static struct dap_stamped_msg *db__dap_find_stamp(struct mosquitto *context,
 	return NULL;
 }
 
+bool db__dap_update_stamp(struct mosquitto *context, struct mosquitto__client_msg *client_msg, uint32_t mp_version, char* purpose_filter, uint32_t sp_version)
+{
+	struct mosquitto__subleaf *leaf = NULL;
+	struct dap_stamped_msg *stamp = db__dap_find_stamp(context, client_msg, &leaf);
+
+	if(stamp == NULL)
+	{
+		return false;
+	}
+
+	stamp->mp_version = mp_version;
+	stamp->sp_version = sp_version;
+	stamp->base_msg->data.purpose_filter = purpose_filter;
+	stamp->base_msg->data.purpose_filter_version = mp_version;
+
+	return true;
+}
+
+
 /* Free the stamp of an outgoing message that is discarded without reaching the send-path gate. */
 static void db__dap_discard_stamp(struct mosquitto *context, struct mosquitto__client_msg *client_msg)
 {
@@ -1611,12 +1630,6 @@ void db__check_acl_of_all_messages(struct mosquitto *context)
 	db__client_messages_check_acl(context, &context->msgs_out, &context->msgs_out.queued, &db__msg_remove_from_queued_stats);
 }
 
-/* Send path verification outcome. */
-enum dap_hook_result {
-	DAP_HOOK_SEND,    /* deliver normally (a matched stamp was consumed here first) */
-	DAP_HOOK_HANDLED, /* do not send this pass: dropped, bumped for re-verification, or skipped */
-};
-
 /*
  * Just before an out publish message goes on the wire, check the DAP stamp recorded
  * for it against the publisher/subscription's current MP and SP versions and any
@@ -1633,89 +1646,113 @@ enum dap_hook_result {
  * will, non-DAP) always send. The walk over context->subs is bounded by subs_count,
  * so it is cheap.
  */
-static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct mosquitto__client_msg *client_msg)
+enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct mosquitto__client_msg *client_msg, bool is_resend, bool perform_full_check)
 {
 	const char *client_id = context->id;
 	struct dap_holding_list *hl = db.dap_holding_list;
 	uint64_t this_id = client_msg->data.cmsg_id;
 
 	if(!client_id || !hl){
+		// TODO: Should this be drop/send disconnect?
 		return DAP_HOOK_SEND;
 	}
 
 	bool is_holding = dap_holding_list_is_holding(hl, client_id);
 	uint64_t pending_id = is_holding ? dap_holding_list_pending_id(hl, client_id) : 0;
 
-	/* While holding, any message that is not the re-verify candidate waits, so the
-	 * candidate keeps its place in the per-topic order. Its stamp is not at the front
-	 * of the queue right now, so this must come before trying to match a stamp. */
-	if(is_holding && this_id != pending_id){
-		return DAP_HOOK_HANDLED; /* SKIP: leave it in flight for a later pass */
+	if(!is_resend)
+	{
+		/* While holding, any message that is not the re-verify candidate waits, so the
+		* candidate keeps its place in the per-topic order. Its stamp is not at the front
+		* of the queue right now, so this must come before trying to match a stamp.
+		* This is bypassed if this is a resend for QoS 1 or QoS 2, as they have 
+		* already been thought to have been sent and already violate send order */
+		if(is_holding && this_id != pending_id){
+			return DAP_HOOK_HANDLED; /* SKIP: leave it in flight for a later pass */
+		}
 	}
 
+	// TODO: Why isn't this just a part of the message?
 	/* Find the stamp for this message in the matching topic queue of one of this
 	 * client's subscription leaves. */
 	struct mosquitto__base_msg *base_msg = client_msg->base_msg;
 	const char *topic = base_msg->data.topic;
 	struct mosquitto__subleaf *leaf = NULL;
 	struct dap_stamped_msg *stamp = db__dap_find_stamp(context, client_msg, &leaf);
+	
+	enum dap_send_verdict verdict = DAP_SEND_PASS; // Deny by default
 
+	/* Determine the ability to send the message based on operation and purpose filter states */
+	const char *pub_id = base_msg->data.source_id;
+	char *curr_msg_mp = base_msg->data.has_purpose_filter ? base_msg->data.purpose_filter : NULL;
+	uint32_t cur_mp_ver = 0;
+	const char *revoked = NULL;
 	bool has_stamp = (stamp != NULL);
-	enum dap_send_verdict verdict = DAP_SEND_PASS;
 	if(has_stamp){
-		const char *pub_id = base_msg->data.source_id;
-		const char *purpose = base_msg->data.has_purpose_filter ? base_msg->data.purpose_filter : NULL;
-		
-		uint32_t cur_mp = 0;
 		struct mp_entry *stored = mp__lookup(pub_id, topic);
 		/* Operation messages have no registration and keep the purpose they were sent with. */
-		const char *cur_purpose = purpose;
 		if(stored)
 		{
-			cur_mp = stored->version;
-			cur_purpose = stored->purpose_filter;
+			cur_mp_ver = stored->version;
+			curr_msg_mp = stored->purpose_filter;
 		}
-		uint32_t cur_sp = leaf->sp_version;
-		const char *revoked = NULL;
-		enum dap_op_action action = dap_pending_ops_match(db.dap_pending_ops, pub_id, topic,
+		uint32_t cur_sp_ver = leaf->sp_version;
+
+		enum dap_op_action action = DAP_OP_ACTION_NONE;
+		if(!base_msg->is_op)
+		{
+			action = dap_pending_ops_match(db.dap_pending_ops, pub_id, topic,
 				leaf->purpose_filters, leaf->purpose_filter_count, client_id,
 				base_msg->dap_order, NULL, &revoked);
-		if(is_holding){
-			/* Re-verify candidate: a DELETE drops it, and so does an SP that is not
-			 * permitted both by the MP the message was published with and by the
-			 * publisher's current MP less the purposes a RESTRICT revoked. An update
-			 * can narrow what a message permits, never widen it (paper 4.3). */
-			if(action == DAP_OP_ACTION_DROP){
+		}
+
+		verdict = dap_verify_for_send(stamp, cur_mp_ver, cur_sp_ver, action, base_msg->is_op, topic, client_id);
+	}
+	else
+	{
+		/* Restored messages have no stamp or subscription; but still apply DELETE. */
+		if(base_msg->dap_restored && db.dap_pending_ops){
+			if(dap_pending_ops_match(db.dap_pending_ops, base_msg->data.source_id, topic,
+					NULL, 0, client_id, base_msg->dap_order, NULL, NULL) == DAP_OP_ACTION_DROP)
+			{
 				verdict = DAP_SEND_DROP_DELETE;
-			}else if(!purpose_mp_permits(purpose, leaf->purpose_filters, leaf->purpose_filter_count)
-					|| !purpose_mp_permits_unrevoked(cur_purpose, revoked,
-					leaf->purpose_filters, leaf->purpose_filter_count)){
-				verdict = DAP_SEND_DROP_PURPOSE;
-			}else{
-				verdict = DAP_SEND_PASS;
 			}
-		}else{
-			verdict = dap_verify_for_send(stamp, cur_mp, cur_sp, action);
+		}
+		else
+		{
+			// TODO: Handle purposes in will/retained
+			verdict = DAP_SEND_PASS;
 		}
 	}
 
-	enum dap_send_disposition disp = dap_send_decide(has_stamp, is_holding, pending_id, this_id, verdict);
+	/* Perform actions based on verdict */
+	enum dap_send_disposition disp = dap_send_decide(has_stamp, is_holding, pending_id, this_id, verdict, perform_full_check);
 
-	/* Restored messages have no stamp or subscription; still apply DELETE. */
-	if(!has_stamp && base_msg->dap_restored && db.dap_pending_ops){
-		if(dap_pending_ops_match(db.dap_pending_ops, base_msg->data.source_id, topic,
-				NULL, 0, client_id, base_msg->dap_order, NULL, NULL) == DAP_OP_ACTION_DROP){
-
-			disp = DAP_DISP_DROP;
+	if(disp == DAP_DISP_RECALCULATE)
+	{
+		if(perform_full_check)
+		{
+			if(!purpose_mp_permits_unrevoked(curr_msg_mp, revoked,
+					leaf->purpose_filters, leaf->purpose_filter_count))
+			{
+				disp = DAP_DISP_DROP;
+			}
+			else
+			{
+				// Update stamp
+				db__dap_update_stamp(context, client_msg, cur_mp_ver, curr_msg_mp, leaf->sp_version);
+				disp = DAP_DISP_DELIVER;
+			}
 		}
 	}
 
 	switch(disp){
 		case DAP_DISP_DELIVER:
-			if(db.config->metadata_operation_handling){
-				bool is_op_system = base_msg->data.has_purpose_filter
-					&& !strcmp(base_msg->data.purpose_filter, MOSQ_DAP_OP_PURPOSE);
-				if(!is_op_system && base_msg->data.source_id){
+
+			if(db.config->metadata_operation_handling)
+			{
+				if(!base_msg->is_op && base_msg->data.source_id)
+				{
 					/* Paper 6.1: the flow keeps the SP in force at delivery. A message
 					 * restored without its subscription records an empty SP. */
 					dr__record_flow(base_msg->data.source_id, topic, client_id,
@@ -1774,6 +1811,7 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 			return DAP_HOOK_HANDLED;
 
 		case DAP_DISP_BUMP:
+		case DAP_DISP_RECALCULATE:
 			if(dap_holding_list_start_holding(hl, client_id, this_id)){
 				return DAP_HOOK_HANDLED; /* out of memory: retry on a later pass */
 			}
@@ -1796,6 +1834,10 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 			return DAP_HOOK_HANDLED;
 
 		case DAP_DISP_SKIP:
+			return DAP_HOOK_HANDLED;
+
+		case DAP_DISP_UNKOWN:
+			log__printf(NULL, MOSQ_LOG_ERR, "Error: Unknown DAP dispostion for message.");
 			return DAP_HOOK_HANDLED;
 	}
 	return DAP_HOOK_SEND;
@@ -1860,7 +1902,7 @@ static int db__message_write_inflight_out_single(struct mosquitto *context, stru
 	if(client_msg->data.state == mosq_ms_publish_qos0
 				|| client_msg->data.state == mosq_ms_publish_qos1
 				|| client_msg->data.state == mosq_ms_publish_qos2){
-		if(db__dap_check_send(context, client_msg) == DAP_HOOK_HANDLED){
+		if(db__dap_check_send(context, client_msg, false, true) == DAP_HOOK_HANDLED){
 			return MOSQ_ERR_SUCCESS;
 		}
 	}

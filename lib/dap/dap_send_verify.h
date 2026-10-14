@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "dap_pending_ops.h" /* enum dap_op_action */
+#include "dap/dap_pending_ops.h" /* enum dap_op_action */
 
 #ifdef __cplusplus
 extern "C" {
@@ -20,13 +20,14 @@ struct dap_stamped_msg;
  */
 enum dap_send_verdict {
     DAP_SEND_PASS = 0,        /* deliver the message as stamped */
-    DAP_SEND_FAIL_MP,         /* MP version changed since stamping - re-verify */
-    DAP_SEND_FAIL_SP,         /* SP version changed since stamping - re-verify */
+    DAP_SEND_FAIL_MP_VER,         /* MP version changed since stamping - re-verify */
+    DAP_SEND_FAIL_SP_VER,         /* SP version changed since stamping - re-verify */
     DAP_SEND_FAIL_RESTRICT,   /* a RESTRICT now applies - re-verify against the purposes it revoked */
     DAP_SEND_DROP_DELETE,     /* a DELETE now applies - drop without delivering */
-    DAP_SEND_DROP_PURPOSE,    /* re-verified: the current MP, less any RESTRICT's revoked purposes, no longer permits the current SP - drop */
+    DAP_SEND_DROP_INVALID_OP_TOPIC
 };
 
+//TODO: Documentation
 /*
  * Decide what to do with a stamped message at send time. The versions it was
  * stamped with are compared against the current MP and SP versions and against
@@ -44,7 +45,10 @@ enum dap_send_verdict {
 enum dap_send_verdict dap_verify_for_send(const struct dap_stamped_msg *stamped,
                                           uint32_t current_mp_version,
                                           uint32_t current_sp_version,
-                                          enum dap_op_action current_op_action);
+                                          enum dap_op_action current_op_action,
+                                          bool is_op,
+                                          const char *topic,
+                                          const char *recv_client_id);
 
 /*
  * What the send-path hook should do with the message it is about to write, once
@@ -55,31 +59,34 @@ enum dap_send_disposition {
     DAP_DISP_DROP,        /* a DELETE applies - drop without sending */
     DAP_DISP_BUMP,        /* version/op changed - bump back for re-verification, start holding */
     DAP_DISP_SKIP,        /* the client is holding a different message - leave this one queued, skip this pass */
+    DAP_DISP_RECALCULATE, /* Need to do a full purpose check */
+    DAP_DISP_UNKOWN
 };
 
 /*
  * Map the send-path state to a disposition. Pure - no side effects.
  *
- *   has_stamp   - whether a matching DAP stamp was found for this message; when
- *                 false (retained / will / non-DAP) the message is always DELIVERed
- *                 and the remaining arguments are ignored.
- *   is_holding  - whether this message's client is currently re-verifying a message.
- *   pending_id  - the cmsg_id of that re-verify candidate (meaningful only when holding).
- *   this_id     - the cmsg_id of the message being written now.
- *   verdict     - dap_verify_for_send's result for this message. For the holding
- *                 candidate the caller passes the re-verification result (PASS, or a
- *                 DROP_* when a DELETE applies or the current MP no longer permits the
- *                 current SP), so the candidate terminates in DELIVER or DROP.
+     stamped_msg            - whether the message contained a stamp for DAP
+ *   is_holding             - whether this message's client is currently re-verifying a message.
+ *   pending_id             - the cmsg_id of that re-verify candidate (meaningful only when holding).
+ *   this_id                - the cmsg_id of the message being written now.
+ *   verdict                - dap_quick_verify_for_send's result for this message. For the holding
+ *                          candidate the caller passes the re-verification result (PASS, or a
+ *                          DROP_* when a DELETE applies or the current MP no longer permits the
+ *                          current SP), so the candidate terminates in DELIVER or DROP.
+ *   perform_full_check     - Whether the disposition of a failure to match version should be considered
+ *                          - a bump or an instruction to recalculate compatibility
  *
  * Not holding: PASS->DELIVER, DROP_*->DROP, any FAIL_*->BUMP. Holding and this is
  * the candidate (this_id == pending_id): DROP_*->DROP, otherwise DELIVER (never BUMP
  * again - that would spin). Holding and this is some other message: SKIP.
  */
-enum dap_send_disposition dap_send_decide(bool has_stamp,
+enum dap_send_disposition dap_send_decide(bool stamped_msg,
                                           bool is_holding,
                                           uint64_t pending_id,
                                           uint64_t this_id,
-                                          enum dap_send_verdict verdict);
+                                          enum dap_send_verdict verdict,
+                                          bool perform_full_check);
 
 #ifdef __cplusplus
 }

@@ -475,6 +475,7 @@ struct mosquitto__base_msg {
 	int ref_count;
 	enum mosquitto_msg_origin origin;
 	bool stored;
+	bool is_op;
 	time_t dap_recv_time; /* DAP receipt timestamp: single reference time for ordering
 	                       * and operation matching, stamped once at PUBLISH receipt */
 	bool dap_restored;    /* restored from persistence, has no DAP stamp */
@@ -677,6 +678,12 @@ struct mosquitto__bridge {
 #endif
 };
 
+/* Send path verification outcome. */
+enum dap_hook_result {
+	DAP_HOOK_SEND,    /* deliver normally (a matched stamp was consumed here first) */
+	DAP_HOOK_HANDLED, /* do not send this pass: dropped, bumped for re-verification, or skipped */
+};
+
 #if defined(WITH_WEBSOCKETS) && WITH_WEBSOCKETS == WS_IS_LWS
 struct libws_mqtt_hack {
 	char *http_dir;
@@ -806,6 +813,7 @@ void db__msg_add_to_queued_stats(struct mosquitto_msg_data *msg_data, struct mos
 uint64_t db__new_msg_id(void);
 void db__expire_all_messages(struct mosquitto *context);
 void db__check_acl_of_all_messages(struct mosquitto *context);
+enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct mosquitto__client_msg *client_msg, bool is_resend, bool perform_full_check);
 
 /* ============================================================
  * Subscription functions
