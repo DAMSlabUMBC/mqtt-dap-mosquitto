@@ -354,6 +354,7 @@ static void config__init_reload(struct mosquitto__config *config)
 	config->upgrade_outgoing_qos = false;
 	config->packet_buffer_size = 4096;
     config->metadata_operation_handling = false;
+	config->dap_send_verification = true;
 	mosquitto_FREE(config->dap_recognized_purposes);
 	config->packet_max_auth = 100000;
 	config->packet_max_connect = 100000;
@@ -741,6 +742,7 @@ static void config__copy(struct mosquitto__config *src, struct mosquitto__config
 
 
 	dest->queue_qos0_messages = src->queue_qos0_messages;
+	dest->dap_send_verification = src->dap_send_verification;
 	dest->sys_interval = src->sys_interval;
 	dest->upgrade_outgoing_qos = src->upgrade_outgoing_qos;
 
@@ -2929,6 +2931,10 @@ static int config__read_file_core(struct mosquitto__config *config, bool reload,
 #endif
 				}else if(!strcmp(token, "use_metadata_operation_support")){
 					if(conf__parse_bool(&token, token, &config->metadata_operation_handling, &saveptr)){
+						return MOSQ_ERR_INVAL;
+					}
+				}else if(!strcmp(token, "dap_send_verification")){
+					if(conf__parse_bool(&token, token, &config->dap_send_verification, &saveptr)){
 						return MOSQ_ERR_INVAL;
 					}
 				}else if(!strcmp(token, "dap_recognized_purposes")){

@@ -603,7 +603,7 @@ void db__dap_drop_covered(void)
 	struct mosquitto *context, *ctx_tmp;
 	struct mosquitto__client_msg *client_msg, *tmp;
 
-	if(!db.dap_pending_ops || !db.dap_pending_ops->publishers){
+	if(!db.dap_pending_ops || !db.dap_pending_ops->publishers || !db.config->dap_send_verification){
 		return;
 	}
 	/* Also catches retained data stored after the operation by prioritized intake. */
@@ -1743,7 +1743,7 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 
 	bool has_stamp = (stamp != NULL);
 	enum dap_send_verdict verdict = DAP_SEND_PASS;
-	if(has_stamp){
+	if(has_stamp && db.config->dap_send_verification){
 		const char *pub_id = base_msg->data.source_id;
 		const char *purpose = base_msg->data.has_purpose_filter ? base_msg->data.purpose_filter : NULL;
 		
@@ -1783,7 +1783,7 @@ static enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct
 	enum dap_send_disposition disp = dap_send_decide(has_stamp, is_holding, pending_id, this_id, verdict);
 
 	/* Restored messages have no stamp or subscription; still apply DELETE. */
-	if(!has_stamp && base_msg->dap_restored && db.dap_pending_ops){
+	if(!has_stamp && base_msg->dap_restored && db.dap_pending_ops && db.config->dap_send_verification){
 		if(dap_pending_ops_match(db.dap_pending_ops, base_msg->data.source_id, topic,
 				NULL, 0, client_id, base_msg->dap_order, NULL, NULL) == DAP_OP_ACTION_DROP){
 
