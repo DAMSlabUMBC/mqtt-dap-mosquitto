@@ -848,6 +848,9 @@ int db__message_insert_outgoing(struct mosquitto *context, uint64_t cmsg_id, uin
 	context->stats.messages_sent++;
 
 	msg_data = &context->msgs_out;
+	/* Operation messages are never dropped for a full queue. */
+	bool dap_op = base_msg->data.has_purpose_filter && base_msg->data.purpose_filter
+			&& !strcmp(base_msg->data.purpose_filter, MOSQ_DAP_OP_PURPOSE);
 
 	/* Check whether we've already sent this message to this client
 	 * for outgoing messages only.
@@ -896,7 +899,7 @@ int db__message_insert_outgoing(struct mosquitto *context, uint64_t cmsg_id, uin
 					state = mosq_ms_publish_qos2;
 					break;
 			}
-		}else if(qos != 0 && db__ready_for_queue(context, qos, msg_data)){
+		}else if(dap_op || (qos != 0 && db__ready_for_queue(context, qos, msg_data))){
 			state = mosq_ms_queued;
 			rc = 2;
 		}else{
@@ -911,7 +914,7 @@ int db__message_insert_outgoing(struct mosquitto *context, uint64_t cmsg_id, uin
 			return 2;
 		}
 	}else{
-		if(db__ready_for_queue(context, qos, msg_data)){
+		if(dap_op || db__ready_for_queue(context, qos, msg_data)){
 			state = mosq_ms_queued;
 		}else{
 			metrics__int_inc(mosq_counter_mqtt_publish_dropped, 1);

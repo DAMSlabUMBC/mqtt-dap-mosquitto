@@ -389,6 +389,31 @@ def op_outlives_deadline_case(op, purposes=None):
         check(broker.stop() == 0, "broker exits cleanly")
 
 
+def op_request_survives_full_queue_case():
+    """An operation request to a subscriber whose queue is full is queued, not dropped."""
+    broker = Broker("use_metadata_operation_support true\nmax_queued_messages 2\n")
+    try:
+        sub = Subscriber("subF", receive_maximum=1)
+        sub.subscribe("t/f", ["qa"])
+        sub.subscribe("OP_REQ/subF", [OP_PURPOSE])
+        pub = Publisher()
+        pub.register("qa", "t/f")
+        for i in range(6):
+            pub.publish("t/f", [], payload=b"m%d" % i)
+        first = sub.read_publishes(idle=0.5, ack=False)
+        pub.operation("HISTORY", "t/f")
+        check(wait_for(lambda: pub.got_status("Pending")), "the HISTORY is accepted")
+        sub.puback(first[0][2])
+        got = first + sub.read_publishes()
+        topics = [t for t, _, _ in got]
+        check("OP_REQ/subF" in topics, "the request reaches the subscriber despite its full queue (got %s)" % topics)
+        check(len(payloads(got, "t/f")) < 6, "data beyond the queue limit is still dropped")
+        sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
 def drop_then_stale_case():
     """After a reconnect, a DELETEd message followed by stale ones keeps publish order."""
     broker = Broker("use_metadata_operation_support true\n")
@@ -724,6 +749,7 @@ def main():
     delete_case(gap=True)
     drop_refill_case()
     same_second_case()
+    op_request_survives_full_queue_case()
     op_outlives_deadline_case("DELETE")
     op_outlives_deadline_case("RESTRICT", "qa")
     scoped_op_case("DELETE", "t/+/1", "qb", {"qa": True, "qb": False, "qa|qc": True, "qb|qc": False})
