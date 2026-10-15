@@ -1,9 +1,7 @@
 #!/usr/bin/env python3
-"""DAP pending operations, flows, subscription SPs and held requests survive a broker
-crash + restart (persist-sqlite), and operations are reclaimed once their deadline passes.
-
-Registered MPs are not persisted, only each message's own, so publishers re-register
-them after the restart.
+"""DAP pending operations, flows, registered MPs, subscription SPs and held requests
+survive a broker crash + restart (persist-sqlite), and operations are reclaimed once
+their deadline passes.
 
 Usage: python3 test/dap/op_persistence_test.py [broker] [plugin.so] [port]
 """
@@ -306,11 +304,15 @@ def main():
     check(tracked == [(int(op_id), "pub1", 0)], f"dap_tracked_ops holds the unsettled op: {tracked}")
     subs = sorted(db.execute("SELECT sub_id, responded FROM dap_tracked_op_subs").fetchall())
     check(subs == [("subX", 1), ("subY", 0)], f"dap_tracked_op_subs records who responded: {subs}")
+    mps = sorted(db.execute("SELECT publisher_id, topic, purposes, version FROM dap_mps").fetchall())
+    check(mps == [("pub1", t, MP, 1) for t in ("sensors/humidity", "sensors/retained", "sensors/temp")],
+          f"dap_mps holds pub1's registered MPs: {mps}")
     db.close()
 
     # ---- After the restart --------------------------------------------------
     broker.start("2")
     log = broker.read_log()
+    check("Restored 3 DAP MPs (0 failed)" in log, "broker restores the registered MPs")
     check("Restored 1 DAP pending operations (0 failed)" in log, "broker restores the pending operation")
     check("Restored 1 DAP tracked operations (0 failed)" in log, "broker restores the tracked operation")
 
@@ -340,13 +342,13 @@ def main():
     check(not subR.got("sensors/temp"), "a retained message the DELETE removed stays removed after the restart")
     subR.disconnect()
 
-    # SPs survive with the session; MPs are re-registered by their publishers.
-    pub1.publish("$MP_REG", [("DAP-MP", f"{MP}:sensors/humidity")], qos=0)
+    # Restored sessions keep their SPs, and publishers keep their registered MPs.
     subY = Client("subY").connect()
     time.sleep(0.3)
     data(pub1, "sensors/humidity", b"humidity-for-restored-sessions")
     check(wait_for(lambda: subY.got("sensors/humidity")),
-          "a restored session receives new data without subscribing again")
+          "a restored session receives new data, with no new MP registration or subscription")
+    pub1.publish("$MP_REG", [("DAP-MP", f"{MP}:sensors/humidity")], qos=0)
     subY.publish(OSYS, [("DAP-Status", "Success"), ("DAP-OpId", op_id)])
     check(wait_for(lambda: pub1.got(OP_NOTIF, **{"DAP-Status": "Success", "DAP-ClientID": "subY"})),
           "subY's response after the restart is relayed to the requester")
@@ -395,6 +397,8 @@ def main():
           f"the expired DELETE is reclaimed from disk, the live RESTRICT is kept: {ops}")
     settled = db.execute("SELECT settled FROM dap_tracked_ops WHERE op_id=?", (int(op_id),)).fetchone()
     check(settled == (1,), f"the settled operation is marked settled on disk: {settled}")
+    version = db.execute("SELECT version FROM dap_mps WHERE topic='sensors/humidity'").fetchone()
+    check(version == (2,), f"an MP updated after the restart continues from the restored version: {version}")
     db.close()
 
     held_request_case()

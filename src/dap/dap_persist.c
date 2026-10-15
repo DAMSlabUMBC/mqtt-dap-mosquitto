@@ -12,6 +12,7 @@
 #include "dap/dap_op_requester.h"
 #include "dap/dr_registry.h"
 #include "dap/dap_request_store.h"
+#include "dap/mp_registry.h"
 
 
 void dap_persist__op_add(uint64_t op_id, const char *publisher_id, int op_type, time_t timestamp,
@@ -155,6 +156,36 @@ BROKER_EXPORT int mosquitto_persist_dap_flow_add(const struct mosquitto_dap_flow
 	}
 	return dr__restore_flow(flow->publisher_id, flow->topic, flow->subscriber_id, flow->purposes,
 			flow->first_time, flow->last_time);
+}
+
+
+void dap_persist__mp_add(const struct mp_entry *entry)
+{
+	struct mosquitto_evt_persist_dap_mp event_data;
+	struct mosquitto__callback *cb_base, *cb_next;
+
+	if(db.shutdown || entry == NULL){
+		return;
+	}
+
+	memset(&event_data, 0, sizeof(event_data));
+	event_data.data.publisher_id = entry->id;
+	event_data.data.topic = entry->topic;
+	event_data.data.purposes = entry->purpose_filter;
+	event_data.data.version = entry->version;
+
+	DL_FOREACH_SAFE(db.config->security_options.plugin_callbacks.persist_dap_mp_add, cb_base, cb_next){
+		cb_base->cb(MOSQ_EVT_PERSIST_DAP_MP_ADD, &event_data, cb_base->userdata);
+	}
+}
+
+
+BROKER_EXPORT int mosquitto_persist_dap_mp_add(const struct mosquitto_dap_mp *mp)
+{
+	if(mp == NULL || mp->publisher_id == NULL || mp->topic == NULL || mp->purposes == NULL){
+		return MOSQ_ERR_INVAL;
+	}
+	return mp__restore_topic(mp->publisher_id, mp->topic, mp->purposes, mp->version);
 }
 
 

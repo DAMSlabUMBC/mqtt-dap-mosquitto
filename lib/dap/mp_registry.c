@@ -91,6 +91,16 @@ int mp__register_topic(const char *id, const char *topic, const char *mp_value)
     return MOSQ_ERR_SUCCESS;
 }
 
+int mp__restore_topic(const char *id, const char *topic, const char *mp_value, uint32_t version)
+{
+    int rc = mp__register_topic(id, topic, mp_value);
+
+    if(rc == MOSQ_ERR_SUCCESS){
+        mp__lookup(id, topic)->version = version;
+    }
+    return rc;
+}
+
 /* Look up the purpose filter of a publisher's topic */
 struct mp_entry *mp__lookup(const char *id, const char *topic)
 {

@@ -52,6 +52,7 @@ struct mosquitto_sqlite {
 	sqlite3_stmt *dap_op_add_stmt;
 	sqlite3_stmt *dap_op_delete_stmt;
 	sqlite3_stmt *dap_flow_add_stmt;
+	sqlite3_stmt *dap_mp_add_stmt;
 	sqlite3_stmt *dap_request_add_stmt;
 	sqlite3_stmt *dap_request_delete_sub_stmt;
 	sqlite3_stmt *dap_request_delete_expired_stmt;
@@ -99,6 +100,7 @@ int persist_sqlite__dap_restore(struct mosquitto_sqlite *ms);
 int persist_sqlite__dap_op_add_cb(int event, void *event_data, void *userdata);
 int persist_sqlite__dap_op_delete_cb(int event, void *event_data, void *userdata);
 int persist_sqlite__dap_flow_add_cb(int event, void *event_data, void *userdata);
+int persist_sqlite__dap_mp_add_cb(int event, void *event_data, void *userdata);
 int persist_sqlite__dap_request_add_cb(int event, void *event_data, void *userdata);
 int persist_sqlite__dap_request_delete_cb(int event, void *event_data, void *userdata);
 int persist_sqlite__dap_tracked_op_add_cb(int event, void *event_data, void *userdata);

@@ -6,6 +6,7 @@
 #include <time.h>
 
 struct dr_sublist;
+struct mp_entry;
 
 /* Persist DAP pending ops through a persistence plugin (e.g. persist-sqlite). */
 
@@ -25,6 +26,9 @@ void dap_persist__request_delete(const char *subscriber_id, time_t deadline);
 
 /* Flow added, or its receipt times moved. */
 void dap_persist__flow_add(const char *publisher_id, const char *topic, const struct dr_sublist *flow);
+
+/* MP registered or updated. */
+void dap_persist__mp_add(const struct mp_entry *entry);
 
 /* Op registered with the deadline tracker. */
 void dap_persist__tracked_op_add(uint64_t op_id, const char *publisher_id,

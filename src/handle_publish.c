@@ -559,6 +559,9 @@ static int register_mp_properties(const struct mosquitto *context, const mosquit
 				rc = parse_mp_property(context, value, &topic, &mp);
 				if(rc == MOSQ_ERR_SUCCESS && pass == 1){
 					rc = mp__register_topic(context->id, topic, mp);
+					if(rc == MOSQ_ERR_SUCCESS){
+						dap_persist__mp_add(mp__lookup(context->id, topic));
+					}
 				}
 			}
 			mosquitto_FREE(name);

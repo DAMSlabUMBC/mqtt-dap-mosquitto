@@ -133,6 +133,15 @@ struct mosquitto_dap_flow {
 	void *future[4];
 };
 
+/* A publisher's registered MP for one topic. */
+struct mosquitto_dap_mp {
+	const char *publisher_id;
+	const char *topic;
+	const char *purposes;        /* the MP, '|'-joined */
+	uint32_t version;
+	void *future[4];
+};
+
 /* A DAP operation request held for a subscriber until it can receive it. */
 struct mosquitto_dap_request {
 	const char *subscriber_id;
@@ -232,6 +241,7 @@ enum mosquitto_plugin_event {
 	MOSQ_EVT_PERSIST_DAP_FLOW_ADD = 105,
 	MOSQ_EVT_PERSIST_DAP_REQUEST_ADD = 106,
 	MOSQ_EVT_PERSIST_DAP_REQUEST_DELETE = 107,
+	MOSQ_EVT_PERSIST_DAP_MP_ADD = 108,
 };
 
 /* Data for the MOSQ_EVT_RELOAD event */
@@ -452,6 +462,14 @@ struct mosquitto_evt_persist_dap_op {
 struct mosquitto_evt_persist_dap_flow {
 	void *future;
 	struct mosquitto_dap_flow data;
+	void *future2[8];
+};
+
+
+/* Data for MOSQ_EVT_PERSIST_DAP_MP_ADD, which adds or updates a registered MP. */
+struct mosquitto_evt_persist_dap_mp {
+	void *future;
+	struct mosquitto_dap_mp data;
 	void *future2[8];
 };
 
@@ -1359,6 +1377,14 @@ mosq_EXPORT int mosquitto_persist_dap_tracked_op_add(const struct mosquitto_dap_
  * Restore a DAP flow. For persistence plugins during MOSQ_EVT_PERSIST_RESTORE.
  */
 mosq_EXPORT int mosquitto_persist_dap_flow_add(const struct mosquitto_dap_flow *flow);
+
+
+/* Function: mosquitto_persist_dap_mp_add
+ *
+ * Restore a publisher's registered MP. For persistence plugins during
+ * MOSQ_EVT_PERSIST_RESTORE.
+ */
+mosq_EXPORT int mosquitto_persist_dap_mp_add(const struct mosquitto_dap_mp *mp);
 
 
 /* Function: mosquitto_persist_dap_request_add

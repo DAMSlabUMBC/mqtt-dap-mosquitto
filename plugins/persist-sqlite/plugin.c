@@ -223,6 +223,10 @@ int mosquitto_plugin_init(mosquitto_plugin_id_t *identifier, void **user_data, s
 	if(rc){
 		goto fail;
 	}
+	rc = mosquitto_callback_register(plg_id, MOSQ_EVT_PERSIST_DAP_MP_ADD, persist_sqlite__dap_mp_add_cb, NULL, &plg_data);
+	if(rc){
+		goto fail;
+	}
 	rc = mosquitto_callback_register(plg_id, MOSQ_EVT_PERSIST_DAP_REQUEST_ADD, persist_sqlite__dap_request_add_cb, NULL, &plg_data);
 	if(rc){
 		goto fail;
@@ -283,6 +287,7 @@ int mosquitto_plugin_cleanup(void *user_data, struct mosquitto_opt *options, int
 		mosquitto_callback_unregister(plg_id, MOSQ_EVT_PERSIST_DAP_OP_ADD, persist_sqlite__dap_op_add_cb, NULL);
 		mosquitto_callback_unregister(plg_id, MOSQ_EVT_PERSIST_DAP_OP_DELETE, persist_sqlite__dap_op_delete_cb, NULL);
 		mosquitto_callback_unregister(plg_id, MOSQ_EVT_PERSIST_DAP_FLOW_ADD, persist_sqlite__dap_flow_add_cb, NULL);
+		mosquitto_callback_unregister(plg_id, MOSQ_EVT_PERSIST_DAP_MP_ADD, persist_sqlite__dap_mp_add_cb, NULL);
 		mosquitto_callback_unregister(plg_id, MOSQ_EVT_PERSIST_DAP_REQUEST_ADD, persist_sqlite__dap_request_add_cb, NULL);
 		mosquitto_callback_unregister(plg_id, MOSQ_EVT_PERSIST_DAP_REQUEST_DELETE, persist_sqlite__dap_request_delete_cb, NULL);
 		mosquitto_callback_unregister(plg_id, MOSQ_EVT_PERSIST_DAP_TRACKED_OP_ADD, persist_sqlite__dap_tracked_op_add_cb, NULL);
