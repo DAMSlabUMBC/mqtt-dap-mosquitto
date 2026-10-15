@@ -401,8 +401,14 @@ int handle__subscribe(struct mosquitto *context)
 				return MOSQ_ERR_MALFORMED_PACKET;
 			}
 
+			/* Paper 4.3: a subscription whose SP names an unrecognized purpose is refused. */
+			bool recognized = dap_is_op_system_topic(sub.topic_filter)
+					|| purpose_set_recognized(db.config->dap_recognized_purposes, sub.purpose_filters, sub.purpose_filter_count);
+
 			allowed = true;
-			rc2 = mosquitto_acl_check(context, sub.topic_filter, 0, NULL, qos, false, properties, MOSQ_ACL_SUBSCRIBE);
+			rc2 = recognized
+					? mosquitto_acl_check(context, sub.topic_filter, 0, NULL, qos, false, properties, MOSQ_ACL_SUBSCRIBE)
+					: MOSQ_ERR_ACL_DENIED;
 			switch(rc2){
 				case MOSQ_ERR_SUCCESS:
 					break;

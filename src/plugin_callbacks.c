@@ -94,6 +94,16 @@ static const char *get_event_name(enum mosquitto_plugin_event event)
 			return "persist-dap-tracked-op-response";
 		case MOSQ_EVT_PERSIST_DAP_TRACKED_OP_DELETE:
 			return "persist-dap-tracked-op-delete";
+		case MOSQ_EVT_PERSIST_DAP_OP_DELETE:
+			return "persist-dap-op-delete";
+		case MOSQ_EVT_PERSIST_DAP_FLOW_ADD:
+			return "persist-dap-flow-add";
+		case MOSQ_EVT_PERSIST_DAP_REQUEST_ADD:
+			return "persist-dap-request-add";
+		case MOSQ_EVT_PERSIST_DAP_REQUEST_DELETE:
+			return "persist-dap-request-delete";
+		case MOSQ_EVT_PERSIST_DAP_MP_ADD:
+			return "persist-dap-mp-add";
 	}
 	return "";
 }
@@ -182,6 +192,16 @@ static struct mosquitto__callback **plugin__get_callback_base(struct mosquitto__
 			return &security_options->plugin_callbacks.persist_dap_tracked_op_response;
 		case MOSQ_EVT_PERSIST_DAP_TRACKED_OP_DELETE:
 			return &security_options->plugin_callbacks.persist_dap_tracked_op_delete;
+		case MOSQ_EVT_PERSIST_DAP_OP_DELETE:
+			return &security_options->plugin_callbacks.persist_dap_op_delete;
+		case MOSQ_EVT_PERSIST_DAP_FLOW_ADD:
+			return &security_options->plugin_callbacks.persist_dap_flow_add;
+		case MOSQ_EVT_PERSIST_DAP_REQUEST_ADD:
+			return &security_options->plugin_callbacks.persist_dap_request_add;
+		case MOSQ_EVT_PERSIST_DAP_REQUEST_DELETE:
+			return &security_options->plugin_callbacks.persist_dap_request_delete;
+		case MOSQ_EVT_PERSIST_DAP_MP_ADD:
+			return &security_options->plugin_callbacks.persist_dap_mp_add;
 	}
 	return NULL;
 }
@@ -251,6 +271,11 @@ BROKER_EXPORT int mosquitto_callback_register(
 			|| event == MOSQ_EVT_PERSIST_DAP_TRACKED_OP_ADD
 			|| event == MOSQ_EVT_PERSIST_DAP_TRACKED_OP_RESPONSE
 			|| event == MOSQ_EVT_PERSIST_DAP_TRACKED_OP_DELETE
+			|| event == MOSQ_EVT_PERSIST_DAP_OP_DELETE
+			|| event == MOSQ_EVT_PERSIST_DAP_FLOW_ADD
+			|| event == MOSQ_EVT_PERSIST_DAP_REQUEST_ADD
+			|| event == MOSQ_EVT_PERSIST_DAP_REQUEST_DELETE
+			|| event == MOSQ_EVT_PERSIST_DAP_MP_ADD
 			)){
 		log__printf(NULL, MOSQ_LOG_ERR, "Error: `persistence true` cannot be used with a persistence plugin.");
 		return MOSQ_ERR_INVAL;

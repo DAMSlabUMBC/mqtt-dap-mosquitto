@@ -271,6 +271,73 @@ static void test_remove_stops_tracking(void)
     printf("ok - remove stops tracking so the deadline sweep cannot re-report it\n");
 }
 
+static const struct dap_expected_sub *expected(const struct dap_tracked_op *op, const char *sub_id)
+{
+    for(const struct dap_expected_sub *sub = op->expected; sub; sub = sub->next){
+        if(!strcmp(sub->sub_id, sub_id)) return sub;
+    }
+    return NULL;
+}
+
+/* Each subscriber's latest status and reason are kept for status requests. */
+static void test_record_status(void)
+{
+    struct dap_deadline_tracker t;
+    const char *subs[] = {"subA", "subB", "subC"};
+
+    dap_deadline_tracker_init(&t);
+    assert(dap_deadline_tracker_register_pending_operation(&t, 7, "pub1", subs, 3, 100) == 0);
+    assert(dap_deadline_tracker_lookup(&t, 8) == NULL);
+
+    assert(dap_deadline_tracker_record_status(&t, 7, "subA", "Pending", NULL) == 0);
+    assert(dap_deadline_tracker_record_status(&t, 7, "subB", "Failure", "retention obligation") == 0);
+    assert(dap_deadline_tracker_record_status(&t, 7, "subX", "Success", NULL) != 0);
+
+    const struct dap_tracked_op *op = dap_deadline_tracker_lookup(&t, 7);
+    assert(op != NULL && op->deadline == 100 && !strcmp(op->publisher_id, "pub1"));
+    assert(!expected(op, "subA")->responded && !strcmp(expected(op, "subA")->status, "Pending"));
+    assert(expected(op, "subB")->responded && !strcmp(expected(op, "subB")->status, "Failure")
+           && !strcmp(expected(op, "subB")->reason, "retention obligation"));
+    assert(!expected(op, "subC")->responded && expected(op, "subC")->status == NULL);
+    assert(!dap_deadline_tracker_all_responded(&t, 7));
+
+    /* A later status replaces the earlier one; Pending is not a response. */
+    assert(dap_deadline_tracker_record_status(&t, 7, "subA", "Success", NULL) == 0);
+    assert(dap_deadline_tracker_record_status(&t, 7, "subC", "Success", NULL) == 0);
+    assert(expected(op, "subA")->responded && !strcmp(expected(op, "subA")->status, "Success"));
+    assert(dap_deadline_tracker_all_responded(&t, 7));
+
+    dap_deadline_tracker_destroy(&t);
+    printf("ok - the latest status and reason of each subscriber are kept\n");
+}
+
+/* A settled op stays queryable until its deadline, and says so when it expires. */
+static void test_settled_op_expires_quietly(void)
+{
+    struct dap_deadline_tracker t;
+    const char *subs[] = {"subA"};
+
+    dap_deadline_tracker_init(&t);
+    dap_deadline_tracker_register_pending_operation(&t, 1, "pub1", subs, 1, 100);
+    dap_deadline_tracker_register_pending_operation(&t, 2, "pub1", subs, 1, 100);
+    dap_deadline_tracker_record_status(&t, 1, "subA", "Success", NULL);
+    assert(dap_deadline_tracker_settle(&t, 1) == 0);
+    assert(dap_deadline_tracker_settle(&t, 9) != 0);
+    assert(dap_deadline_tracker_lookup(&t, 1)->settled);
+
+    struct dap_expired_op *e = dap_deadline_tracker_check_expired(&t, 100);
+    int settled = 0, unsettled = 0;
+    for(struct dap_expired_op *x = e; x; x = x->next){
+        if(x->settled) settled++; else unsettled++;
+    }
+    assert(settled == 1 && unsettled == 1);
+    dap_deadline_tracker_free_expired(e);
+    assert(dap_deadline_tracker_lookup(&t, 1) == NULL);
+
+    dap_deadline_tracker_destroy(&t);
+    printf("ok - a settled operation is kept until its deadline and expires as settled\n");
+}
+
 int main(void)
 {
     test_register_makes_op_tracked();
@@ -283,6 +350,8 @@ int main(void)
     test_destroy_cleans_everything();
     test_all_responded_predicate();
     test_remove_stops_tracking();
+    test_record_status();
+    test_settled_op_expires_quietly();
     printf("\nAll dap_deadline_tracker tests passed.\n");
     return 0;
 }
