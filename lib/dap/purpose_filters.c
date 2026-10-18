@@ -365,6 +365,12 @@ bool purpose_mp_permits_unrevoked(const char *mp, const char *revoked, char *con
     return pf__subset(revoked, sp, sp_count, true);
 }
 
+bool purpose_set_recognized(const char *recognized, char *const *set, uint32_t n)
+{
+    if(!recognized || n == 0) return true;
+    return purpose_mp_permits(recognized, set, n);
+}
+
 bool purpose_set_intersects(const char *canonical, char *const *sorted, uint32_t n)
 {
     if(!canonical || canonical[0] == '\0' || !sorted || n == 0) return false;

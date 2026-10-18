@@ -29,7 +29,8 @@ WORKDIR /opt/mqtt_brokers/mqtt-dap-mosquitto
 COPY . /opt/mqtt_brokers/mqtt-dap-mosquitto
 
 # Build mosquitto (had to disable LTO and ENGINE_cleanup to get it working)
-RUN cmake -DWITH_LTO=OFF \
+RUN cmake -DCMAKE_BUILD_TYPE=Release \
+          -DWITH_LTO=OFF \
           -DWITH_CLIENTS=OFF \
           -DWITH_BROKER=ON \
           -DWITH_TESTS=OFF \
@@ -45,11 +46,13 @@ RUN cp src/mosquitto /usr/local/sbin/mosquitto && \
 RUN mkdir -p /etc/mosquitto && \
     cp mosquitto.conf /etc/mosquitto/mosquitto.conf
 
-# Grab node exporter for metrics collection
-RUN wget https://github.com/prometheus/node_exporter/releases/download/v1.7.0/node_exporter-1.7.0.linux-amd64.tar.gz && \
-    tar xvfz node_exporter-1.7.0.linux-amd64.tar.gz && \
-    mv node_exporter-1.7.0.linux-amd64/node_exporter /usr/local/bin/ && \
-    rm -rf node_exporter-1.7.0.linux-amd64*
+# Grab node exporter for metrics collection, built for this image's architecture
+RUN ARCH=$(dpkg --print-architecture) && \
+    if [ "$ARCH" = armhf ]; then ARCH=armv7; fi && \
+    wget https://github.com/prometheus/node_exporter/releases/download/v1.7.0/node_exporter-1.7.0.linux-$ARCH.tar.gz && \
+    tar xvfz node_exporter-1.7.0.linux-$ARCH.tar.gz && \
+    mv node_exporter-1.7.0.linux-$ARCH/node_exporter /usr/local/bin/ && \
+    rm -rf node_exporter-1.7.0.linux-$ARCH*
 
 # Create startup script that runs both node exporter and mosquitto
 RUN echo '#!/bin/bash\n\

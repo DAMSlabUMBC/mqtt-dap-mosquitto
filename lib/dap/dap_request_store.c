@@ -39,7 +39,7 @@ static void dap__inbox_free(struct dap_request_store *store, struct dap_request_
 }
 
 int dap_request_store_add(struct dap_request_store *store, const char *sub_id, uint64_t op_id,
-                          time_t deadline, uint8_t qos, const void *payload, uint32_t payloadlen,
+                          time_t deadline, const void *payload, uint32_t payloadlen,
                           mosquitto_property *properties)
 {
     struct dap_request_inbox *inbox = NULL;
@@ -59,7 +59,6 @@ int dap_request_store_add(struct dap_request_store *store, const char *sub_id, u
     }
     r->op_id = op_id;
     r->deadline = deadline;
-    r->qos = qos;
     r->payloadlen = payloadlen;
 
     HASH_FIND_STR(store->inboxes, sub_id, inbox);

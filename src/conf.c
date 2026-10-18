@@ -48,6 +48,7 @@ Contributors:
 #include "mosquitto/mqtt_protocol.h"
 
 #include "utlist.h"
+#include "dap/purpose_filters.h"
 
 struct config_recurse {
 	unsigned int log_dest;
@@ -160,6 +161,7 @@ static int conf__parse_bool(char **token, const char *name, bool *value, char **
 static int conf__parse_int(char **token, const char *name, int *value, char **saveptr);
 static int conf__parse_ssize_t(char **token, const char *name, ssize_t *value, char **saveptr);
 static int conf__parse_string(char **token, const char *name, char **value, char **saveptr);
+static int conf__add_recognized_purposes(struct mosquitto__config *config, char **token, char **saveptr);
 static int config__read_file(struct mosquitto__config *config, bool reload, const char *file, struct config_recurse *config_tmp, int level, int *lineno);
 static int config__check(struct mosquitto__config *config);
 static void config__cleanup_plugins(void);
@@ -352,6 +354,8 @@ static void config__init_reload(struct mosquitto__config *config)
 	config->upgrade_outgoing_qos = false;
 	config->packet_buffer_size = 4096;
     config->metadata_operation_handling = false;
+	config->dap_send_verification = true;
+	mosquitto_FREE(config->dap_recognized_purposes);
 	config->packet_max_auth = 100000;
 	config->packet_max_connect = 100000;
 	config->packet_max_sub = 100000;
@@ -398,6 +402,7 @@ void config__init(struct mosquitto__config *config)
 void config__cleanup(struct mosquitto__config *config)
 {
 	mosquitto_FREE(config->clientid_prefixes);
+	mosquitto_FREE(config->dap_recognized_purposes);
 	mosquitto_FREE(config->persistence_location);
 	mosquitto_FREE(config->persistence_file);
 	mosquitto_FREE(config->persistence_filepath);
@@ -705,6 +710,9 @@ static void config__copy(struct mosquitto__config *src, struct mosquitto__config
 	mosquitto_FREE(dest->clientid_prefixes);
 	dest->clientid_prefixes = src->clientid_prefixes;
 
+	mosquitto_FREE(dest->dap_recognized_purposes);
+	dest->dap_recognized_purposes = src->dap_recognized_purposes;
+
 	dest->connection_messages = src->connection_messages;
 	dest->log_dest = src->log_dest;
 	dest->log_facility = src->log_facility;
@@ -734,6 +742,7 @@ static void config__copy(struct mosquitto__config *src, struct mosquitto__config
 
 
 	dest->queue_qos0_messages = src->queue_qos0_messages;
+	dest->dap_send_verification = src->dap_send_verification;
 	dest->sys_interval = src->sys_interval;
 	dest->upgrade_outgoing_qos = src->upgrade_outgoing_qos;
 
@@ -2924,6 +2933,14 @@ static int config__read_file_core(struct mosquitto__config *config, bool reload,
 					if(conf__parse_bool(&token, token, &config->metadata_operation_handling, &saveptr)){
 						return MOSQ_ERR_INVAL;
 					}
+				}else if(!strcmp(token, "dap_send_verification")){
+					if(conf__parse_bool(&token, token, &config->dap_send_verification, &saveptr)){
+						return MOSQ_ERR_INVAL;
+					}
+				}else if(!strcmp(token, "dap_recognized_purposes")){
+					if(conf__add_recognized_purposes(config, &token, &saveptr)){
+						return MOSQ_ERR_INVAL;
+					}
 				}else{
 					log__printf(NULL, MOSQ_LOG_ERR, "Error: Unknown configuration variable '%s'.", token);
 					return MOSQ_ERR_INVAL;
@@ -3162,6 +3179,37 @@ static int conf__parse_ssize_t(char **token, const char *name, ssize_t *value, c
 		return MOSQ_ERR_INVAL;
 	}
 
+	return MOSQ_ERR_SUCCESS;
+}
+
+
+/* Add a collection of purpose filters to the purposes the broker recognizes. */
+static int conf__add_recognized_purposes(struct mosquitto__config *config, char **token, char **saveptr)
+{
+	char *value = NULL;
+	int rc;
+
+	if(conf__parse_string(token, "dap_recognized_purposes", &value, saveptr)){
+		return MOSQ_ERR_INVAL;
+	}
+	if(config->dap_recognized_purposes){
+		size_t len = strlen(config->dap_recognized_purposes) + 1 + strlen(value) + 1;
+		char *joined = mosquitto_malloc(len);
+		if(!joined){
+			mosquitto_FREE(value);
+			return MOSQ_ERR_NOMEM;
+		}
+		snprintf(joined, len, "%s|%s", config->dap_recognized_purposes, value);
+		mosquitto_FREE(value);
+		value = joined;
+	}
+	mosquitto_FREE(config->dap_recognized_purposes);
+	rc = purpose_filter_canonical(value, &config->dap_recognized_purposes);
+	mosquitto_FREE(value);
+	if(rc){
+		log__printf(NULL, MOSQ_LOG_ERR, "Error: Invalid dap_recognized_purposes value in configuration.");
+		return MOSQ_ERR_INVAL;
+	}
 	return MOSQ_ERR_SUCCESS;
 }
 

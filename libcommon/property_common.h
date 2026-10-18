@@ -57,6 +57,8 @@ struct dap__op_property {
 	 * seconds; 0 = unbounded), used by the relevance query. */
 	time_t op_before;
 	time_t op_after;
+	/* DAP-Deadline: the requested deadline (decimal seconds; 0 = the default). */
+	time_t op_deadline;
 	char *correlation_data;
 	uint16_t correlation_data_len;
 	char *response_topic;
