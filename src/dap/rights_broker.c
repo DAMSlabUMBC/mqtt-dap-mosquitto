@@ -587,7 +587,7 @@ void broker_send_operation_status(const char *requester_id, struct dap__op_prope
         mosquitto_property_add_binary(&props, MQTT_PROP_CORRELATION_DATA, dap_op_properties->correlation_data, dap_op_properties->correlation_data_len);
     }
     db__messages_easy_queue_with_purpose(NULL, response_topic, MOSQ_DAP_OP_PURPOSE, DAP_OP_QOS,
-            (uint32_t)strlen(payload), payload, false, 0, &props);
+            (uint32_t)strlen(payload), payload, false, 0, &props, true);
     mosquitto_property_free_all(&props);
     cJSON_free(payload);
 }

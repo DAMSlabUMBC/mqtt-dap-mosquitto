@@ -822,7 +822,7 @@ void db__msg_add_to_queued_stats(struct mosquitto_msg_data *msg_data, struct mos
 uint64_t db__new_msg_id(void);
 void db__expire_all_messages(struct mosquitto *context);
 void db__check_acl_of_all_messages(struct mosquitto *context);
-enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct mosquitto__client_msg *client_msg, bool is_resend, bool perform_full_check);
+enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct mosquitto__client_msg *client_msg, bool perform_full_check);
 
 /* ============================================================
  * Subscription functions
