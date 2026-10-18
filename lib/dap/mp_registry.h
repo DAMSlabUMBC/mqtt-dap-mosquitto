@@ -26,6 +26,9 @@ void mp_registry_cleanup(void);
  * MOSQ_ERR_SUCCESS or MOSQ_ERR_NOMEM. */
 int mp__register_topic(const char *id, const char *topic, const char *mp_value);
 
+/* Restores a persisted registration with its version. */
+int mp__restore_topic(const char *id, const char *topic, const char *mp_value, uint32_t version);
+
 /* Looks up the stored purpose filter of a publisher's topic. */
 struct mp_entry *mp__lookup(const char *id, const char *topic);
 

@@ -22,7 +22,6 @@ extern "C" {
 struct dap_stored_request {
     uint64_t op_id;
     time_t deadline;
-    uint8_t qos;
     void *payload;
     uint32_t payloadlen;
     mosquitto_property *properties;
@@ -44,7 +43,7 @@ void dap_request_store_init(struct dap_request_store *store);
 /* Hold a request for sub_id. The payload is copied; properties are taken on success.
  * Returns 0, or non-zero on a bad argument or allocation failure. */
 int dap_request_store_add(struct dap_request_store *store, const char *sub_id, uint64_t op_id,
-                          time_t deadline, uint8_t qos, const void *payload, uint32_t payloadlen,
+                          time_t deadline, const void *payload, uint32_t payloadlen,
                           mosquitto_property *properties);
 
 bool dap_request_store_has(struct dap_request_store *store, const char *sub_id);

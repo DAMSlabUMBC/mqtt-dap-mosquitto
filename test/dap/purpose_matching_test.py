@@ -4,6 +4,7 @@
 A subscription receives a message when its topic filter matches and every purpose
 its SP describes is permitted by the message's MP, or the MP is "*". SPs are given
 bare or as <SP>:<topic_filter>, which binds them to one subscription of the packet.
+Data without consent or a registered MP is discarded.
 
 Usage: the broker must already be running on HOST:PORT with allow_anonymous.
   python3 purpose_matching_test.py [host] [port]
@@ -75,6 +76,117 @@ def props(packet_type, pairs):
     return p
 
 
+def rejection_cases():
+    """Data without consent or a registered MP is discarded; the client stays connected."""
+    acks = {}
+    c = mqtt.Client(CallbackAPIVersion.VERSION2, client_id="pubR", protocol=mqtt.MQTTv5)
+    c.on_publish = lambda cl, u, mid, rc, p: acks.__setitem__(mid, rc.value)
+    disconnected.pop("pubR", None)
+    c.on_disconnect = lambda cl, u, f, rc, p: disconnected.__setitem__("pubR", True)
+    c.connect(HOST, PORT)
+    c.loop_start()
+    time.sleep(0.2)
+    sub = client("subR")
+    time.sleep(0.2)
+    sub.subscribe("pr/#", qos=1, properties=props(PacketTypes.SUBSCRIBE, [("DAP-SP", "qa")]))
+    reg = c.publish("$MP_REG", payload="", qos=1,
+                    properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1"), ("DAP-MP", "qa:pr/ok")]))
+    reg.wait_for_publish(5)
+    time.sleep(0.3)
+    check(acks.get(reg.mid) == 0, "a QoS 1 registration is acknowledged (%s)" % acks.get(reg.mid))
+    no_consent = c.publish("pr/ok", payload=b"x", qos=1, properties=props(PacketTypes.PUBLISH, []))
+    no_mp = c.publish("pr/none", payload=b"y", qos=1, properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1")]))
+    ok = c.publish("pr/ok", payload=b"z", qos=1, properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1")]))
+    for info in (no_consent, no_mp, ok):
+        info.wait_for_publish(5)
+    time.sleep(0.5)
+    check(acks.get(no_consent.mid) == 0x87, "data without DAP-Allow is acknowledged with Not authorized (%s)"
+          % acks.get(no_consent.mid))
+    check(acks.get(no_mp.mid) == 0x87, "data on a topic without an MP is acknowledged with Not authorized (%s)"
+          % acks.get(no_mp.mid))
+    check(not disconnected.get("pubR") and acks.get(ok.mid) == 0,
+          "the publisher stays connected and its valid data is accepted")
+    check(received["subR"] == ["pr/ok"], "only the valid data is delivered (got %s)" % received["subR"])
+    for cl in (c, sub):
+        cl.disconnect()
+        cl.loop_stop()
+
+
+def retained_case():
+    """A retained message reaches a subscription only if its MP and the current MP permit the SP."""
+    pub = client("pubT")
+    time.sleep(0.2)
+    pub.publish("$MP_REG", payload="", qos=0,
+                properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1"), ("DAP-MP", "qa:pt/r")]))
+    time.sleep(0.3)
+    pub.publish("pt/r", payload=b"kept", qos=0, retain=True, properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1")]))
+    time.sleep(0.3)
+
+    def fresh(cid, sp):
+        c = client(cid)
+        time.sleep(0.2)
+        c.subscribe("pt/r", qos=0, properties=props(PacketTypes.SUBSCRIBE, [("DAP-SP", sp)]))
+        time.sleep(0.5)
+        c.loop_stop()
+        c.disconnect()
+        return received[cid]
+
+    check(fresh("subT1", "qa") == ["pt/r"], "a subscription the MP permits gets the retained message")
+    check(fresh("subT2", "qb") == [], "a subscription the MP does not permit does not")
+    pub.publish("$MP_REG", payload="", qos=0,
+                properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1"), ("DAP-MP", "qz:pt/r")]))
+    time.sleep(0.3)
+    check(fresh("subT3", "qa") == [], "nor does one the publisher's current MP no longer permits")
+    pub.publish("pt/r", payload=b"", qos=0, retain=True, properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1")]))
+    pub.loop_stop()
+    pub.disconnect()
+
+
+def shared_case():
+    """A shared subscription group delivers each message to a member whose SP the MP permits."""
+    members = {cid: client(cid) for cid in ("subG1", "subG2")}
+    time.sleep(0.2)
+    members["subG1"].subscribe("$share/g/ps/s", qos=0, properties=props(PacketTypes.SUBSCRIBE, [("DAP-SP", "qa")]))
+    members["subG2"].subscribe("$share/g/ps/s", qos=0, properties=props(PacketTypes.SUBSCRIBE, [("DAP-SP", "qb")]))
+    pub = client("pubG")
+    time.sleep(0.3)
+    pub.publish("$MP_REG", payload="", qos=0,
+                properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1"), ("DAP-MP", "qa:ps/s")]))
+    time.sleep(0.3)
+    for i in range(4):
+        pub.publish("ps/s", payload=b"%d" % i, qos=0, properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1")]))
+    time.sleep(0.5)
+    check(len(received["subG1"]) == 4 and received["subG2"] == [],
+          "every message goes to the member the MP permits (got %d and %d)"
+          % (len(received["subG1"]), len(received["subG2"])))
+    for c in list(members.values()) + [pub]:
+        c.loop_stop()
+        c.disconnect()
+
+
+def client_id_case():
+    """The broker sets DAP-ClientID on data to the publisher's connection-time ID."""
+    got = []
+    sub = mqtt.Client(CallbackAPIVersion.VERSION2, client_id="subC2", protocol=mqtt.MQTTv5)
+    sub.on_message = lambda cl, u, m: got.append([v for k, v in (m.properties.UserProperty or []) if k == "DAP-ClientID"])
+    sub.connect(HOST, PORT)
+    sub.loop_start()
+    pub = client("pubC2")
+    time.sleep(0.2)
+    sub.subscribe("pc/#", qos=0, properties=props(PacketTypes.SUBSCRIBE, [("DAP-SP", "qa")]))
+    pub.publish("$MP_REG", payload="", qos=0,
+                properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1"), ("DAP-MP", "qa:pc/a")]))
+    time.sleep(0.3)
+    pub.publish("pc/a", payload=b"1", qos=0, properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1")]))
+    pub.publish("pc/a", payload=b"2", qos=0,
+                properties=props(PacketTypes.PUBLISH, [("DAP-Allow", "1"), ("DAP-ClientID", "someone-else")]))
+    time.sleep(0.5)
+    check(got == [["pubC2"], ["pubC2"]], "data carries the publisher's own ID, added or corrected (got %s)" % got)
+    for cl in (sub, pub):
+        cl.disconnect()
+        cl.loop_stop()
+
+
 def main():
     subs = {}
     for cid, (topic_filter, sps, _) in CASES.items():
@@ -112,6 +224,10 @@ def main():
               % (cid, topic_filter, sps, got, sorted(expected)))
     check(rejected and received["subZ"] == [],
           "a subscription whose only SP is bound to another topic filter is rejected")
+    rejection_cases()
+    client_id_case()
+    retained_case()
+    shared_case()
 
     print()
     if failures:

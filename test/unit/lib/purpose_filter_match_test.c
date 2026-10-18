@@ -185,6 +185,25 @@ static void test_intersection(void)
     printf("ok - purpose sets intersect when they share a purpose\n");
 }
 
+static void test_recognized(void)
+{
+    char *recognized = canonical("quality/assurance|maintenance/{predictive,routine}");
+    char **set = NULL;
+    uint32_t n = 0;
+
+    assert(purpose_set_expand("maintenance/routine|quality/assurance", &set, &n) == 0);
+    assert(purpose_set_recognized(recognized, set, n));
+    assert(purpose_set_recognized(NULL, set, n));
+    purpose_set_free(set, n);
+    assert(purpose_set_expand("maintenance|quality/assurance", &set, &n) == 0);
+    assert(!purpose_set_recognized(recognized, set, n));
+    purpose_set_free(set, n);
+    /* A set that names no purpose names no unrecognized one. */
+    assert(purpose_set_recognized(recognized, NULL, 0));
+    mosquitto_free(recognized);
+    printf("ok - a purpose set is recognized when every purpose is in the recognized set\n");
+}
+
 static void test_limit(void)
 {
     /* Eleven two-way sets describe 2048 purposes, past PURPOSE_SET_MAX. */
@@ -228,6 +247,7 @@ int main(void)
     test_intersection();
     test_limit();
     test_invalid_terms();
+    test_recognized();
     printf("\nAll purpose_filter_match tests passed.\n");
     return 0;
 }

@@ -68,6 +68,11 @@ int persist_sqlite__base_msg_add_cb(int event, void *event_data, void *userdata)
 	}else{
 		rc += sqlite3_bind_null(ms->base_msg_add_stmt, 12);
 	}
+	if(ed->data.has_purpose_filter && ed->data.purpose_filter){
+		rc += sqlite3_bind_text(ms->base_msg_add_stmt, 13, ed->data.purpose_filter, (int)strlen(ed->data.purpose_filter), SQLITE_STATIC);
+	}else{
+		rc += sqlite3_bind_null(ms->base_msg_add_stmt, 13);
+	}
 
 	rc = sqlite3_single_step_stmt(rc, ms, ms->base_msg_add_stmt);
 	sqlite3_reset(ms->base_msg_add_stmt);

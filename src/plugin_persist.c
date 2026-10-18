@@ -174,6 +174,8 @@ void plugin_persist__handle_subscription_add(struct mosquitto *context, const st
 	event_data.data.topic_filter = sub->topic_filter;
 	event_data.data.identifier = sub->identifier;
 	event_data.data.options = sub->options;
+	event_data.data.purpose_filter_count = sub->purpose_filter_count;
+	event_data.data.purpose_filters = sub->purpose_filters;
 
 	DL_FOREACH_SAFE(opts->plugin_callbacks.persist_subscription_add, cb_base, cb_next){
 		cb_base->cb(MOSQ_EVT_PERSIST_SUBSCRIPTION_ADD, &event_data, cb_base->userdata);
@@ -308,6 +310,9 @@ void plugin_persist__handle_base_msg_add(struct mosquitto__base_msg *base_msg)
 	event_data.data.store_id = base_msg->data.store_id;
 	event_data.data.expiry_time = base_msg->data.expiry_time;
 	event_data.data.topic = base_msg->data.topic;
+	event_data.data.has_purpose_filter = base_msg->data.has_purpose_filter;
+	event_data.data.purpose_filter = base_msg->data.purpose_filter;
+	event_data.data.purpose_filter_version = base_msg->data.purpose_filter_version;
 	event_data.data.payload = base_msg->data.payload;
 	event_data.data.source_id = base_msg->data.source_id;
 	event_data.data.source_username = base_msg->data.source_username;

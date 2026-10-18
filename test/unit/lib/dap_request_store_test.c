@@ -29,15 +29,15 @@ static void test_take_returns_requests_in_order(void)
     struct dap_request_store store;
     dap_request_store_init(&store);
 
-    assert(dap_request_store_add(&store, "subA", 1, 100, 1, "h1", 2, props("HISTORY")) == 0);
-    assert(dap_request_store_add(&store, "subA", 2, 100, 0, NULL, 0, props("DELETE")) == 0);
-    assert(dap_request_store_add(&store, "subB", 3, 100, 1, "x", 1, NULL) == 0);
+    assert(dap_request_store_add(&store, "subA", 1, 100, "h1", 2, props("HISTORY")) == 0);
+    assert(dap_request_store_add(&store, "subA", 2, 100, NULL, 0, props("DELETE")) == 0);
+    assert(dap_request_store_add(&store, "subB", 3, 100, "x", 1, NULL) == 0);
     assert(dap_request_store_has(&store, "subA") && dap_request_store_has(&store, "subB"));
     assert(!dap_request_store_has(&store, "subC"));
 
     struct dap_stored_request *list = dap_request_store_take(&store, "subA", 50);
     assert(count(list) == 2);
-    assert(list->op_id == 1 && list->qos == 1 && list->payloadlen == 2 && !memcmp(list->payload, "h1", 2));
+    assert(list->op_id == 1 && list->payloadlen == 2 && !memcmp(list->payload, "h1", 2));
     assert(list->properties != NULL);
     assert(list->next->op_id == 2 && list->next->payload == NULL);
     dap_request_store_free_list(list);
@@ -56,9 +56,9 @@ static void test_deadline_bounds_storage(void)
     struct dap_request_store store;
     dap_request_store_init(&store);
 
-    assert(dap_request_store_add(&store, "subA", 1, 100, 1, NULL, 0, props("HISTORY")) == 0);
-    assert(dap_request_store_add(&store, "subA", 2, 200, 1, NULL, 0, NULL) == 0);
-    assert(dap_request_store_add(&store, "subB", 3, 100, 1, NULL, 0, NULL) == 0);
+    assert(dap_request_store_add(&store, "subA", 1, 100, NULL, 0, props("HISTORY")) == 0);
+    assert(dap_request_store_add(&store, "subA", 2, 200, NULL, 0, NULL) == 0);
+    assert(dap_request_store_add(&store, "subB", 3, 100, NULL, 0, NULL) == 0);
 
     /* Past a request's deadline it is no longer delivered. */
     struct dap_stored_request *list = dap_request_store_take(&store, "subA", 150);
@@ -78,9 +78,9 @@ static void test_remove_operation(void)
     struct dap_request_store store;
     dap_request_store_init(&store);
 
-    assert(dap_request_store_add(&store, "subA", 1, 100, 1, NULL, 0, NULL) == 0);
-    assert(dap_request_store_add(&store, "subA", 2, 100, 1, NULL, 0, NULL) == 0);
-    assert(dap_request_store_add(&store, "subB", 1, 100, 1, NULL, 0, NULL) == 0);
+    assert(dap_request_store_add(&store, "subA", 1, 100, NULL, 0, NULL) == 0);
+    assert(dap_request_store_add(&store, "subA", 2, 100, NULL, 0, NULL) == 0);
+    assert(dap_request_store_add(&store, "subB", 1, 100, NULL, 0, NULL) == 0);
 
     dap_request_store_remove_operation(&store, 1);
     assert(!dap_request_store_has(&store, "subB"));
