@@ -62,6 +62,12 @@ int dap_subscription_queues_enqueue(struct dap_subscription_queues *q,
 {
     if(!q || !topic) return 1;
 
+    // Don't re-add if already there
+    if(dap_subscription_queues_find(q, topic, base_msg, cmsg_id))
+    {
+        return 0;
+    }
+
     /* Build the stamped message wrapper. */
     struct dap_stamped_msg *msg = mosquitto_calloc(1, sizeof(*msg));
     if(!msg) return 1;

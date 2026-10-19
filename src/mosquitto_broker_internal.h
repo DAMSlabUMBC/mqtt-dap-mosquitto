@@ -524,6 +524,12 @@ struct mosquitto__message_v5 {
 	bool retain;
 };
 
+struct dap_dropped_op {
+	struct mosquitto__base_msg *base_msg; /* The message which needs to be resent */
+	struct mosquitto__subleaf *sub_leaf; /* The subscription to which it should have been sent */
+    struct dap_dropped_op *next, *prev; /* next op to be resent */
+};
+
 struct mosquitto_db {
 	dbid_t last_db_id;
 	uint64_t node_id_shifted;
@@ -572,6 +578,7 @@ struct mosquitto_db {
 	struct dap_holding_list *dap_holding_list; /* DAP per-client send-path hold list */
 	struct dap_op_requester *dap_op_requester; /* DAP op id -> requesting publisher */
 	struct dap_request_store *dap_request_store; /* DAP requests held for offline subscribers */
+	struct dap_dropped_op *dap_dropped_ops; /* DAP op messages to resend */
 #ifdef WITH_TLS
 	/* tls_keylog can't be in the config struct because it is used
 	   before the config is allocated. Config probably
@@ -837,6 +844,7 @@ int sub__messages_queue(const char *source_id, const char *topic, uint8_t qos, i
 bool sub__purpose_allows(const struct mosquitto__subleaf *leaf, const struct mosquitto__base_msg *stored);
 /* As sub__purpose_allows, for a subscription's sorted SP. */
 bool sub__purpose_set_allows(char *const *sp, uint32_t sp_count, const struct mosquitto__base_msg *stored);
+int sub__dap_direct_send(struct mosquitto__subleaf *leaf, const char *source_id, const char *topic, uint8_t qos, int retain, struct mosquitto__base_msg *stored);
 int sub__topic_tokenise(const char *subtopic, char **local_sub, char ***topics, const char **sharename);
 void sub__topic_tokens_free(struct sub__token *tokens);
 

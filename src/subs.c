@@ -76,7 +76,7 @@ static int subs__send(struct mosquitto__subleaf *leaf, const char *topic, uint8_
 	bool client_retain;
 	uint16_t mid;
 	uint8_t client_qos, msg_qos;
-	int rc2;
+	int rc2, rc3;
 	uint64_t last_cmsg_id = leaf->context->last_cmsg_id;
 
 	/* cmsg_id_out reports the client message queued here for the DAP stamp, or 0
@@ -109,9 +109,27 @@ static int subs__send(struct mosquitto__subleaf *leaf, const char *topic, uint8_
 		}else{
 			client_retain = false;
 		}
-		if(db__message_insert_outgoing(leaf->context, 0, mid, msg_qos, client_retain, stored, leaf->identifier, false, true) == 1){
+
+		rc3 = db__message_insert_outgoing(leaf->context, 0, mid, msg_qos, client_retain, stored, leaf->identifier, false, true);
+		if(rc3 == MOSQ_ERR_NOMEM){
 			return 1;
 		}
+		else if(rc3 == MOSQ_ERR_PROTOCOL)
+		{
+			/* Operations CANNOT be permanently dropped for correctness of delivery */
+			if(stored->is_op)
+			{
+				// Store message for resend
+				struct dap_dropped_op *dropped_op = mosquitto_malloc(sizeof(struct dap_dropped_op));
+				if(dropped_op == NULL){
+					return MOSQ_ERR_NOMEM;
+				}
+				dropped_op->base_msg = stored;
+				dropped_op->sub_leaf = leaf;
+				DL_APPEND(db.dap_dropped_ops, dropped_op);
+			}
+		}
+
 		if(cmsg_id_out && leaf->context->last_cmsg_id != last_cmsg_id){
 			*cmsg_id_out = leaf->context->last_cmsg_id;
 		}
@@ -209,6 +227,11 @@ bool sub__purpose_set_allows(char *const *sp, uint32_t sp_count, const struct mo
 bool sub__purpose_allows(const struct mosquitto__subleaf *leaf, const struct mosquitto__base_msg *stored)
 {
 	return sub__purpose_set_allows(leaf->purpose_filters, leaf->purpose_filter_count, stored);
+}
+
+int sub__dap_direct_send(struct mosquitto__subleaf *leaf, const char *source_id, const char *topic, uint8_t qos, int retain, struct mosquitto__base_msg *stored)
+{
+	return subs__dap_send(leaf, source_id, topic, qos, retain, stored);
 }
 
 

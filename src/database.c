@@ -926,6 +926,7 @@ int db__message_insert_outgoing(struct mosquitto *context, uint64_t cmsg_id, uin
 						"Outgoing messages are being dropped for client %s.",
 						context->id);
 			}
+
 			metrics__int_inc(mosq_counter_mqtt_publish_dropped, 1);
 			return 2;
 		}
@@ -933,13 +934,15 @@ int db__message_insert_outgoing(struct mosquitto *context, uint64_t cmsg_id, uin
 		if(db__ready_for_queue(context, qos, msg_data)){
 			state = mosq_ms_queued;
 		}else{
-			metrics__int_inc(mosq_counter_mqtt_publish_dropped, 1);
+			/* Dropping message due to full queue. */
 			if(context->is_dropping == false){
 				context->is_dropping = true;
 				log__printf(NULL, MOSQ_LOG_NOTICE,
 						"Outgoing messages are being dropped for client %s.",
 						context->id);
 			}
+			
+			metrics__int_inc(mosq_counter_mqtt_publish_dropped, 1);
 			return 2;
 		}
 	}
