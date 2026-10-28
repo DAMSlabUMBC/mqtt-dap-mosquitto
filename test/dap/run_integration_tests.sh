@@ -12,6 +12,13 @@ T="$R/test/dap"
 PORT=18830
 OUT="$(mktemp -d)"
 
+# Create virtual env
+python3 -m venv ~/dap_test_env
+source ~/dap_test_env/bin/activate
+
+# Install packages
+pip install paho-mqtt
+
 # macOS has no timeout(1) unless coreutils is installed.
 TIMEOUT="$(command -v timeout || command -v gtimeout || true)"
 [ -n "$TIMEOUT" ] && TIMEOUT="$TIMEOUT 600"

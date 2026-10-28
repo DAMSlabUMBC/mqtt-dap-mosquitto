@@ -230,7 +230,7 @@ static void dap_resend_op_messages(void)
 		DL_DELETE(db.dap_dropped_ops, msg);
 
 		sub__dap_direct_send(msg->sub_leaf, msg->base_msg->data.source_id, msg->base_msg->data.topic, msg->base_msg->data.qos, msg->base_msg->data.retain, msg->base_msg);
-		mosquitto_FREE(msg);
+		db__msg_store_ref_dec(&msg->base_msg);
 	}
 }
 
@@ -257,6 +257,8 @@ int mosquitto_main_loop(struct mosquitto__listener_sock *listensock, int listens
 	}
 #endif
 
+	int op_check = 0;
+
 	while(g_run){
 		retain__expiry_check();
 		queue_plugin_msgs();
@@ -279,7 +281,16 @@ int mosquitto_main_loop(struct mosquitto__listener_sock *listensock, int listens
 		session_expiry__check();
 		will_delay__check();
 		dap_deadline__check();
-		dap_resend_op_messages();
+		
+		if(op_check == 5)
+		{
+			dap_resend_op_messages();
+			op_check = 0;
+		}
+		else
+		{
+			op_check++;
+		}
 
 		rc = mux__handle(listensock, listensock_count);
 		if(rc){

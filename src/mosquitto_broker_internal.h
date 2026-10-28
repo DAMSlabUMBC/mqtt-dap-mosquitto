@@ -24,14 +24,14 @@ Contributors:
 #include <stdio.h>
 
 #if defined(WITH_WEBSOCKETS) && WITH_WEBSOCKETS == WS_IS_LWS
-#  include <libwebsockets.h>
-#  if LWS_LIBRARY_VERSION_NUMBER >= 3002000 && !defined(LWS_WITH_EXTERNAL_POLL)
-#    warning "libwebsockets is not compiled with LWS_WITH_EXTERNAL_POLL support. Websocket performance will be unusable."
-#  endif
+#include <libwebsockets.h>
+#if LWS_LIBRARY_VERSION_NUMBER >= 3002000 && !defined(LWS_WITH_EXTERNAL_POLL)
+#warning "libwebsockets is not compiled with LWS_WITH_EXTERNAL_POLL support. Websocket performance will be unusable."
+#endif
 #endif
 
 #ifdef WITH_HTTP_API
-#  include <microhttpd.h>
+#include <microhttpd.h>
 #endif
 
 #ifdef __linux__
@@ -98,13 +98,14 @@ typedef int (*FUNC_auth_plugin_acl_check_v2)(void *, const char *, const char *,
 typedef int (*FUNC_auth_plugin_unpwd_check_v2)(void *, const char *, const char *);
 typedef int (*FUNC_auth_plugin_psk_key_get_v2)(void *, const char *, const char *, char *, int);
 
-
-enum mosquitto_msg_origin {
+enum mosquitto_msg_origin
+{
 	mosq_mo_client = 0,
 	mosq_mo_broker = 1,
 };
 
-struct mosquitto__plugin_lib {
+struct mosquitto__plugin_lib
+{
 	void *lib;
 	void *user_data;
 	int (*plugin_version)(void);
@@ -141,7 +142,8 @@ struct mosquitto__plugin_lib {
 	int version;
 };
 
-struct mosquitto__plugin_config {
+struct mosquitto__plugin_config
+{
 	char *path;
 	char *name;
 	struct mosquitto_opt *options;
@@ -151,19 +153,22 @@ struct mosquitto__plugin_config {
 	bool deny_special_chars;
 };
 
-struct mosquitto__callback {
-	UT_hash_handle hh; /* For callbacks that register for e.g. a specific topic */
+struct mosquitto__callback
+{
+	UT_hash_handle hh;						 /* For callbacks that register for e.g. a specific topic */
 	struct mosquitto__callback *next, *prev; /* For typical callbacks */
 	MOSQ_FUNC_generic_callback cb;
 	void *userdata;
-	union {
+	union
+	{
 		char *topic;
 		struct timespec next_tick;
 	} data;
 	mosquitto_plugin_id_t *identifier;
 };
 
-struct plugin__callbacks {
+struct plugin__callbacks
+{
 	struct mosquitto__callback *tick;
 	struct mosquitto__callback *acl_check;
 	struct mosquitto__callback *basic_auth;
@@ -207,7 +212,8 @@ struct plugin__callbacks {
 
 /* This is owned by mosquitto__config or mosquitto__listener, and only referred
  * to by other structs */
-struct mosquitto__security_options {
+struct mosquitto__security_options
+{
 	/* Any options that get added here also need considering
 	 * in config__read() with regards whether allow_anonymous
 	 * should be disabled when these options are set.
@@ -228,7 +234,8 @@ struct mosquitto__security_options {
 };
 
 #if defined(WITH_EPOLL) || defined(WITH_KQUEUE)
-enum struct_ident {
+enum struct_ident
+{
 	id_invalid = 0,
 	id_listener = 1,
 	id_client = 2,
@@ -236,7 +243,8 @@ enum struct_ident {
 };
 #endif
 
-struct mosquitto__listener {
+struct mosquitto__listener
+{
 	uint16_t port;
 	char *host;
 	char *bind_interface;
@@ -271,11 +279,11 @@ struct mosquitto__listener {
 	enum mosquitto__keyform tls_keyform;
 #endif
 #ifdef WITH_WEBSOCKETS
-#  if WITH_WEBSOCKETS == WS_IS_LWS
+#if WITH_WEBSOCKETS == WS_IS_LWS
 	struct lws_context *ws_context;
 	bool ws_in_init;
 	struct lws_protocols *ws_protocol;
-#  endif
+#endif
 	char **ws_origins;
 	int ws_origin_count;
 #endif
@@ -296,8 +304,8 @@ struct mosquitto__listener {
 #endif
 };
 
-
-struct mosquitto__listener_sock {
+struct mosquitto__listener_sock
+{
 #if defined(WITH_EPOLL) || defined(WITH_KQUEUE)
 	/* This *must* be the first element in the struct. */
 	int ident;
@@ -306,17 +314,18 @@ struct mosquitto__listener_sock {
 	struct mosquitto__listener *listener;
 };
 
-
 /* Callbacks belonging to a specific plugin
  * Doesn't include MOSQ_EVT_CONTROL events.
  */
-struct plugin_own_callback {
+struct plugin_own_callback
+{
 	struct plugin_own_callback *next, *prev;
 	MOSQ_FUNC_generic_callback cb_func;
 	enum mosquitto_plugin_event event;
 };
 
-struct mosquitto_plugin_id_t {
+struct mosquitto_plugin_id_t
+{
 	struct mosquitto__plugin_config config;
 	struct mosquitto__plugin_lib lib;
 	struct mosquitto__listener *listener;
@@ -327,7 +336,8 @@ struct mosquitto_plugin_id_t {
 	struct timespec next_tick;
 };
 
-struct mosquitto__config {
+struct mosquitto__config
+{
 	bool allow_duplicate_messages;
 	int autosave_interval;
 	bool autosave_on_changes;
@@ -355,6 +365,7 @@ struct mosquitto__config {
 	size_t max_inflight_bytes;
 	size_t max_queued_bytes;
 	int max_queued_messages;
+	int dap_op_queue_buffer;
 	uint32_t max_packet_size;
 	uint32_t message_size_limit;
 	uint16_t max_inflight_messages;
@@ -379,7 +390,7 @@ struct mosquitto__config {
 	bool upgrade_outgoing_qos;
 	char *user;
 	bool metadata_operation_handling;
-	bool dap_send_verification; /* false: deliver queued data as matched, for ablation */
+	bool dap_send_verification;	   /* false: deliver queued data as matched, for ablation */
 	char *dap_recognized_purposes; /* canonical set of recognized purposes; NULL = any (paper 4.3) */
 #if defined(WITH_WEBSOCKETS) && WITH_WEBSOCKETS == WS_IS_LWS
 	int websockets_log_level;
@@ -392,14 +403,15 @@ struct mosquitto__config {
 	struct mosquitto__security_options security_options;
 };
 
-
-struct mosquitto__subshared {
+struct mosquitto__subshared
+{
 	UT_hash_handle hh;
 	struct mosquitto__subleaf *subs;
 	char name[];
 };
 
-struct mosquitto__subhier {
+struct mosquitto__subhier
+{
 	UT_hash_handle hh;
 	struct mosquitto__subhier *parent;
 	struct mosquitto__subhier *children;
@@ -435,7 +447,8 @@ struct dap_request_store;
  * db field can be a pointer. */
 struct dap_op_requester;
 
-struct mosquitto__subleaf {
+struct mosquitto__subleaf
+{
 	struct mosquitto__subleaf *prev;
 	struct mosquitto__subleaf *next;
 	struct mosquitto *context;
@@ -445,18 +458,20 @@ struct mosquitto__subleaf {
 	uint8_t subscription_options;
 	uint32_t purpose_filter_count;
 	char **purpose_filters;
-	uint32_t sp_version; /* DAP SP version: 1 at first subscribe with an SP, bumped when a re-subscribe changes it, 0 when no SP */
+	uint32_t sp_version;						/* DAP SP version: 1 at first subscribe with an SP, bumped when a re-subscribe changes it, 0 when no SP */
 	struct dap_subscription_queues *dap_queues; /* DAP topic queues, lazily created */
 	char topic_filter[];
 };
 
-struct sub__token {
+struct sub__token
+{
 	struct sub__token *next;
 	uint16_t topic_len;
 	char topic[];
 };
 
-struct mosquitto__retainhier {
+struct mosquitto__retainhier
+{
 	UT_hash_handle hh;
 	struct mosquitto__retainhier *parent;
 	struct mosquitto__retainhier *children;
@@ -466,14 +481,16 @@ struct mosquitto__retainhier {
 };
 
 /* When the broker read a PUBLISH (paper 5.2(i)). */
-struct dap_receipt {
-	time_t time;     /* seconds since the epoch, the DAP-Timestamp */
+struct dap_receipt
+{
+	time_t time;	  /* seconds since the epoch, the DAP-Timestamp */
 	uint64_t ns_wall; /* CLOCK_REALTIME */
 	uint64_t ns_mono; /* CLOCK_MONOTONIC */
-	uint64_t order;  /* strictly increasing across receipts */
+	uint64_t order;	  /* strictly increasing across receipts */
 };
 
-struct mosquitto__base_msg {
+struct mosquitto__base_msg
+{
 	UT_hash_handle hh;
 	struct mosquitto_base_msg data;
 	struct mosquitto__listener *source_listener;
@@ -483,35 +500,37 @@ struct mosquitto__base_msg {
 	enum mosquitto_msg_origin origin;
 	bool stored;
 	bool is_op;
-	time_t dap_recv_time; /* DAP receipt timestamp: single reference time for ordering
-	                       * and operation matching, stamped once at PUBLISH receipt */
-	bool dap_restored;    /* restored from persistence, has no DAP stamp */
-	uint64_t dap_order;   /* strictly increasing receipt order (ns since the epoch), which
-	                       * orders data against operations */
+	time_t dap_recv_time;			/* DAP receipt timestamp: single reference time for ordering
+									 * and operation matching, stamped once at PUBLISH receipt */
+	bool dap_restored;				/* restored from persistence, has no DAP stamp */
+	uint64_t dap_order;				/* strictly increasing receipt order (ns since the epoch), which
+									 * orders data against operations */
 	uint64_t dap_recv_time_ns_wall; /* CLOCK_REALTIME at PUBLISH receipt, for the metrics row */
 	uint64_t dap_recv_time_ns_mono; /* CLOCK_MONOTONIC at PUBLISH receipt, for delta computation */
-	int dap_subs_matched;           /* leaves the message fanned out to */
-	int dap_subs_resolved;          /* leaves whose verdict (DELIVER/DROP) has landed */
-	int dap_bump_count;             /* bumps accrued before final resolution */
-	bool dap_fanout_complete;       /* set true once sub__messages_queue has returned */
-	bool dap_metrics_emitted;       /* set true after the metrics row has been written */
+	int dap_subs_matched;			/* leaves the message fanned out to */
+	int dap_subs_resolved;			/* leaves whose verdict (DELIVER/DROP) has landed */
+	int dap_bump_count;				/* bumps accrued before final resolution */
+	bool dap_fanout_complete;		/* set true once sub__messages_queue has returned */
+	bool dap_metrics_emitted;		/* set true after the metrics row has been written */
 };
 
-struct mosquitto__client_msg {
+struct mosquitto__client_msg
+{
 	struct mosquitto_client_msg data;
 	struct mosquitto__client_msg *prev;
 	struct mosquitto__client_msg *next;
 	struct mosquitto__base_msg *base_msg;
 };
 
-
-struct mosquitto__psk {
+struct mosquitto__psk
+{
 	UT_hash_handle hh;
 	char *username;
 	char *password;
 };
 
-struct mosquitto__message_v5 {
+struct mosquitto__message_v5
+{
 	struct mosquitto__message_v5 *next, *prev;
 	char *topic;
 	void *payload;
@@ -524,13 +543,15 @@ struct mosquitto__message_v5 {
 	bool retain;
 };
 
-struct dap_dropped_op {
+struct dap_dropped_op
+{
 	struct mosquitto__base_msg *base_msg; /* The message which needs to be resent */
-	struct mosquitto__subleaf *sub_leaf; /* The subscription to which it should have been sent */
-    struct dap_dropped_op *next, *prev; /* next op to be resent */
+	struct mosquitto__subleaf *sub_leaf;  /* The subscription to which it should have been sent */
+	struct dap_dropped_op *next, *prev;	  /* next op to be resent */
 };
 
-struct mosquitto_db {
+struct mosquitto_db
+{
 	dbid_t last_db_id;
 	uint64_t node_id_shifted;
 	struct mosquitto__subhier *normal_subs;
@@ -548,9 +569,9 @@ struct mosquitto_db {
 #endif
 	struct clientid__index_hash *clientid_index_hash;
 	struct mosquitto__base_msg *msg_store;
-	time_t now_s; /* Monotonic clock, where possible */
-	time_t now_real_s; /* Read clock, for measuring session/message expiry */
-	uint64_t node_id; /* for unique db ids */
+	time_t now_s;		  /* Monotonic clock, where possible */
+	time_t now_real_s;	  /* Read clock, for measuring session/message expiry */
+	uint64_t node_id;	  /* for unique db ids */
 	time_t next_event_ms; /* for mux timeout */
 	int msg_store_count;
 	unsigned long msg_store_bytes;
@@ -572,13 +593,13 @@ struct mosquitto_db {
 	int kqueuefd;
 #endif
 	struct mosquitto__message_v5 *plugin_msgs;
-	struct dap_pending_ops *dap_pending_ops; /* DAP pending-operation map */
-	uint64_t dap_last_order; /* the most recent PUBLISH receipt order */
+	struct dap_pending_ops *dap_pending_ops;		   /* DAP pending-operation map */
+	uint64_t dap_last_order;						   /* the most recent PUBLISH receipt order */
 	struct dap_deadline_tracker *dap_deadline_tracker; /* DAP operation deadline tracker */
-	struct dap_holding_list *dap_holding_list; /* DAP per-client send-path hold list */
-	struct dap_op_requester *dap_op_requester; /* DAP op id -> requesting publisher */
-	struct dap_request_store *dap_request_store; /* DAP requests held for offline subscribers */
-	struct dap_dropped_op *dap_dropped_ops; /* DAP op messages to resend */
+	struct dap_holding_list *dap_holding_list;		   /* DAP per-client send-path hold list */
+	struct dap_op_requester *dap_op_requester;		   /* DAP op id -> requesting publisher */
+	struct dap_request_store *dap_request_store;	   /* DAP requests held for offline subscribers */
+	struct dap_dropped_op *dap_dropped_ops;			   /* DAP op messages to resend */
 #ifdef WITH_TLS
 	/* tls_keylog can't be in the config struct because it is used
 	   before the config is allocated. Config probably
@@ -588,41 +609,47 @@ struct mosquitto_db {
 	bool shutdown;
 };
 
-enum mosquitto__bridge_direction {
+enum mosquitto__bridge_direction
+{
 	bd_out = 0,
 	bd_in = 1,
 	bd_both = 2,
 };
 
-enum mosquitto_bridge_start_type {
+enum mosquitto_bridge_start_type
+{
 	bst_automatic = 0,
 	bst_lazy = 1,
 	bst_manual = 2,
 	bst_once = 3,
 };
 
-enum mosquitto_bridge_reload_type {
+enum mosquitto_bridge_reload_type
+{
 	brt_lazy = 0,
 	brt_immediate = 1,
 };
 
-struct mosquitto__bridge_topic {
+struct mosquitto__bridge_topic
+{
 	struct mosquitto__bridge_topic *next;
 	char *topic;
 	char *local_prefix;
 	char *remote_prefix;
-	char *local_topic; /* topic prefixed with local_prefix */
+	char *local_topic;	/* topic prefixed with local_prefix */
 	char *remote_topic; /* topic prefixed with remote_prefix */
 	enum mosquitto__bridge_direction direction;
 	uint8_t qos;
 };
 
-struct bridge_address {
+struct bridge_address
+{
 	char *address;
 	uint16_t port;
 };
 
-struct mosquitto__bridge {
+struct mosquitto__bridge
+{
 	char *name;
 	struct bridge_address *addresses;
 	int cur_address;
@@ -685,34 +712,37 @@ struct mosquitto__bridge {
 	char *tls_alpn;
 	char *tls_ciphers;
 	char *tls_13_ciphers;
-#  ifdef FINAL_WITH_TLS_PSK
+#ifdef FINAL_WITH_TLS_PSK
 	char *tls_psk_identity;
 	char *tls_psk;
-#  endif
+#endif
 #endif
 };
 
 /* Send path verification outcome. */
-enum dap_hook_result {
-	DAP_HOOK_SEND,    /* deliver normally (a matched stamp was consumed here first) */
+enum dap_hook_result
+{
+	DAP_HOOK_SEND,	  /* deliver normally (a matched stamp was consumed here first) */
 	DAP_HOOK_HANDLED, /* do not send this pass: dropped, bumped for re-verification, or skipped */
 };
 
 #if defined(WITH_WEBSOCKETS) && WITH_WEBSOCKETS == WS_IS_LWS
-struct libws_mqtt_hack {
+struct libws_mqtt_hack
+{
 	char *http_dir;
 	struct mosquitto__listener *listener;
 };
 
-struct libws_mqtt_data {
+struct libws_mqtt_data
+{
 	struct mosquitto *mosq;
 };
 #endif
 
 #include <net_mosq.h>
 
-
-struct control_endpoint {
+struct control_endpoint
+{
 	struct control_endpoint *next, *prev;
 	char topic[];
 };
@@ -805,7 +835,7 @@ int db__messages_delete(struct mosquitto *context, bool force_free);
 int db__messages_delete_incoming(struct mosquitto *context);
 int db__messages_delete_outgoing(struct mosquitto *context);
 int db__messages_easy_queue(struct mosquitto *context, const char *topic, uint8_t qos, uint32_t payloadlen, const void *payload, int retain, uint32_t message_expiry_interval, mosquitto_property **properties);
-int db__messages_easy_queue_with_purpose(struct mosquitto *context, const char *topic, const char* purpose, uint8_t qos, uint32_t payloadlen, const void *payload, int retain, uint32_t message_expiry_interval, mosquitto_property **properties, bool is_op);
+int db__messages_easy_queue_with_purpose(struct mosquitto *context, const char *topic, const char *purpose, uint8_t qos, uint32_t payloadlen, const void *payload, int retain, uint32_t message_expiry_interval, mosquitto_property **properties, bool is_op);
 int db__message_store(const struct mosquitto *source, struct mosquitto__base_msg *base_msg, uint32_t *message_expiry_interval, enum mosquitto_msg_origin origin);
 int db__message_store_find(struct mosquitto *context, uint16_t mid, struct mosquitto__client_msg **client_msg);
 int db__msg_store_add(struct mosquitto__base_msg *base_msg);
@@ -817,7 +847,7 @@ void db__msg_store_compact(void);
 void db__msg_store_free(struct mosquitto__base_msg *base_msg);
 int db__message_reconnect_reset(struct mosquitto *context);
 bool db__ready_for_flight(struct mosquitto *context, enum mosquitto_msg_direction dir, int qos);
-bool db__ready_for_queue(struct mosquitto *context, int qos, struct mosquitto_msg_data *msg_data);
+bool db__ready_for_queue(struct mosquitto *context, int qos, struct mosquitto_msg_data *msg_data, bool is_op);
 void sys_tree__init(void);
 void sys_tree__update(bool force);
 int db__message_write_inflight_out_all(struct mosquitto *context);
@@ -863,7 +893,6 @@ void context__remove_from_by_id(struct mosquitto *context);
 
 int connect__on_authorised(struct mosquitto *context, void *auth_data_out, uint16_t auth_data_out_len);
 
-
 /* ============================================================
  * Control functions
  * ============================================================ */
@@ -874,7 +903,6 @@ void control__cleanup(void);
 int control__register_callback(mosquitto_plugin_id_t *pid, MOSQ_FUNC_generic_callback cb_func, const char *topic, void *userdata);
 int control__unregister_callback(mosquitto_plugin_id_t *pid, MOSQ_FUNC_generic_callback cb_func, const char *topic);
 void control__unregister_all_callbacks(mosquitto_plugin_id_t *identifier);
-
 
 /* ============================================================
  * Logging functions
@@ -1067,9 +1095,9 @@ void watchdog__check(void);
  * Websockets related functions
  * ============================================================ */
 #ifdef WITH_WEBSOCKETS
-#  if WITH_WEBSOCKETS == WS_IS_LWS
+#if WITH_WEBSOCKETS == WS_IS_LWS
 void mosq_websockets_init(struct mosquitto__listener *listener, const struct mosquitto__config *conf);
-#  endif
+#endif
 int http__context_init(struct mosquitto *context);
 int http__context_cleanup(struct mosquitto *context);
 int http__read(struct mosquitto *context);
@@ -1096,7 +1124,6 @@ void will_delay__remove(struct mosquitto *mosq);
 int http_api__start_local(struct mosquitto__listener *listener);
 int http_api__start(struct mosquitto__listener *listener);
 void http_api__stop(struct mosquitto__listener *listener);
-
 
 /* ============================================================
  * Other

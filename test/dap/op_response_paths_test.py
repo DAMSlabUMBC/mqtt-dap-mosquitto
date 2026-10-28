@@ -406,10 +406,10 @@ def case_operation_traffic_is_qos1(pub):
     return all(m[3] == 1 for m in sub.got(OP_REQ) + pub.got(OP_NOTIF))
 
 
-def case_failure_to_response_topic(_):
-    pub = requester(response_topic="op_resp/pub1")
-    pub.publish(OSYS, [("DAP-OpType", "BOGUS")], response_topic="op_resp/pub1")
-    return wait_for(lambda: pub.got("op_resp/pub1", **{"DAP-Status": "Failure"}))
+def case_failure_to_op_notif(_):
+    pub = requester()
+    pub.publish(OSYS, [("DAP-OpType", "BOGUS")])
+    return wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Failure"}))
 
 
 def case_control_publish(_):
@@ -445,7 +445,7 @@ CASES = [
     ("AUDIT with no relevant subscribers gets a Failure", case_audit_no_relevant, True),
     ("relevance uses the SP in force at delivery", case_relevance_uses_delivery_time_sp, True),
     ("relevance matches DAP-OpTFs as MQTT topic filters", case_relevance_topic_wildcard, True),
-    ("Failure goes to the request's ResponseTopic", case_failure_to_response_topic, False),
+    ("Failure goes to the request's ResponseTopic", case_failure_to_op_notif, False),
     ("PUBLISH to $CONTROL frees the request", case_control_publish, False),
 ]
 

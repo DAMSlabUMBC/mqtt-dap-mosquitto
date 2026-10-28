@@ -107,10 +107,11 @@ bool db__ready_for_flight(struct mosquitto *context, enum mosquitto_msg_directio
  * @param qos destination qos for the packet of interest
  * @return true if queuing is allowed, false if should be dropped
  */
-bool db__ready_for_queue(struct mosquitto *context, int qos, struct mosquitto_msg_data *msg_data)
+bool db__ready_for_queue(struct mosquitto *context, int qos, struct mosquitto_msg_data *msg_data, bool is_op)
 {
 	int source_count;
 	int adjust_count;
+	int max_queued_allowed;
 	long source_bytes;
 	ssize_t adjust_bytes = (ssize_t)db.config->max_inflight_bytes;
 	bool valid_bytes;
@@ -135,7 +136,14 @@ bool db__ready_for_queue(struct mosquitto *context, int qos, struct mosquitto_ms
 	}
 
 	valid_bytes = (source_bytes - (ssize_t)adjust_bytes) < (ssize_t)db.config->max_queued_bytes;
-	valid_count = source_count - adjust_count < db.config->max_queued_messages;
+
+	max_queued_allowed = db.config->max_queued_messages;
+	if(is_op)
+	{
+		max_queued_allowed += db.config->dap_op_queue_buffer;
+	}
+
+	valid_count = source_count - adjust_count < max_queued_allowed;
 
 	if(db.config->max_queued_bytes == 0){
 		return valid_count;
@@ -499,25 +507,6 @@ static struct dap_stamped_msg *db__dap_find_stamp(struct mosquitto *context,
 	return NULL;
 }
 
-bool db__dap_update_stamp(struct mosquitto *context, struct mosquitto__client_msg *client_msg, uint32_t mp_version, char* purpose_filter, uint32_t sp_version)
-{
-	struct mosquitto__subleaf *leaf = NULL;
-	struct dap_stamped_msg *stamp = db__dap_find_stamp(context, client_msg, &leaf);
-
-	if(stamp == NULL)
-	{
-		return false;
-	}
-
-	stamp->mp_version = mp_version;
-	stamp->sp_version = sp_version;
-	stamp->base_msg->data.purpose_filter = purpose_filter;
-	stamp->base_msg->data.purpose_filter_version = mp_version;
-
-	return true;
-}
-
-
 /* Free the stamp of an outgoing message that is discarded without reaching the send-path gate. */
 static void db__dap_discard_stamp(struct mosquitto *context, struct mosquitto__client_msg *client_msg)
 {
@@ -777,7 +766,7 @@ int db__message_insert_incoming(struct mosquitto *context, uint64_t cmsg_id, str
 
 	if(db__ready_for_flight(context, mosq_md_in, base_msg->data.qos)){
 		state = mosq_ms_wait_for_pubrel;
-	}else if(base_msg->data.qos != 0 && db__ready_for_queue(context, base_msg->data.qos, msg_data)){
+	}else if(base_msg->data.qos != 0 && db__ready_for_queue(context, base_msg->data.qos, msg_data, base_msg->is_op)){
 		state = mosq_ms_queued;
 		rc = 2;
 	}else{
@@ -915,7 +904,7 @@ int db__message_insert_outgoing(struct mosquitto *context, uint64_t cmsg_id, uin
 					state = mosq_ms_publish_qos2;
 					break;
 			}
-		}else if(qos != 0 && db__ready_for_queue(context, qos, msg_data)){
+		}else if(qos != 0 && db__ready_for_queue(context, qos, msg_data, base_msg->is_op)){
 			state = mosq_ms_queued;
 			rc = 2;
 		}else{
@@ -928,10 +917,10 @@ int db__message_insert_outgoing(struct mosquitto *context, uint64_t cmsg_id, uin
 			}
 
 			metrics__int_inc(mosq_counter_mqtt_publish_dropped, 1);
-			return 2;
+			return MOSQ_ERR_MESSAGE_RATE_TOO_HIGH;
 		}
 	}else{
-		if(db__ready_for_queue(context, qos, msg_data)){
+		if(db__ready_for_queue(context, qos, msg_data, base_msg->is_op)){
 			state = mosq_ms_queued;
 		}else{
 			/* Dropping message due to full queue. */
@@ -943,7 +932,7 @@ int db__message_insert_outgoing(struct mosquitto *context, uint64_t cmsg_id, uin
 			}
 			
 			metrics__int_inc(mosq_counter_mqtt_publish_dropped, 1);
-			return 2;
+			return MOSQ_ERR_MESSAGE_RATE_TOO_HIGH;
 		}
 	}
 	assert(state != mosq_ms_invalid);
@@ -1750,7 +1739,6 @@ enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct mosqui
 		return DAP_HOOK_HANDLED; /* SKIP: leave it in flight for a later pass */
 	}
 
-	// TODO: Why isn't this just a part of the message?
 	/* Find the stamp for this message in the matching topic queue of one of this
 	 * client's subscription leaves. */
 	struct mosquitto__base_msg *base_msg = client_msg->base_msg;
@@ -1762,17 +1750,16 @@ enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct mosqui
 
 	/* Determine the ability to send the message based on operation and purpose filter states */
 	const char *pub_id = base_msg->data.source_id;
-	char *curr_msg_mp = base_msg->data.has_purpose_filter ? base_msg->data.purpose_filter : NULL;
+	char *original_mp = base_msg->data.has_purpose_filter ? base_msg->data.purpose_filter : NULL;
 	uint32_t cur_mp_ver = 0;
 	const char *revoked = NULL;
 	bool has_stamp = (stamp != NULL);
-	if(has_stamp){
+	if(has_stamp && db.config->dap_send_verification){
 		struct mp_entry *stored = mp__lookup(pub_id, topic);
 		/* Operation messages have no registration and keep the purpose they were sent with. */
 		if(stored)
 		{
 			cur_mp_ver = stored->version;
-			curr_msg_mp = stored->purpose_filter;
 		}
 		uint32_t cur_sp_ver = leaf->sp_version;
 
@@ -1789,7 +1776,7 @@ enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct mosqui
 	else
 	{
 		/* Restored messages have no stamp or subscription; but still apply DELETE. */
-		if(base_msg->dap_restored && db.dap_pending_ops){
+		if(base_msg->dap_restored && !base_msg->is_op && db.dap_pending_ops && db.config->dap_send_verification){
 			if(dap_pending_ops_match(db.dap_pending_ops, base_msg->data.source_id, topic,
 					NULL, 0, client_id, base_msg->dap_order, NULL, NULL) == DAP_OP_ACTION_DROP)
 			{
@@ -1810,15 +1797,17 @@ enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct mosqui
 	{
 		if(perform_full_check)
 		{
-			if(!purpose_mp_permits_unrevoked(curr_msg_mp, revoked,
+			/* Note that MP checks need to be done on the original sending MP (the stamped MP),
+			   widing an MP for future messages should NOT allow previously sent messages
+			   through if their original MPs didn't allow it (i.e., don't attempt to predict
+			   whether a user wants the current MP to apply to already in-flight messages) */
+			if(!purpose_mp_permits_unrevoked(original_mp, revoked,
 					leaf->purpose_filters, leaf->purpose_filter_count))
 			{
 				disp = DAP_DISP_DROP;
 			}
 			else
 			{
-				// Update stamp
-				db__dap_update_stamp(context, client_msg, cur_mp_ver, curr_msg_mp, leaf->sp_version);
 				disp = DAP_DISP_DELIVER;
 			}
 		}

@@ -48,10 +48,17 @@ enum dap_send_verdict dap_verify_for_send(const struct dap_stamped_msg *stamped,
             strcpy(temp, MOSQ_DAP_TOPIC_ONP);
             strcat(temp, "/");
             strcat(temp, recv_client_id);
-
-            int result = strcmp(topic, temp);
+            bool is_notif_topic = (strcmp(topic, temp) == 0);
             free(temp);
-            if(result)
+
+            temp = (char*)malloc(strlen(MOSQ_DAP_TOPIC_ORS) + strlen(recv_client_id) + 2);
+            strcpy(temp, MOSQ_DAP_TOPIC_ORS);
+            strcat(temp, "/");
+            strcat(temp, recv_client_id);
+            bool is_req_topic = (strcmp(topic, temp) == 0);
+            free(temp);
+
+            if(!is_notif_topic && !is_req_topic)
             {
                 return DAP_SEND_DROP_INVALID_OP_TOPIC;
             }

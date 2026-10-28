@@ -114,7 +114,7 @@ static int subs__send(struct mosquitto__subleaf *leaf, const char *topic, uint8_
 		if(rc3 == MOSQ_ERR_NOMEM){
 			return 1;
 		}
-		else if(rc3 == MOSQ_ERR_PROTOCOL)
+		else if(rc3 == MOSQ_ERR_MESSAGE_RATE_TOO_HIGH)
 		{
 			/* Operations CANNOT be permanently dropped for correctness of delivery */
 			if(stored->is_op)
@@ -127,6 +127,7 @@ static int subs__send(struct mosquitto__subleaf *leaf, const char *topic, uint8_
 				dropped_op->base_msg = stored;
 				dropped_op->sub_leaf = leaf;
 				DL_APPEND(db.dap_dropped_ops, dropped_op);
+				db__msg_store_ref_inc(dropped_op->base_msg);
 			}
 		}
 

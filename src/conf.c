@@ -340,6 +340,7 @@ static void config__init_reload(struct mosquitto__config *config)
 	config->max_packet_size = 2000000;
 	config->max_inflight_messages = 20;
 	config->max_queued_messages = 1000;
+	config->dap_op_queue_buffer = 0;
 	config->max_inflight_bytes = 0;
 	config->max_queued_bytes = 0;
 	config->persistence = false;
@@ -2279,6 +2280,14 @@ static int config__read_file_core(struct mosquitto__config *config, bool reload,
 						tmp_int = 0;
 					}
 					config->max_queued_messages = tmp_int;
+				}else if(!strcmp(token, "dap_op_queue_buffer")){
+					if(conf__parse_int(&token, "dap_op_queue_buffer", &tmp_int, &saveptr)){
+						return MOSQ_ERR_INVAL;
+					}
+					if(tmp_int < 0){
+						tmp_int = 0;
+					}
+					config->dap_op_queue_buffer = tmp_int;
 				}else if(!strcmp(token, "memory_limit")){
 					ssize_t lim;
 					if(conf__parse_ssize_t(&token, "memory_limit", &lim, &saveptr)){

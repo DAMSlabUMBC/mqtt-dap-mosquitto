@@ -389,9 +389,9 @@ def op_outlives_deadline_case(op, purposes=None):
         check(broker.stop() == 0, "broker exits cleanly")
 
 
-def op_request_survives_full_queue_case():
+def op_request_survives_full_queue_case_with_buffer():
     """An operation request to a subscriber whose queue is full is queued, not dropped."""
-    broker = Broker("use_metadata_operation_support true\nmax_queued_messages 2\n")
+    broker = Broker("use_metadata_operation_support true\nmax_queued_messages 2\ndap_op_queue_buffer 2\n")
     try:
         sub = Subscriber("subF", receive_maximum=1)
         sub.subscribe("t/f", ["qa"])
@@ -412,7 +412,30 @@ def op_request_survives_full_queue_case():
     finally:
         stop_clients()
         check(broker.stop() == 0, "broker exits cleanly")
-
+        
+def op_request_survives_full_queue_case_without_buffer():
+    """An operation request to a subscriber whose queue is full is re-queued, not dropped."""
+    broker = Broker("use_metadata_operation_support true\nmax_queued_messages 2\nmax_inflight_messages 1\n")
+    try:
+        sub = Subscriber("subF", receive_maximum=1)
+        sub.subscribe("t/f", ["qa"])
+        sub.subscribe("OP_REQ/subF", [OP_PURPOSE])
+        pub = Publisher()
+        pub.register("qa", "t/f")
+        for i in range(6):
+            pub.publish("t/f", [], payload=b"m%d" % i)
+        pub.operation("HISTORY", "t/f")
+        first = sub.read_publishes(ack=False)
+        check(wait_for(lambda: pub.got_status("Pending")), "the HISTORY is accepted")
+        sub.puback(first[0][2])
+        got = first + sub.read_publishes()
+        topics = [t for t, _, _ in got]
+        check("OP_REQ/subF" in topics, "the request reaches the subscriber despite its full queue (got %s)" % topics)
+        check(len(payloads(got, "t/f")) < 6, "data beyond the queue limit is still dropped")
+        sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
 
 def drop_then_stale_case():
     """After a reconnect, a DELETEd message followed by stale ones keeps publish order."""
@@ -466,7 +489,7 @@ def drop_refill_case():
 
 def stale_mp_case():
     """QoS 0 messages queued while offline, stamped under an older MP, all arrive in order."""
-    broker = Broker("queue_qos0_messages true\n")
+    broker = Broker("queue_qos0_messages true\nmax_queued_messages 4\n")
     try:
         sub = Subscriber("subB", persistent=True)
         sub.subscribe("t/b", ["qa"], qos=0)
@@ -539,7 +562,7 @@ def sp_change_case(new_sps, still_allowed):
 
 
 def mp_change_case(new_mp, still_allowed, conf="", label=""):
-    """A message waiting while its publisher changes the topic's MP is re-checked against the new MP."""
+    """A message waiting while its publisher changes the topic's MP is evaluated against the original MP."""
     broker = Broker(conf)
     try:
         sub = Subscriber("subM", receive_maximum=1)
@@ -553,11 +576,12 @@ def mp_change_case(new_mp, still_allowed, conf="", label=""):
 
         pub.register(new_mp, "t/m")  # MP version 2 while m2 waits
         sub.puback(first[0][2])
+        pub.publish("t/m", [], payload=b"m3")
         time.sleep(0.3)  # m2 is re-checked before the MP below changes
         pub.register("qa", "t/m")
-        pub.publish("t/m", [], payload=b"m3")
+        pub.publish("t/m", [], payload=b"m4")
         got = payloads(sub.read_publishes(), "t/m")
-        expected = [b"m2", b"m3"] if still_allowed else [b"m3"]
+        expected = [b"m2", b"m3", b"m4"] if still_allowed else [b"m2", b"m4"]
         check(got == expected, "after the MP becomes %s%s, delivered %s (expected %s)"
               % (new_mp, label, got, expected))
         sub.close()
@@ -749,7 +773,8 @@ def main():
     delete_case(gap=True)
     drop_refill_case()
     same_second_case()
-    op_request_survives_full_queue_case()
+    op_request_survives_full_queue_case_with_buffer()
+    op_request_survives_full_queue_case_without_buffer()
     op_outlives_deadline_case("DELETE")
     op_outlives_deadline_case("RESTRICT", "qa")
     scoped_op_case("DELETE", "t/+/1", "qb", {"qa": True, "qb": False, "qa|qc": True, "qb|qc": False})
@@ -769,7 +794,7 @@ def main():
     mp_change_case("qa|qb", still_allowed=True)
     mp_change_case("qz", still_allowed=False)
     mp_change_case("qz", still_allowed=False, conf="mount_point m/\n", label=" behind a mount point")
-    mp_change_case("qz", still_allowed=True, conf="dap_send_verification false\n", label=" with send verification off")
+    mp_change_case("qz", still_allowed=False, conf="dap_send_verification false\n", label=" with send verification off")
     mp_widen_case()
     print("# prioritized intake")
     intake_mp_case()
