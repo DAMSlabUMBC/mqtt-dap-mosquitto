@@ -11,6 +11,7 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     libcjson-dev \
     libargon2-dev \
+    sqlite3 \
     libsqlite3-dev \
     pkg-config \
     libcunit1-dev \
