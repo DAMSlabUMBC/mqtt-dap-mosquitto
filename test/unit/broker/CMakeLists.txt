@@ -18,6 +18,10 @@ set(DAP_LIB_SOURCES
     ../../../lib/dap/rights_registry.c
 )
 
+set(DAP_SRC_SOURCES
+    ../../../src/dap/dap_stats.c
+)
+
 # bridge-topic-test
 add_library(bridge-topic-obj
 	OBJECT
@@ -54,6 +58,7 @@ add_library(persistence-read-obj
         ../../../src/retain.c
         ../../../src/topic_tok.c
         ${DAP_LIB_SOURCES}
+        ${DAP_SRC_SOURCES}
 )
 target_compile_definitions(persistence-read-obj PRIVATE WITH_PERSISTENCE WITH_BROKER)
 target_include_directories(persistence-read-obj PRIVATE ${mosquitto_SOURCE_DIR}/libcommon)
@@ -84,6 +89,7 @@ add_library(persistence-write-obj
         ../../../src/subs.c
         ../../../src/topic_tok.c
         ${DAP_LIB_SOURCES}
+        ${DAP_SRC_SOURCES}
 )
 target_compile_definitions(persistence-write-obj PRIVATE WITH_PERSISTENCE WITH_BROKER)
 target_include_directories(persistence-write-obj PRIVATE ${mosquitto_SOURCE_DIR}/libcommon)
@@ -111,6 +117,7 @@ add_library(subs-obj
         ../../../src/subs.c
         ../../../src/topic_tok.c
         ${DAP_LIB_SOURCES}
+        ${DAP_SRC_SOURCES}
 )
 target_compile_definitions(subs-obj PRIVATE WITH_BROKER)
 target_include_directories(subs-obj PRIVATE ${mosquitto_SOURCE_DIR}/libcommon)
