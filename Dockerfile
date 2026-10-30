@@ -3,7 +3,7 @@ FROM ubuntu:22.04
 # Need this so apt doesn't ask me questions during install
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Get all the dependencies we need (added wget and tar for node exporter)
+# Get all the dependencies we need
 RUN apt-get update && apt-get install -y \
     cmake \
     build-essential \
@@ -19,8 +19,6 @@ RUN apt-get update && apt-get install -y \
     docbook-xsl \
     iproute2 \
     iputils-ping \
-    wget \
-    tar \
  && rm -rf /var/lib/apt/lists/*
 
 # Set up the working directory
@@ -47,25 +45,8 @@ RUN cp src/mosquitto /usr/local/sbin/mosquitto && \
 RUN mkdir -p /etc/mosquitto && \
     cp mosquitto.conf /etc/mosquitto/mosquitto.conf
 
-# Grab node exporter for metrics collection, built for this image's architecture
-RUN ARCH=$(dpkg --print-architecture) && \
-    if [ "$ARCH" = armhf ]; then ARCH=armv7; fi && \
-    wget https://github.com/prometheus/node_exporter/releases/download/v1.7.0/node_exporter-1.7.0.linux-$ARCH.tar.gz && \
-    tar xvfz node_exporter-1.7.0.linux-$ARCH.tar.gz && \
-    mv node_exporter-1.7.0.linux-$ARCH/node_exporter /usr/local/bin/ && \
-    rm -rf node_exporter-1.7.0.linux-$ARCH*
+# Resource usage is read from the container (docker stats), so nothing else runs
+# here: an in-container exporter would be billed to the broker.
+EXPOSE 1883
 
-# Create startup script that runs both node exporter and mosquitto
-RUN echo '#!/bin/bash\n\
-# Fire up node exporter in background for metrics\n\
-/usr/local/bin/node_exporter &\n\
-\n\
-# Start mosquitto (this stays in foreground)\n\
-exec /usr/local/sbin/mosquitto -c /etc/mosquitto/mosquitto.conf\n\
-' > /entrypoint.sh && chmod +x /entrypoint.sh
-
-# MQTT port and node exporter metrics port
-EXPOSE 1883 9100
-
-# Start everything up
-CMD ["/entrypoint.sh"]
+CMD ["/usr/local/sbin/mosquitto", "-c", "/etc/mosquitto/mosquitto.conf"]
