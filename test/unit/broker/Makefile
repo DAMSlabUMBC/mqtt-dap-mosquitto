@@ -44,6 +44,9 @@ DAP_LIB_OBJS = \
 		${R}/src/ri_registry.o \
 		${R}/src/rights_registry.o
 
+DAP_SRC_OBJS = \
+		${R}/src/dap/dap_stats.o
+
 BRIDGE_TOPIC_TEST_OBJS = \
 		bridge_topic_test.o \
 		stubs.o \
@@ -73,7 +76,8 @@ PERSIST_READ_OBJS = \
 		${R}/src/retain.o \
 		${R}/src/topic_tok.o \
 		${R}/src/util_mosq.o \
-		${DAP_LIB_OBJS}
+		${DAP_LIB_OBJS} \
+		${DAP_SRC_OBJS}
 
 PERSIST_WRITE_TEST_OBJS = \
 		persist_write_test.o \
@@ -93,7 +97,8 @@ PERSIST_WRITE_OBJS = \
 		${R}/src/subs.o \
 		${R}/src/topic_tok.o \
 		${R}/src/util_mosq.o \
-		${DAP_LIB_OBJS}
+		${DAP_LIB_OBJS} \
+		${DAP_SRC_OBJS}
 
 SUBS_TEST_OBJS = \
 		subs_test.o \
@@ -105,7 +110,8 @@ SUBS_OBJS = \
 		${R}/src/property_mosq.o \
 		${R}/src/subs.o \
 		${R}/src/topic_tok.o \
-		${DAP_LIB_OBJS}
+		${DAP_LIB_OBJS} \
+		${DAP_SRC_OBJS}
 
 all : test-compile
 
@@ -186,6 +192,9 @@ ${R}/src/util_mosq.o : ${R}/lib/util_mosq.c
 	$(MAKE) -C ${R}/src/ util_mosq.o
 
 ${DAP_LIB_OBJS} : ${R}/src/%.o : ${R}/lib/dap/%.c
+	$(MAKE) -C ${R}/src/ $*.o
+
+${DAP_SRC_OBJS} : ${R}/src/%.o : ${R}/src/%.c
 	$(MAKE) -C ${R}/src/ $*.o
 
 build : ${ALL_TESTS}

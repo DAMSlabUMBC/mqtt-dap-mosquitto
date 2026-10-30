@@ -19,7 +19,9 @@ Contributors:
 #ifndef DAP_STATS_H
 #define DAP_STATS_H
 
-#ifdef WITH_BROKER
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #include "uthash.h"
 
@@ -67,12 +69,12 @@ struct dap_stats_list {
 void dap_stats__int_inc(const char* client_id, enum dap_stat_type s, int64_t value);
 void dap_stats__int_dec(const char* client_id, enum dap_stat_type s, int64_t value);
 void dap_stats__int_set(const char* client_id, enum dap_stat_type s, int64_t value);
+void dap_stats__init(void);
+void dap_stats__write(bool force);
+void dap_stats_close(void);
 
-#else
-#  define dap_stats__int_inc(A, B, C)
-#  define dap_stats__int_dec(A, B, C)
-#  define dap_stats__int_set(A, B, C)
-
+#ifdef __cplusplus
+}
 #endif
 
 #endif

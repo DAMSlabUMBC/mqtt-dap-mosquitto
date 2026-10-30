@@ -856,9 +856,6 @@ bool db__ready_for_flight(struct mosquitto *context, enum mosquitto_msg_directio
 bool db__ready_for_queue(struct mosquitto *context, int qos, struct mosquitto_msg_data *msg_data, bool is_op);
 void sys_tree__init(void);
 void sys_tree__update(bool force);
-void dap_stats__init(void);
-void dap_stats__write(bool force);
-void dap_stats_close(void);
 int db__message_write_inflight_out_all(struct mosquitto *context);
 int db__message_write_inflight_out_latest(struct mosquitto *context);
 int db__message_write_queued_out(struct mosquitto *context);

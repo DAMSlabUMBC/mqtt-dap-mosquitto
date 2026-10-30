@@ -58,6 +58,7 @@ Contributors:
 #include "dap/dap_intake.h"
 #include "dap/dap_persist.h"
 #include "dap/dap_pending_ops.h"
+#include "dap/dap_stats.h"
 
 extern int g_run;
 

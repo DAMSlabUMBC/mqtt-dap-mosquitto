@@ -37,6 +37,7 @@ add_executable(mosquitto
 	dap/rights_broker.c dap/rights_broker.h
 	dap/dap_intake.c dap/dap_intake.h
 	dap/dap_persist.c dap/dap_persist.h
+	dap/dap_stats.c dap/dap_stats.h
 	net.c
 	../lib/net_mosq_ocsp.c ../lib/net_mosq.c ../lib/net_mosq.h
 	../lib/net_ws.c
@@ -97,7 +98,6 @@ add_executable(mosquitto
 	session_expiry.c
 	subs.c
 	sys_tree.c sys_tree.h
-	dap/dap_stats.c dap/dap_stats.h
 	../lib/tls_mosq.c
 	topic_tok.c
 	../lib/util_mosq.c ../lib/util_mosq.h

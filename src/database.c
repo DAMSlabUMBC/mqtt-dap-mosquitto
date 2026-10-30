@@ -28,7 +28,6 @@ Contributors:
 #include "util_mosq.h"
 #include "dap/dap_pending_ops.h"
 #include "dap/dap_deadline_tracker.h"
-#include "dap/dap_stats.h"
 #include "dap/dap_holding_list.h"
 #include "dap/dap_request_store.h"
 #include "dap/dap_op_requester.h"
@@ -39,6 +38,7 @@ Contributors:
 #include "dap/dr_registry.h"
 #include "dap/dap_persist.h"
 #include "dap/dap_metrics.h"
+#include "dap/dap_stats.h"
 
 /**
  * Is this context ready to take more in flight messages right now?
