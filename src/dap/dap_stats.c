@@ -116,6 +116,40 @@ void dap_stats__int_set(const char* client_id, enum dap_stat_type s, int64_t val
 	}
 }
 
+void dap_stats__pub_sent(const char* client_id, uint32_t subscription_id, uint64_t msg_recv_time_ns_mono)
+{
+	if(!client_id) return;
+
+    struct dap_stats_entry *e = dap_stats__find_or_make_entry(db.dap_stats_list, client_id);
+    if(e)
+	{
+		// Now find if sub id maps
+		struct dap_stats_out_of_order_entry *e2 = NULL;
+    	HASH_FIND_INT(e->sub_out_of_order_stats, &subscription_id, e2);
+
+		if(!e2) {
+			e2 = mosquitto_calloc(1, sizeof(struct dap_stats_out_of_order_entry));
+			if(!e2) return;
+			e2->subscription_id = subscription_id;
+			e2->out_of_order_count = 0;
+			e2->last_pub_sent_recv_ns_mono = msg_recv_time_ns_mono;
+			HASH_ADD_INT(e->sub_out_of_order_stats, subscription_id, e2);
+		}
+
+		// Entry exists, check timing
+		else
+		{
+			if(msg_recv_time_ns_mono >= e2->last_pub_sent_recv_ns_mono)
+			{
+				e2->last_pub_sent_recv_ns_mono = msg_recv_time_ns_mono;
+			}
+			else
+			{
+				e2->out_of_order_count++;
+			}
+		}
+	}
+}
 
 /* 
  * Write the statistics to the DAP tracking file
@@ -131,14 +165,22 @@ void dap_stats__write(bool force)
 		// Perform update by looping through each client
 		struct dap_stats_entry *e, *tmp;
 		HASH_ITER(hh, db.dap_stats_list->client_stats, e, tmp){
-			fprintf(stats_file, "%" PRId64 ",%s,%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRId64 "\n",
+
+			// First need to sum all out of order times
+			uint64_t total_out_of_order = 0;
+			struct dap_stats_out_of_order_entry *e2, *tmp2;
+			HASH_ITER(hh, e->sub_out_of_order_stats, e2, tmp2){
+				total_out_of_order += e2->out_of_order_count;
+			}
+
+			fprintf(stats_file, "%" PRId64 ",%s,%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRIu64 ",%" PRId64 ",%" PRId64 "\n",
 				db.now_s,
 				e->sub_id,
 				e->stats[dap_stat_current_queue_size],
 				e->stats[dap_stat_current_inflight_count],
 				e->stats[dap_stat_dropped_by_policy_count],
 				e->stats[dap_stat_dropped_by_policy_reeval_count],
-				e->stats[dap_stat_out_of_order_count],
+				total_out_of_order,
 				e->stats[dap_stat_ops_originated_from_broker],
 				e->stats[dap_stat_bump_count]
 				);
@@ -156,4 +198,19 @@ void dap_stats_close(void)
     if(!stats_file) return;
     fclose(stats_file);
     stats_file = NULL;
+
+	struct dap_stats_entry *e, *tmp;
+	HASH_ITER(hh, db.dap_stats_list->client_stats, e, tmp){
+
+		// Delete inner hashmap
+		struct dap_stats_out_of_order_entry *e2, *tmp2;
+		HASH_ITER(hh, e->sub_out_of_order_stats, e2, tmp2) {
+			HASH_DEL(e->sub_out_of_order_stats, e2);
+			mosquitto_FREE(e2);
+		}
+
+		HASH_DEL(db.dap_stats_list->client_stats, e);
+		mosquitto_FREE(e->sub_id);
+		mosquitto_FREE(e);
+	}
 }
