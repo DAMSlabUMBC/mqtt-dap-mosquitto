@@ -387,6 +387,7 @@ struct mosquitto__config
 	int retain_expiry_interval;
 	bool set_tcp_nodelay;
 	int sys_interval;
+	int stats_interval;
 	bool upgrade_outgoing_qos;
 	char *user;
 	bool metadata_operation_handling;
@@ -436,6 +437,10 @@ struct dap_deadline_tracker;
 /* Per-client hold list for messages parked while another of the client's messages
  * is re-verified at send time. Forward declared so the db field can be a pointer. */
 struct dap_holding_list;
+
+
+/* Statistics structure for stat tracking. Forward declared so the db field can be a pointer. */
+struct dap_stats_list;
 
 /* Operation requests held for subscribers that cannot receive them yet. */
 struct dap_request_store;
@@ -597,6 +602,7 @@ struct mosquitto_db
 	uint64_t dap_last_order;						   /* the most recent PUBLISH receipt order */
 	struct dap_deadline_tracker *dap_deadline_tracker; /* DAP operation deadline tracker */
 	struct dap_holding_list *dap_holding_list;		   /* DAP per-client send-path hold list */
+	struct dap_stats_list *dap_stats_list;		   	   /* DAP statistics list */
 	struct dap_op_requester *dap_op_requester;		   /* DAP op id -> requesting publisher */
 	struct dap_request_store *dap_request_store;	   /* DAP requests held for offline subscribers */
 	struct dap_dropped_op *dap_dropped_ops;			   /* DAP op messages to resend */
@@ -850,6 +856,9 @@ bool db__ready_for_flight(struct mosquitto *context, enum mosquitto_msg_directio
 bool db__ready_for_queue(struct mosquitto *context, int qos, struct mosquitto_msg_data *msg_data, bool is_op);
 void sys_tree__init(void);
 void sys_tree__update(bool force);
+void dap_stats__init(void);
+void dap_stats__write(bool force);
+void dap_stats_close(void);
 int db__message_write_inflight_out_all(struct mosquitto *context);
 int db__message_write_inflight_out_latest(struct mosquitto *context);
 int db__message_write_queued_out(struct mosquitto *context);

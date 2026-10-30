@@ -292,6 +292,8 @@ int mosquitto_main_loop(struct mosquitto__listener_sock *listensock, int listens
 			op_check++;
 		}
 
+		dap_stats__write(false);
+
 		rc = mux__handle(listensock, listensock_count);
 		if(rc){
 			return rc;

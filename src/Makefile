@@ -169,7 +169,8 @@ OBJS_EXTERNAL= \
 		dap_holding_list.o \
 		dap_request_store.o \
 		dap_op_requester.o \
-		dap_stamp.o
+		dap_stamp.o \
+		dap_stats.o
 
 ifeq ($(WITH_WEBSOCKETS),yes)
 	OBJS_EXTERNAL+=${R}/deps/picohttpparser/picohttpparser.o

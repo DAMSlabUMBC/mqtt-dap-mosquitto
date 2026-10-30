@@ -14,6 +14,7 @@
 #include "dap/dap_request_store.h"
 #include "dap/purpose_filters.h"
 #include "dap/mp_registry.h"
+#include "dap/dap_stats.h"
 
 /* Paper 6.2: requests and notifications are delivered at least once. */
 #define DAP_OP_QOS 1
@@ -118,6 +119,8 @@ void broker_send_response_success(const char *publisher_id, const char *operatio
         db__messages_easy_queue_with_purpose(NULL, response_topic, MOSQ_DAP_OP_PURPOSE, DAP_OP_QOS, 0, NULL, false, 0, &props, true);
     }
 
+    dap_stats__int_inc(publisher_id, dap_stat_ops_originated_from_broker, 1);
+
     mosquitto_property_free_all(&props);
 }
 
@@ -160,6 +163,7 @@ void broker_send_response_pending(const char *publisher_id, struct dap__op_prope
     }
 
     db__messages_easy_queue_with_purpose(NULL, onp_topic, MOSQ_DAP_OP_PURPOSE, DAP_OP_QOS, 0, NULL, false, 0, &props, true);
+    dap_stats__int_inc(publisher_id, dap_stat_ops_originated_from_broker, 1);
     mosquitto_property_free_all(&props);
 }
 
@@ -202,6 +206,7 @@ void broker_send_response_failure(const char *publisher_id, struct dap__op_prope
     }
 
     db__messages_easy_queue_with_purpose(NULL, response_topic, MOSQ_DAP_OP_PURPOSE, DAP_OP_QOS, 0, NULL, false, 0, &props, true);
+    dap_stats__int_inc(publisher_id, dap_stat_ops_originated_from_broker, 1);
     mosquitto_property_free_all(&props);
 }
 
@@ -303,6 +308,7 @@ static void dap__forward_request(const char *sub_id, struct mosquitto_base_msg *
         uint32_t expiry_interval = until > db.now_real_s ? (uint32_t)(until - db.now_real_s) : 0;
         db__messages_easy_queue_with_purpose(NULL, topic, MOSQ_DAP_OP_PURPOSE, DAP_OP_QOS,
                 msg_data->payloadlen, msg_data->payload, false, expiry_interval, &props, true);
+        dap_stats__int_inc(sub_id, dap_stat_ops_originated_from_broker, 1);
     }else if(db.dap_request_store){
         mosquitto_property *held = props;
         if(dap_request_store_add(db.dap_request_store, sub_id, dap_op_properties->op_id_num, until,
@@ -332,6 +338,7 @@ void broker_deliver_held_requests(struct mosquitto *context)
         for(struct dap_stored_request *r = held; r; r = r->next){
             db__messages_easy_queue_with_purpose(NULL, topic, MOSQ_DAP_OP_PURPOSE, DAP_OP_QOS,
                     r->payloadlen, r->payload, false, (uint32_t)(r->deadline - db.now_real_s), &r->properties, true);
+            dap_stats__int_inc(context->id, dap_stat_ops_originated_from_broker, 1);
         }
         dap_request_store_free_list(held);
     }
@@ -447,6 +454,7 @@ void broker_send_deadline_failure(uint64_t op_id, const char *publisher_id,
     }
 
     db__messages_easy_queue_with_purpose(NULL, onp_topic, MOSQ_DAP_OP_PURPOSE, DAP_OP_QOS, 0, NULL, false, 0, &props, true);
+    dap_stats__int_inc(publisher_id, dap_stat_ops_originated_from_broker, 1);
     mosquitto_property_free_all(&props);
 }
 
@@ -481,6 +489,7 @@ void broker_send_deadline_success(uint64_t op_id, const char *publisher_id)
         MOSQ_DAP_REASON_KEY, "All subscribers responded");
 
     db__messages_easy_queue_with_purpose(NULL, onp_topic, MOSQ_DAP_OP_PURPOSE, DAP_OP_QOS, 0, NULL, false, 0, &props, true);
+    dap_stats__int_inc(publisher_id, dap_stat_ops_originated_from_broker, 1);
     mosquitto_property_free_all(&props);
 }
 
@@ -525,6 +534,7 @@ void broker_forward_status_to_requester(const char *requester_id, struct dap__op
 
     db__messages_easy_queue_with_purpose(NULL, onp_topic, MOSQ_DAP_OP_PURPOSE, DAP_OP_QOS,
         payloadlen, payload, false, 0, &props, true);
+    dap_stats__int_inc(requester_id, dap_stat_ops_originated_from_broker, 1);
     mosquitto_property_free_all(&props);
 }
 
@@ -588,6 +598,7 @@ void broker_send_operation_status(const char *requester_id, struct dap__op_prope
     }
     db__messages_easy_queue_with_purpose(NULL, response_topic, MOSQ_DAP_OP_PURPOSE, DAP_OP_QOS,
             (uint32_t)strlen(payload), payload, false, 0, &props, true);
+    dap_stats__int_inc(requester_id, dap_stat_ops_originated_from_broker, 1);
     mosquitto_property_free_all(&props);
     cJSON_free(payload);
 }

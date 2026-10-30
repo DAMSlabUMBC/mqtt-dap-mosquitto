@@ -352,6 +352,7 @@ static void post_shutdown_cleanup(void)
 
 	broker_control__cleanup();
 	dap_metrics_close();
+	dap_stats_close();
 
 #ifdef WITH_PERSISTENCE
 	persist__backup(true);

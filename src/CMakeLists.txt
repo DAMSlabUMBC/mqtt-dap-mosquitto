@@ -97,6 +97,7 @@ add_executable(mosquitto
 	session_expiry.c
 	subs.c
 	sys_tree.c sys_tree.h
+	dap/dap_stats.c dap/dap_stats.h
 	../lib/tls_mosq.c
 	topic_tok.c
 	../lib/util_mosq.c ../lib/util_mosq.h

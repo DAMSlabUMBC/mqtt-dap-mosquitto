@@ -63,6 +63,7 @@ Contributors:
 #include "dap/purpose_filters.h"
 #include "dap/dap_subscription_queues.h"
 #include "dap/dap_stamp.h"
+#include "dap/dap_stats.h"
 #include "utlist.h"
 
 static struct mosquitto__subhier *sub__add_hier_entry(struct mosquitto__subhier *parent, struct mosquitto__subhier **sibling, const char *topic, uint16_t len);
@@ -253,6 +254,7 @@ static int subs__process(struct mosquitto__subhier *hier, const char *source_id,
 
 		if(!sub__purpose_allows(leaf, stored))
 		{
+			dap_stats__int_inc(leaf->context->id, dap_stat_dropped_by_policy_count, 1);
 			leaf = leaf->next;
 			continue;
 		}

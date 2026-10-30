@@ -28,6 +28,7 @@ Contributors:
 #include "util_mosq.h"
 #include "dap/dap_pending_ops.h"
 #include "dap/dap_deadline_tracker.h"
+#include "dap/dap_stats.h"
 #include "dap/dap_holding_list.h"
 #include "dap/dap_request_store.h"
 #include "dap/dap_op_requester.h"
@@ -245,6 +246,12 @@ int db__open(struct mosquitto__config *config)
 	db.dap_holding_list = mosquitto_calloc(1, sizeof(struct dap_holding_list));
 	if(db.dap_holding_list){
 		dap_holding_list_init(db.dap_holding_list);
+	}
+
+	/* Broker-wide statistics list for tracking per client metrics. */
+	db.dap_stats_list = mosquitto_calloc(1, sizeof(struct dap_stats_list));
+	if(db.dap_stats_list){
+		dap_stats__init();
 	}
 
 	/* Broker-wide op id -> requesting publisher map. Allocated unconditionally; it
@@ -555,6 +562,11 @@ static void db__message_remove_inflight(struct mosquitto *context, struct mosqui
 	DL_DELETE(msg_data->inflight, item);
 	if(item->base_msg){
 		db__msg_remove_from_inflight_stats(msg_data, item);
+
+		if(item->data.direction == mosq_md_out)
+		{
+			dap_stats__int_set(context->id, dap_stat_current_inflight_count, msg_data->inflight_count);
+		}
 		db__msg_store_ref_dec(&item->base_msg);
 	}
 
@@ -573,6 +585,10 @@ static void db__message_remove_queued(struct mosquitto *context, struct mosquitt
 	DL_DELETE(msg_data->queued, item);
 	if(item->base_msg){
 		db__msg_remove_from_queued_stats(msg_data, item);
+		if(item->data.direction == mosq_md_out)
+		{
+			dap_stats__int_set(context->id, dap_stat_current_queue_size, msg_data->queued_count);
+		}
 		db__msg_store_ref_dec(&item->base_msg);
 	}
 
@@ -688,7 +704,9 @@ void db__message_dequeue_first(struct mosquitto *context, struct mosquitto_msg_d
 	}
 
 	db__msg_remove_from_queued_stats(msg_data, client_msg);
+	dap_stats__int_set(context->id, dap_stat_current_queue_size, msg_data->queued_count);
 	db__msg_add_to_inflight_stats(msg_data, client_msg);
+	dap_stats__int_set(context->id, dap_stat_current_inflight_count, msg_data->inflight_count);
 }
 
 
@@ -819,9 +837,11 @@ int db__message_insert_incoming(struct mosquitto *context, uint64_t cmsg_id, str
 	if(state == mosq_ms_queued){
 		DL_APPEND(msg_data->queued, client_msg);
 		db__msg_add_to_queued_stats(msg_data, client_msg);
+		/* Don't track stats here as this is just the QoS 2 handshake messages */
 	}else{
 		DL_APPEND(msg_data->inflight, client_msg);
 		db__msg_add_to_inflight_stats(msg_data, client_msg);
+		/* Don't track stats here as this is just the QoS 2 handshake messages */
 	}
 
 	if(persist && context->is_persisted){
@@ -971,9 +991,11 @@ int db__message_insert_outgoing(struct mosquitto *context, uint64_t cmsg_id, uin
 	if(state == mosq_ms_queued){
 		DL_APPEND(msg_data->queued, client_msg);
 		db__msg_add_to_queued_stats(msg_data, client_msg);
+		dap_stats__int_set(context->id, dap_stat_current_queue_size, msg_data->queued_count);
 	}else{
 		DL_APPEND(msg_data->inflight, client_msg);
 		db__msg_add_to_inflight_stats(msg_data, client_msg);
+		dap_stats__int_set(context->id, dap_stat_current_inflight_count, msg_data->inflight_count);
 	}
 
 	if(persist && context->is_persisted){
@@ -1431,6 +1453,7 @@ static int db__message_reconnect_reset_outgoing(struct mosquitto *context)
 
 	DL_FOREACH_SAFE(context->msgs_out.inflight, client_msg, tmp){
 		db__msg_add_to_inflight_stats(&context->msgs_out, client_msg);
+		dap_stats__int_set(context->id, dap_stat_current_inflight_count, context->msgs_out.inflight_count);
 		if(client_msg->data.qos > 0){
 			util__decrement_send_quota(context);
 		}
@@ -1460,6 +1483,7 @@ static int db__message_reconnect_reset_outgoing(struct mosquitto *context)
 	 */
 	DL_FOREACH_SAFE(context->msgs_out.queued, client_msg, tmp){
 		db__msg_add_to_queued_stats(&context->msgs_out, client_msg);
+		dap_stats__int_set(context->id, dap_stat_current_queue_size, context->msgs_out.queued_count);
 	}
 	db__fill_inflight_out_from_queue(context);
 
@@ -1484,6 +1508,7 @@ static int db__message_reconnect_reset_incoming(struct mosquitto *context)
 
 	DL_FOREACH_SAFE(context->msgs_in.inflight, client_msg, tmp){
 		db__msg_add_to_inflight_stats(&context->msgs_in, client_msg);
+		dap_stats__int_set(context->id, dap_stat_current_inflight_count, context->msgs_in.inflight_count);
 		if(client_msg->data.qos > 0){
 			util__decrement_receive_quota(context);
 		}
@@ -1508,6 +1533,7 @@ static int db__message_reconnect_reset_incoming(struct mosquitto *context)
 	DL_FOREACH_SAFE(context->msgs_in.queued, client_msg, tmp){
 		client_msg->data.dup = 0;
 		db__msg_add_to_queued_stats(&context->msgs_in, client_msg);
+		/* Don't track stats for mosq_md_in messages */
 		if(db__ready_for_flight(context, mosq_md_in, client_msg->data.qos)){
 			switch(client_msg->data.qos){
 				case 0:
@@ -1686,6 +1712,8 @@ static void db__client_messages_check_acl(struct mosquitto *context, struct mosq
 			db__dap_discard_stamp(context, client_msg);
 			DL_DELETE((*head), client_msg);
 			decrement_stats_fn(msg_data, client_msg);
+			dap_stats__int_set(context->id, dap_stat_current_queue_size, msg_data->queued_count);
+			dap_stats__int_set(context->id, dap_stat_current_inflight_count, msg_data->inflight_count);
 			plugin_persist__handle_client_msg_delete(context, client_msg);
 			db__msg_store_ref_dec(&client_msg->base_msg);
 			mosquitto_FREE(client_msg);
@@ -1804,6 +1832,7 @@ enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct mosqui
 			if(!purpose_mp_permits_unrevoked(original_mp, revoked,
 					leaf->purpose_filters, leaf->purpose_filter_count))
 			{
+				dap_stats__int_inc(leaf->context->id, dap_stat_dropped_by_policy_reeval_count, 1);
 				disp = DAP_DISP_DROP;
 			}
 			else
@@ -1873,6 +1902,7 @@ enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct mosqui
 			 * the message from in flight back to the front of the queue, reversing the
 			 * dequeue's quota decrement, and mark the client as holding it by its cmsg_id. */
 			db__msg_remove_from_inflight_stats(&context->msgs_out, client_msg);
+			dap_stats__int_set(context->id, dap_stat_current_inflight_count, context->msgs_out.inflight_count);
 			DL_DELETE(context->msgs_out.inflight, client_msg);
 			if(client_msg->data.qos > 0){
 				util__increment_send_quota(context);
@@ -1880,9 +1910,11 @@ enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct mosqui
 			client_msg->data.state = mosq_ms_queued;
 			DL_PREPEND(context->msgs_out.queued, client_msg);
 			db__msg_add_to_queued_stats(&context->msgs_out, client_msg);
+			dap_stats__int_set(context->id, dap_stat_current_queue_size, context->msgs_out.queued_count);
 			plugin_persist__handle_client_msg_update(context, client_msg);
 			if(base_msg->data.has_purpose_filter){
 				base_msg->dap_bump_count++;
+				dap_stats__int_inc(leaf->context->id, dap_stat_bump_count, 1);
 			}
 			context->dap_write_again = true;
 			return DAP_HOOK_HANDLED;

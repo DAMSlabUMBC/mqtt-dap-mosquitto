@@ -352,6 +352,7 @@ static void config__init_reload(struct mosquitto__config *config)
 	config->retain_expiry_interval = 0;
 	config->set_tcp_nodelay = false;
 	config->sys_interval = 10;
+	config->stats_interval = 1;
 	config->upgrade_outgoing_qos = false;
 	config->packet_buffer_size = 4096;
     config->metadata_operation_handling = false;
@@ -745,6 +746,7 @@ static void config__copy(struct mosquitto__config *src, struct mosquitto__config
 	dest->queue_qos0_messages = src->queue_qos0_messages;
 	dest->dap_send_verification = src->dap_send_verification;
 	dest->sys_interval = src->sys_interval;
+	dest->stats_interval = src->stats_interval;
 	dest->upgrade_outgoing_qos = src->upgrade_outgoing_qos;
 
 #if defined(WITH_WEBSOCKETS) && WITH_WEBSOCKETS == WS_IS_LWS
@@ -2649,6 +2651,14 @@ static int config__read_file_core(struct mosquitto__config *config, bool reload,
 					}
 					if(config->sys_interval < 0 || config->sys_interval > 65535){
 						log__printf(NULL, MOSQ_LOG_ERR, "Error: Invalid 'sys_interval' value (%d).", config->sys_interval);
+						return MOSQ_ERR_INVAL;
+					}
+				}else if(!strcmp(token, "stats_interval")){
+					if(conf__parse_int(&token, "stats_interval", &config->stats_interval, &saveptr)){
+						return MOSQ_ERR_INVAL;
+					}
+					if(config->stats_interval < 0 || config->stats_interval > 65535){
+						log__printf(NULL, MOSQ_LOG_ERR, "Error: Invalid 'stats_interval' value (%d).", config->stats_interval);
 						return MOSQ_ERR_INVAL;
 					}
 				}else if(!strcmp(token, "threshold")){
