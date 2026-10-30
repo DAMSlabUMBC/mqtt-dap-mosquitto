@@ -349,6 +349,7 @@ static void config__init_reload(struct mosquitto__config *config)
 	config->retain_expiry_interval = 0;
 	config->set_tcp_nodelay = false;
 	config->sys_interval = 10;
+	config->stats_interval_ms = 100;
 	config->upgrade_outgoing_qos = false;
 	config->packet_buffer_size = 4096;
 
@@ -735,6 +736,7 @@ static void config__copy(struct mosquitto__config *src, struct mosquitto__config
 
 	dest->queue_qos0_messages = src->queue_qos0_messages;
 	dest->sys_interval = src->sys_interval;
+	dest->stats_interval_ms = src->stats_interval_ms;
 	dest->upgrade_outgoing_qos = src->upgrade_outgoing_qos;
 
 #if defined(WITH_WEBSOCKETS) && WITH_WEBSOCKETS == WS_IS_LWS
@@ -2623,6 +2625,14 @@ static int config__read_file_core(struct mosquitto__config *config, bool reload,
 						cur_listener->socket_domain = AF_INET6;
 					}else{
 						log__printf(NULL, MOSQ_LOG_ERR, "Error: Invalid 'socket_domain' value '%s' in configuration.", token);
+						return MOSQ_ERR_INVAL;
+					}
+				}else if(!strcmp(token, "stats_interval_ms")){
+					if(conf__parse_int(&token, "stats_interval_ms", &config->stats_interval_ms, &saveptr)){
+						return MOSQ_ERR_INVAL;
+					}
+					if(config->stats_interval_ms < 0 || config->stats_interval_ms > 3600000){
+						log__printf(NULL, MOSQ_LOG_ERR, "Error: Invalid 'stats_interval_ms' value (%d).", config->stats_interval_ms);
 						return MOSQ_ERR_INVAL;
 					}
 				}else if(!strcmp(token, "sys_interval")){

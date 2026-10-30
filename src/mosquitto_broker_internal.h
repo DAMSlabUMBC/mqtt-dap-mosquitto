@@ -367,6 +367,7 @@ struct mosquitto__config {
 	int retain_expiry_interval;
 	bool set_tcp_nodelay;
 	int sys_interval;
+	int stats_interval_ms;			/* per-client stats row period; 0 disables */
 	bool upgrade_outgoing_qos;
 	char *user;
 #if defined(WITH_WEBSOCKETS) && WITH_WEBSOCKETS == WS_IS_LWS
@@ -432,6 +433,7 @@ struct mosquitto__base_msg {
 	int ref_count;
 	enum mosquitto_msg_origin origin;
 	bool stored;
+	uint64_t stats_recv_time_ns_mono; /* CLOCK_MONOTONIC at PUBLISH receipt, for time through broker */
 };
 
 struct mosquitto__client_msg {

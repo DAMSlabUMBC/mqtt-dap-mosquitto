@@ -46,6 +46,7 @@ Contributors:
 #endif
 
 #include "mosquitto_broker_internal.h"
+#include "stats/broker_stats.h"
 #include "mosquitto/mqtt_protocol.h"
 #include "packet_mosq.h"
 #include "property_common.h"
@@ -216,6 +217,8 @@ int mosquitto_main_loop(struct mosquitto__listener_sock *listensock, int listens
 		plugin__handle_tick();
 		session_expiry__check();
 		will_delay__check();
+
+		broker_stats__write(false);
 
 		rc = mux__handle(listensock, listensock_count);
 		if(rc){

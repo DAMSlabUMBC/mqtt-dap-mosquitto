@@ -23,6 +23,7 @@ Contributors:
 #include <utlist.h>
 
 #include "mosquitto_broker_internal.h"
+#include "stats/broker_stats.h"
 #include "send_mosq.h"
 #include "sys_tree.h"
 #include "util_mosq.h"
@@ -333,6 +334,16 @@ void db__msg_store_compact(void)
 }
 
 
+/* Mirror a client's outgoing queue and inflight sizes into the per-client stats. */
+static void db__stats_sync_out(struct mosquitto *context, struct mosquitto_msg_data *msg_data)
+{
+	if(context && msg_data == &context->msgs_out){
+		broker_stats__int_set(context->id, broker_stat_current_queue_size, msg_data->queued_count);
+		broker_stats__int_set(context->id, broker_stat_current_inflight_count, msg_data->inflight_count);
+	}
+}
+
+
 static void db__message_remove_inflight(struct mosquitto *context, struct mosquitto_msg_data *msg_data, struct mosquitto__client_msg *item)
 {
 	if(!context || !msg_data || !item){
@@ -344,6 +355,7 @@ static void db__message_remove_inflight(struct mosquitto *context, struct mosqui
 	DL_DELETE(msg_data->inflight, item);
 	if(item->base_msg){
 		db__msg_remove_from_inflight_stats(msg_data, item);
+		db__stats_sync_out(context, msg_data);
 		db__msg_store_ref_dec(&item->base_msg);
 	}
 
@@ -362,6 +374,7 @@ static void db__message_remove_queued(struct mosquitto *context, struct mosquitt
 	DL_DELETE(msg_data->queued, item);
 	if(item->base_msg){
 		db__msg_remove_from_queued_stats(msg_data, item);
+		db__stats_sync_out(context, msg_data);
 		db__msg_store_ref_dec(&item->base_msg);
 	}
 
@@ -402,8 +415,6 @@ void db__message_dequeue_first(struct mosquitto *context, struct mosquitto_msg_d
 {
 	struct mosquitto__client_msg *client_msg;
 
-	UNUSED(context);
-
 	client_msg = msg_data->queued;
 	DL_DELETE(msg_data->queued, client_msg);
 	DL_APPEND(msg_data->inflight, client_msg);
@@ -413,6 +424,7 @@ void db__message_dequeue_first(struct mosquitto *context, struct mosquitto_msg_d
 
 	db__msg_remove_from_queued_stats(msg_data, client_msg);
 	db__msg_add_to_inflight_stats(msg_data, client_msg);
+	db__stats_sync_out(context, msg_data);
 }
 
 
@@ -691,6 +703,7 @@ int db__message_insert_outgoing(struct mosquitto *context, uint64_t cmsg_id, uin
 		DL_APPEND(msg_data->inflight, client_msg);
 		db__msg_add_to_inflight_stats(msg_data, client_msg);
 	}
+	db__stats_sync_out(context, msg_data);
 
 	if(persist && context->is_persisted){
 		plugin_persist__handle_base_msg_add(client_msg->base_msg);
@@ -1114,6 +1127,7 @@ static int db__message_reconnect_reset_outgoing(struct mosquitto *context)
 	DL_FOREACH_SAFE(context->msgs_out.queued, client_msg, tmp){
 		db__msg_add_to_queued_stats(&context->msgs_out, client_msg);
 	}
+	db__stats_sync_out(context, &context->msgs_out);
 	db__fill_inflight_out_from_queue(context);
 
 	return MOSQ_ERR_SUCCESS;
@@ -1336,6 +1350,7 @@ static void db__client_messages_check_acl(struct mosquitto *context, struct mosq
 
 			DL_DELETE((*head), client_msg);
 			decrement_stats_fn(msg_data, client_msg);
+			db__stats_sync_out(context, msg_data);
 			plugin_persist__handle_client_msg_delete(context, client_msg);
 			db__msg_store_ref_dec(&client_msg->base_msg);
 			mosquitto_FREE(client_msg);
@@ -1397,6 +1412,9 @@ static int db__message_write_inflight_out_single(struct mosquitto *context, stru
 	switch(client_msg->data.state){
 		case mosq_ms_publish_qos0:
 			rc = send__publish(context, mid, topic, payloadlen, payload, qos, retain, retries, subscription_id, base_msg_props, expiry_interval);
+			if(rc == MOSQ_ERR_SUCCESS){
+				broker_stats__record_delivery(context->id, base_msg);
+			}
 			if(rc == MOSQ_ERR_SUCCESS || rc == MOSQ_ERR_OVERSIZE_PACKET){
 				db__message_remove_inflight(context, &context->msgs_out, client_msg);
 			}else{
@@ -1407,6 +1425,9 @@ static int db__message_write_inflight_out_single(struct mosquitto *context, stru
 		case mosq_ms_publish_qos1:
 			rc = send__publish(context, mid, topic, payloadlen, payload, qos, retain, retries, subscription_id, base_msg_props, expiry_interval);
 			if(rc == MOSQ_ERR_SUCCESS){
+				if(!retries){
+					broker_stats__record_delivery(context->id, base_msg);
+				}
 				client_msg->data.dup = 1; /* Any retry attempts are a duplicate. */
 				client_msg->data.state = mosq_ms_wait_for_puback;
 				plugin_persist__handle_client_msg_update(context, client_msg);
@@ -1420,6 +1441,9 @@ static int db__message_write_inflight_out_single(struct mosquitto *context, stru
 		case mosq_ms_publish_qos2:
 			rc = send__publish(context, mid, topic, payloadlen, payload, qos, retain, retries, subscription_id, base_msg_props, expiry_interval);
 			if(rc == MOSQ_ERR_SUCCESS){
+				if(!retries){
+					broker_stats__record_delivery(context->id, base_msg);
+				}
 				client_msg->data.dup = 1; /* Any retry attempts are a duplicate. */
 				client_msg->data.state = mosq_ms_wait_for_pubrec;
 				plugin_persist__handle_client_msg_update(context, client_msg);

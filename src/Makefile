@@ -114,6 +114,7 @@ OBJS=	mosquitto.o \
 		service.o \
 		session_expiry.o \
 		signals.o \
+		stats/broker_stats.o \
 		subs.o \
 		sys_tree.o \
 		topic_tok.o \

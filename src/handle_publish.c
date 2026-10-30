@@ -18,6 +18,8 @@ Contributors:
 
 #include "config.h"
 
+#include <time.h>
+
 #include <stdio.h>
 #include <string.h>
 
@@ -227,6 +229,10 @@ int handle__publish(struct mosquitto *context)
 	if(base_msg == NULL){
 		return MOSQ_ERR_NOMEM;
 	}
+
+	struct timespec recv_mono;
+	clock_gettime(CLOCK_MONOTONIC, &recv_mono);
+	base_msg->stats_recv_time_ns_mono = (uint64_t)recv_mono.tv_sec * 1000000000ULL + (uint64_t)recv_mono.tv_nsec;
 
 	dup = (header & 0x08)>>3;
 	base_msg->data.qos = (header & 0x06)>>1;

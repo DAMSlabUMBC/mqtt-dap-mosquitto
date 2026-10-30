@@ -52,6 +52,7 @@ Contributors:
 #endif
 
 #include "mosquitto_broker_internal.h"
+#include "stats/broker_stats.h"
 #include "util_mosq.h"
 
 struct mosquitto_db db;
@@ -350,6 +351,7 @@ static void post_shutdown_cleanup(void)
 	log__printf(NULL, MOSQ_LOG_INFO, "mosquitto version %s terminating", VERSION);
 
 	broker_control__cleanup();
+	broker_stats__close();
 
 #ifdef WITH_PERSISTENCE
 	persist__backup(true);
@@ -508,6 +510,7 @@ int main(int argc, char *argv[])
 	}
 
 	rc = db__open(&config);
+	broker_stats__init();
 	if(rc != MOSQ_ERR_SUCCESS){
 		log__printf(NULL, MOSQ_LOG_ERR, "Error: Couldn't open database.");
 		post_shutdown_cleanup();

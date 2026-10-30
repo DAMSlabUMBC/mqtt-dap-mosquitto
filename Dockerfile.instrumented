@@ -1,0 +1,52 @@
+# Instrumented stock Mosquitto v2.1.2 baseline for the MQTT-DAP paper.
+#
+# Built on the same base image, packages and cmake flags as the DAP broker's
+# Dockerfile so resource comparisons are like for like. Drop-in for the
+# eclipse-mosquitto image as used by PSMark's run-paper-matrix.sh: config at
+# /mosquitto/config/mosquitto.conf, persist-sqlite plugin at
+# /usr/lib/mosquitto_persist_sqlite.so. Per-client stats are written to
+# /tmp/dap_broker_stats.csv (see src/stats/broker_stats.c).
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    cmake \
+    build-essential \
+    libssl-dev \
+    ca-certificates \
+    libcjson-dev \
+    libargon2-dev \
+    sqlite3 \
+    libsqlite3-dev \
+    pkg-config \
+    libcunit1-dev \
+    xsltproc \
+    docbook-xsl \
+    iproute2 \
+    iputils-ping \
+ && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /opt/mqtt_brokers/mosquitto-stock
+
+COPY . /opt/mqtt_brokers/mosquitto-stock
+
+RUN cmake -DCMAKE_BUILD_TYPE=Release \
+          -DWITH_LTO=OFF \
+          -DWITH_CLIENTS=OFF \
+          -DWITH_BROKER=ON \
+          -DWITH_TESTS=OFF \
+          -DCMAKE_C_FLAGS="-DDISABLE_ENGINE_CLEANUP" . \
+ && make
+
+RUN cp src/mosquitto /usr/local/sbin/mosquitto && \
+    cp lib/libmosquitto.so.1 /usr/local/lib/ && \
+    cp plugins/persist-sqlite/mosquitto_persist_sqlite.so /usr/lib/mosquitto_persist_sqlite.so && \
+    ldconfig
+
+RUN mkdir -p /mosquitto/config && \
+    printf 'listener 1883\nallow_anonymous true\n' > /mosquitto/config/mosquitto.conf
+
+EXPOSE 1883
+
+CMD ["/usr/local/sbin/mosquitto", "-c", "/mosquitto/config/mosquitto.conf"]
