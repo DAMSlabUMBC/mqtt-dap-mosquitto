@@ -23,6 +23,10 @@ set(DAP_SRC_SOURCES
     ../../../src/dap/dap_stats.c
 )
 
+set(DAP_SRC_SOURCES
+    ../../../src/dap/dap_stats.c
+)
+
 # bridge-topic-test
 add_library(bridge-topic-obj
 	OBJECT
