@@ -19,9 +19,9 @@ Contributors:
 #ifndef DAP_STATS_H
 #define DAP_STATS_H
 
-#include "uthash.h"
+#ifdef WITH_BROKER
 
-#if defined(WITH_BROKER)
+#include "uthash.h"
 
 /* This ordering *must* match the metrics array in dap_stats.c. */
 enum dap_stat_type {

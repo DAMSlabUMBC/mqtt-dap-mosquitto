@@ -123,7 +123,8 @@ OBJS=	mosquitto.o \
 		xtreport.o \
 		dap/rights_broker.o \
 		dap/dap_intake.o \
-		dap/dap_persist.o
+		dap/dap_persist.o \
+		dap/dap_stats.o
 
 OBJS_EXTERNAL= \
 		acl_check.o \
@@ -169,8 +170,7 @@ OBJS_EXTERNAL= \
 		dap_holding_list.o \
 		dap_request_store.o \
 		dap_op_requester.o \
-		dap_stamp.o \
-		dap_stats.o
+		dap_stamp.o
 
 ifeq ($(WITH_WEBSOCKETS),yes)
 	OBJS_EXTERNAL+=${R}/deps/picohttpparser/picohttpparser.o

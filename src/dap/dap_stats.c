@@ -16,8 +16,6 @@ Contributors:
    Roger Light - initial implementation and documentation.
 */
 
-#ifdef WITH_BROKER
-
 #include "config.h"
 
 #include <math.h>
@@ -159,5 +157,3 @@ void dap_stats_close(void)
     fclose(stats_file);
     stats_file = NULL;
 }
-
-#endif

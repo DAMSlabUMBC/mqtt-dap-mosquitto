@@ -35,7 +35,6 @@ Contributors:
 #include "mosquitto_broker_internal.h"
 #include "persist.h"
 #include "util_mosq.h"
-#include "dap/dap_stats.h"
 
 uint32_t db_version;
 
@@ -164,14 +163,12 @@ static int persist__client_msg_restore(struct P_client_msg *chunk)
 	if(chunk->F.state == mosq_ms_queued || (chunk->F.qos > 0 && msg_data->inflight_quota == 0)){
 		DL_APPEND(msg_data->queued, cmsg);
 		db__msg_add_to_queued_stats(msg_data, cmsg);
-		dap_stats__int_set(cmsg->data.clientid, dap_stat_current_queue_size, msg_data->queued_count);
 	}else{
 		DL_APPEND(msg_data->inflight, cmsg);
 		if(chunk->F.qos > 0 && msg_data->inflight_quota > 0){
 			msg_data->inflight_quota--;
 		}
 		db__msg_add_to_inflight_stats(msg_data, cmsg);
-		dap_stats__int_set(cmsg->data.clientid, dap_stat_current_inflight_count, msg_data->inflight_count);
 	}
 
 	return MOSQ_ERR_SUCCESS;

@@ -14,8 +14,6 @@ add_executable(mosquitto_db_dump
 	../../src/persist_read_v234.c
 	../../src/persist_read_v5.c
 	../../src/topic_tok.c
-	../../src/dap/dap_stats.c 
-	../../src/dap/dap_stats.h
 )
 
 target_compile_definitions(mosquitto_db_dump PRIVATE
