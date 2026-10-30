@@ -1508,7 +1508,7 @@ static int db__message_reconnect_reset_incoming(struct mosquitto *context)
 
 	DL_FOREACH_SAFE(context->msgs_in.inflight, client_msg, tmp){
 		db__msg_add_to_inflight_stats(&context->msgs_in, client_msg);
-		dap_stats__int_set(context->id, dap_stat_current_inflight_count, context->msgs_in.inflight_count);
+		/* Don't track stats for mosq_md_in messages */
 		if(client_msg->data.qos > 0){
 			util__decrement_receive_quota(context);
 		}
@@ -1712,8 +1712,10 @@ static void db__client_messages_check_acl(struct mosquitto *context, struct mosq
 			db__dap_discard_stamp(context, client_msg);
 			DL_DELETE((*head), client_msg);
 			decrement_stats_fn(msg_data, client_msg);
-			dap_stats__int_set(context->id, dap_stat_current_queue_size, msg_data->queued_count);
-			dap_stats__int_set(context->id, dap_stat_current_inflight_count, msg_data->inflight_count);
+			if(client_msg->data.direction == mosq_md_out){
+				dap_stats__int_set(context->id, dap_stat_current_queue_size, msg_data->queued_count);
+				dap_stats__int_set(context->id, dap_stat_current_inflight_count, msg_data->inflight_count);
+			}
 			plugin_persist__handle_client_msg_delete(context, client_msg);
 			db__msg_store_ref_dec(&client_msg->base_msg);
 			mosquitto_FREE(client_msg);
@@ -1914,7 +1916,7 @@ enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct mosqui
 			plugin_persist__handle_client_msg_update(context, client_msg);
 			if(base_msg->data.has_purpose_filter){
 				base_msg->dap_bump_count++;
-				dap_stats__int_inc(leaf->context->id, dap_stat_bump_count, 1);
+				dap_stats__int_inc(context->id, dap_stat_bump_count, 1);
 			}
 			context->dap_write_again = true;
 			return DAP_HOOK_HANDLED;
@@ -1996,6 +1998,9 @@ static int db__message_write_inflight_out_single(struct mosquitto *context, stru
 	switch(client_msg->data.state){
 		case mosq_ms_publish_qos0:
 			rc = send__publish(context, mid, topic, payloadlen, payload, qos, retain, retries, subscription_id, base_msg_props, expiry_interval);
+			if(rc == MOSQ_ERR_SUCCESS){
+				dap_stats__record_delivery(context->id, base_msg, retain);
+			}
 			if(rc == MOSQ_ERR_SUCCESS || rc == MOSQ_ERR_OVERSIZE_PACKET){
 				db__message_remove_inflight(context, &context->msgs_out, client_msg);
 			}else{
@@ -2006,6 +2011,9 @@ static int db__message_write_inflight_out_single(struct mosquitto *context, stru
 		case mosq_ms_publish_qos1:
 			rc = send__publish(context, mid, topic, payloadlen, payload, qos, retain, retries, subscription_id, base_msg_props, expiry_interval);
 			if(rc == MOSQ_ERR_SUCCESS){
+				if(!retries){
+					dap_stats__record_delivery(context->id, base_msg, retain);
+				}
 				client_msg->data.dup = 1; /* Any retry attempts are a duplicate. */
 				client_msg->data.state = mosq_ms_wait_for_puback;
 				plugin_persist__handle_client_msg_update(context, client_msg);
@@ -2019,6 +2027,9 @@ static int db__message_write_inflight_out_single(struct mosquitto *context, stru
 		case mosq_ms_publish_qos2:
 			rc = send__publish(context, mid, topic, payloadlen, payload, qos, retain, retries, subscription_id, base_msg_props, expiry_interval);
 			if(rc == MOSQ_ERR_SUCCESS){
+				if(!retries){
+					dap_stats__record_delivery(context->id, base_msg, retain);
+				}
 				client_msg->data.dup = 1; /* Any retry attempts are a duplicate. */
 				client_msg->data.state = mosq_ms_wait_for_pubrec;
 				plugin_persist__handle_client_msg_update(context, client_msg);

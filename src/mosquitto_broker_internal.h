@@ -387,7 +387,7 @@ struct mosquitto__config
 	int retain_expiry_interval;
 	bool set_tcp_nodelay;
 	int sys_interval;
-	int stats_interval;
+	int stats_interval_ms;			/* DAP per-client stats row period; 0 disables */
 	bool upgrade_outgoing_qos;
 	char *user;
 	bool metadata_operation_handling;

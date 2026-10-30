@@ -23,6 +23,9 @@ Contributors:
 extern "C" {
 #endif
 
+#include <stdbool.h>
+#include <stdint.h>
+
 #include "uthash.h"
 
 /* This ordering *must* match the metrics array in dap_stats.c. */
@@ -54,10 +57,25 @@ enum dap_stat_type {
 // 	dap_stat_max,
 // };
 
+/* Last delivered receipt order for one (publisher, topic) stream, used to detect
+ * deliveries that overtake one another. Keyed by "publisher\ntopic". */
+struct dap_stats_order_entry {
+    char *key;                 /* hash key */
+    uint64_t last_order;
+    UT_hash_handle hh;
+};
+
 /* The stats for one client keyed by subscription id in the uthash map. */
 struct dap_stats_entry {
     char *sub_id;              /* hash key */
     int64_t stats[dap_stat_max];
+    /* Time through broker for data PUBLISHes written to this client during the
+     * current interval; reset after every row. */
+    uint64_t latency_count;
+    uint64_t latency_sum_ns;
+    uint64_t latency_min_ns;
+    uint64_t latency_max_ns;
+    struct dap_stats_order_entry *last_order; /* uthash head: publisher\ntopic */
     UT_hash_handle hh;
 };
 
@@ -66,9 +84,12 @@ struct dap_stats_list {
     struct dap_stats_entry *client_stats; /* uthash head: sub_id */
 };
 
+struct mosquitto__base_msg;
+
 void dap_stats__int_inc(const char* client_id, enum dap_stat_type s, int64_t value);
 void dap_stats__int_dec(const char* client_id, enum dap_stat_type s, int64_t value);
 void dap_stats__int_set(const char* client_id, enum dap_stat_type s, int64_t value);
+void dap_stats__record_delivery(const char *client_id, const struct mosquitto__base_msg *base_msg, bool retain);
 void dap_stats__init(void);
 void dap_stats__write(bool force);
 void dap_stats_close(void);

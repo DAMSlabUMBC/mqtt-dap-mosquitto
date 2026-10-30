@@ -22,15 +22,22 @@ Contributors:
 #include <stdio.h>
 #include <inttypes.h>
 #include <limits.h>
-#include <inttypes.h>
+#include <time.h>
 
 #include "mosquitto_broker_internal.h"
 #include "dap_stats.h"
 
 static FILE *stats_file = NULL;
 
-static time_t start_time = 0;
-static time_t last_update = 0;
+/* Monotonic time (ms) at which the next row is due. */
+static uint64_t next_write_ms = 0;
+
+static uint64_t dap_stats__now_ms(clockid_t clock)
+{
+	struct timespec ts;
+	clock_gettime(clock, &ts);
+	return (uint64_t)ts.tv_sec * 1000ULL + (uint64_t)ts.tv_nsec / 1000000ULL;
+}
 
 static struct dap_stats_entry *dap_stats__find_entry(struct dap_stats_list *l, const char *client_id)
 {
@@ -55,10 +62,6 @@ static struct dap_stats_entry *dap_stats__find_or_make_entry(struct dap_stats_li
         mosquitto_FREE(e);
         return NULL;
     }
-	for(int i = 0; i < dap_stat_max; i++)
-	{
-		e->stats[i] = 0;
-	}
     HASH_ADD_KEYPTR(hh, l->client_stats, e->sub_id, strlen(e->sub_id), e);
     return e;
 }
@@ -67,7 +70,7 @@ void dap_stats__init(void)
 {
 	db.dap_stats_list->client_stats = NULL;
 
-	if(db.config->stats_interval == 0){
+	if(db.config->stats_interval_ms == 0){
 		return;
 	}
 
@@ -75,16 +78,16 @@ void dap_stats__init(void)
     stats_file = fopen("/tmp/dap_broker_stats.csv", "w");
     if(!stats_file) return;
     fprintf(stats_file,
-            "timestamp,client_id,queue_size,inflight_count,initially_dropped_by_policy,dropped_on_reeval,out_of_order,op_msgs_from_broker,total_bump_count\n");
+            "timestamp_ms,client_id,queue_size,inflight_count,initially_dropped_by_policy,dropped_on_reeval,out_of_order,op_msgs_from_broker,total_bump_count,"
+            "msgs_delivered_interval,time_through_broker_min_ns,time_through_broker_max_ns,time_through_broker_mean_ns\n");
     fflush(stats_file);
 
-	start_time = mosquitto_time();
-	last_update = start_time;
+	next_write_ms = 0;
 }
 
 void dap_stats__int_inc(const char* client_id, enum dap_stat_type s, int64_t value)
 {
-	if(!client_id || (s < 0) || (s >= dap_stat_max)) return;
+	if(!stats_file || !client_id || (s < 0) || (s >= dap_stat_max)) return;
 
     struct dap_stats_entry *e = dap_stats__find_or_make_entry(db.dap_stats_list, client_id);
     if(e)
@@ -96,7 +99,7 @@ void dap_stats__int_inc(const char* client_id, enum dap_stat_type s, int64_t val
 
 void dap_stats__int_dec(const char* client_id, enum dap_stat_type s, int64_t value)
 {
-	if(!client_id || (s < 0) || (s >= dap_stat_max)) return;
+	if(!stats_file || !client_id || (s < 0) || (s >= dap_stat_max)) return;
 
     struct dap_stats_entry *e = dap_stats__find_or_make_entry(db.dap_stats_list, client_id);
     if(e)
@@ -107,7 +110,7 @@ void dap_stats__int_dec(const char* client_id, enum dap_stat_type s, int64_t val
 
 void dap_stats__int_set(const char* client_id, enum dap_stat_type s, int64_t value)
 {
-	if(!client_id || (s < 0) || (s >= dap_stat_max)) return;
+	if(!stats_file || !client_id || (s < 0) || (s >= dap_stat_max)) return;
 
     struct dap_stats_entry *e = dap_stats__find_or_make_entry(db.dap_stats_list, client_id);
     if(e)
@@ -117,43 +120,129 @@ void dap_stats__int_set(const char* client_id, enum dap_stat_type s, int64_t val
 }
 
 
-/* 
- * Write the statistics to the DAP tracking file
+/*
+ * Record a data PUBLISH being written to a client for the first time: its time
+ * through the broker (receipt to write) and whether it overtook a later message
+ * from the same publisher on the same topic. Operations, broker-originated and
+ * restored messages carry no receipt time and are skipped. Retained deliveries
+ * are timed but never counted as out of order, as they replay old messages by design.
+ */
+void dap_stats__record_delivery(const char *client_id, const struct mosquitto__base_msg *base_msg, bool retain)
+{
+	if(!stats_file || !client_id || !base_msg) return;
+	if(base_msg->is_op || base_msg->dap_recv_time_ns_mono == 0) return;
+
+	struct dap_stats_entry *e = dap_stats__find_or_make_entry(db.dap_stats_list, client_id);
+	if(!e) return;
+
+	struct timespec now_mono;
+	clock_gettime(CLOCK_MONOTONIC, &now_mono);
+	uint64_t now_ns = (uint64_t)now_mono.tv_sec * 1000000000ULL + (uint64_t)now_mono.tv_nsec;
+	uint64_t latency_ns = now_ns >= base_msg->dap_recv_time_ns_mono ? now_ns - base_msg->dap_recv_time_ns_mono : 0;
+
+	if(e->latency_count == 0 || latency_ns < e->latency_min_ns) e->latency_min_ns = latency_ns;
+	if(latency_ns > e->latency_max_ns) e->latency_max_ns = latency_ns;
+	e->latency_sum_ns += latency_ns;
+	e->latency_count++;
+
+	if(retain) return;
+
+	const char *source_id = base_msg->data.source_id ? base_msg->data.source_id : "";
+	const char *topic = base_msg->data.topic ? base_msg->data.topic : "";
+	size_t keylen = strlen(source_id) + 1 + strlen(topic);
+	char *key = mosquitto_malloc(keylen + 1);
+	if(!key) return;
+	snprintf(key, keylen + 1, "%s\n%s", source_id, topic);
+
+	struct dap_stats_order_entry *o = NULL;
+	HASH_FIND(hh, e->last_order, key, keylen, o);
+	if(!o){
+		o = mosquitto_calloc(1, sizeof(struct dap_stats_order_entry));
+		if(!o){
+			mosquitto_FREE(key);
+			return;
+		}
+		o->key = key;
+		o->last_order = base_msg->dap_order;
+		HASH_ADD_KEYPTR(hh, e->last_order, o->key, keylen, o);
+		return;
+	}
+	mosquitto_FREE(key);
+
+	if(base_msg->dap_order < o->last_order){
+		e->stats[dap_stat_out_of_order_count]++;
+	}else{
+		o->last_order = base_msg->dap_order;
+	}
+}
+
+/*
+ * Write one row per client to the DAP tracking file every stats_interval_ms.
  */
 void dap_stats__write(bool force)
 {
-	static time_t next_update_real = 0;
+	if(!stats_file || db.config->stats_interval_ms == 0) return;
 
-	if(!stats_file) return;
-
-	if(db.config->stats_interval && ((next_update_real == 0 || db.now_real_s > next_update_real) || force))
-	{
-		// Perform update by looping through each client
-		struct dap_stats_entry *e, *tmp;
-		HASH_ITER(hh, db.dap_stats_list->client_stats, e, tmp){
-			fprintf(stats_file, "%" PRId64 ",%s,%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRId64 "\n",
-				db.now_s,
-				e->sub_id,
-				e->stats[dap_stat_current_queue_size],
-				e->stats[dap_stat_current_inflight_count],
-				e->stats[dap_stat_dropped_by_policy_count],
-				e->stats[dap_stat_dropped_by_policy_reeval_count],
-				e->stats[dap_stat_out_of_order_count],
-				e->stats[dap_stat_ops_originated_from_broker],
-				e->stats[dap_stat_bump_count]
-				);
-		}
-
-		fflush(stats_file);
-		
-		last_update = db.now_s;
-		next_update_real = db.now_real_s + db.config->stats_interval;
+	uint64_t now_ms = dap_stats__now_ms(CLOCK_MONOTONIC);
+	if(!force && next_write_ms != 0 && now_ms < next_write_ms){
+		loop__update_next_event((time_t)(next_write_ms - now_ms));
+		return;
 	}
+
+	uint64_t wall_ms = dap_stats__now_ms(CLOCK_REALTIME);
+	struct dap_stats_entry *e, *tmp;
+	HASH_ITER(hh, db.dap_stats_list->client_stats, e, tmp){
+		fprintf(stats_file, "%" PRIu64 ",%s,%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRIu64,
+			wall_ms,
+			e->sub_id,
+			e->stats[dap_stat_current_queue_size],
+			e->stats[dap_stat_current_inflight_count],
+			e->stats[dap_stat_dropped_by_policy_count],
+			e->stats[dap_stat_dropped_by_policy_reeval_count],
+			e->stats[dap_stat_out_of_order_count],
+			e->stats[dap_stat_ops_originated_from_broker],
+			e->stats[dap_stat_bump_count],
+			e->latency_count
+			);
+		/* Leave the latency columns empty when nothing was delivered this interval. */
+		if(e->latency_count){
+			fprintf(stats_file, ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 "\n",
+				e->latency_min_ns, e->latency_max_ns, e->latency_sum_ns / e->latency_count);
+		}else{
+			fprintf(stats_file, ",,,\n");
+		}
+		e->latency_count = 0;
+		e->latency_sum_ns = 0;
+		e->latency_min_ns = 0;
+		e->latency_max_ns = 0;
+	}
+	fflush(stats_file);
+
+	/* Stay on the interval grid; if the loop fell behind, restart from now. */
+	uint64_t interval = (uint64_t)db.config->stats_interval_ms;
+	next_write_ms = (next_write_ms != 0 && next_write_ms + interval > now_ms) ? next_write_ms + interval : now_ms + interval;
+	loop__update_next_event((time_t)(next_write_ms - now_ms));
 }
 
 void dap_stats_close(void)
 {
-    if(!stats_file) return;
-    fclose(stats_file);
-    stats_file = NULL;
+    if(stats_file){
+        dap_stats__write(true);
+        fclose(stats_file);
+        stats_file = NULL;
+    }
+    if(!db.dap_stats_list) return;
+
+	struct dap_stats_entry *e, *tmp;
+	HASH_ITER(hh, db.dap_stats_list->client_stats, e, tmp){
+		struct dap_stats_order_entry *o, *otmp;
+		HASH_ITER(hh, e->last_order, o, otmp){
+			HASH_DEL(e->last_order, o);
+			mosquitto_FREE(o->key);
+			mosquitto_FREE(o);
+		}
+		HASH_DEL(db.dap_stats_list->client_stats, e);
+		mosquitto_FREE(e->sub_id);
+		mosquitto_FREE(e);
+	}
 }
