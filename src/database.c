@@ -1999,7 +1999,8 @@ static int db__message_write_inflight_out_single(struct mosquitto *context, stru
 		case mosq_ms_publish_qos0:
 			rc = send__publish(context, mid, topic, payloadlen, payload, qos, retain, retries, subscription_id, base_msg_props, expiry_interval);
 			if(rc == MOSQ_ERR_SUCCESS){
-				dap_stats__record_delivery(context->id, base_msg, retain);
+				dap_stats__record_delivery(context->id, base_msg);
+				dap_stats__pub_sent(context->id, subscription_id, base_msg->dap_recv_time_ns_mono);
 			}
 			if(rc == MOSQ_ERR_SUCCESS || rc == MOSQ_ERR_OVERSIZE_PACKET){
 				db__message_remove_inflight(context, &context->msgs_out, client_msg);
@@ -2012,7 +2013,8 @@ static int db__message_write_inflight_out_single(struct mosquitto *context, stru
 			rc = send__publish(context, mid, topic, payloadlen, payload, qos, retain, retries, subscription_id, base_msg_props, expiry_interval);
 			if(rc == MOSQ_ERR_SUCCESS){
 				if(!retries){
-					dap_stats__record_delivery(context->id, base_msg, retain);
+					dap_stats__record_delivery(context->id, base_msg);
+					dap_stats__pub_sent(context->id, subscription_id, base_msg->dap_recv_time_ns_mono);
 				}
 				client_msg->data.dup = 1; /* Any retry attempts are a duplicate. */
 				client_msg->data.state = mosq_ms_wait_for_puback;
@@ -2028,7 +2030,8 @@ static int db__message_write_inflight_out_single(struct mosquitto *context, stru
 			rc = send__publish(context, mid, topic, payloadlen, payload, qos, retain, retries, subscription_id, base_msg_props, expiry_interval);
 			if(rc == MOSQ_ERR_SUCCESS){
 				if(!retries){
-					dap_stats__record_delivery(context->id, base_msg, retain);
+					dap_stats__record_delivery(context->id, base_msg);
+					dap_stats__pub_sent(context->id, subscription_id, base_msg->dap_recv_time_ns_mono);
 				}
 				client_msg->data.dup = 1; /* Any retry attempts are a duplicate. */
 				client_msg->data.state = mosq_ms_wait_for_pubrec;

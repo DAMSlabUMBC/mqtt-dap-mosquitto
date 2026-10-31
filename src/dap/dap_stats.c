@@ -119,9 +119,43 @@ void dap_stats__int_set(const char* client_id, enum dap_stat_type s, int64_t val
 	}
 }
 
+void dap_stats__pub_sent(const char* client_id, uint32_t subscription_id, uint64_t msg_recv_time_ns_mono)
+{
+	if(!stats_file || !client_id) return;
 
-/* Time a data PUBLISH's first write to a client and check its order. Ops and restored messages are skipped. */
-void dap_stats__record_delivery(const char *client_id, const struct mosquitto__base_msg *base_msg, bool retain)
+    struct dap_stats_entry *e = dap_stats__find_or_make_entry(db.dap_stats_list, client_id);
+    if(e)
+	{
+		// Now find if sub id maps
+		struct dap_stats_out_of_order_entry *e2 = NULL;
+    	HASH_FIND_INT(e->sub_out_of_order_stats, &subscription_id, e2);
+
+		if(!e2) {
+			e2 = mosquitto_calloc(1, sizeof(struct dap_stats_out_of_order_entry));
+			if(!e2) return;
+			e2->subscription_id = subscription_id;
+			e2->out_of_order_count = 0;
+			e2->last_pub_sent_recv_ns_mono = msg_recv_time_ns_mono;
+			HASH_ADD_INT(e->sub_out_of_order_stats, subscription_id, e2);
+		}
+
+		// Entry exists, check timing
+		else
+		{
+			if(msg_recv_time_ns_mono >= e2->last_pub_sent_recv_ns_mono)
+			{
+				e2->last_pub_sent_recv_ns_mono = msg_recv_time_ns_mono;
+			}
+			else
+			{
+				e2->out_of_order_count++;
+			}
+		}
+	}
+}
+
+/* Time a data PUBLISH's first write to a client. Ops and restored messages are skipped. */
+void dap_stats__record_delivery(const char *client_id, const struct mosquitto__base_msg *base_msg)
 {
 	if(!stats_file || !client_id || !base_msg) return;
 	if(base_msg->is_op || base_msg->dap_recv_time_ns_mono == 0) return;
@@ -138,36 +172,6 @@ void dap_stats__record_delivery(const char *client_id, const struct mosquitto__b
 	if(latency_ns > e->latency_max_ns) e->latency_max_ns = latency_ns;
 	e->latency_sum_ns += latency_ns;
 	e->latency_count++;
-
-	if(retain) return;
-
-	const char *source_id = base_msg->data.source_id ? base_msg->data.source_id : "";
-	const char *topic = base_msg->data.topic ? base_msg->data.topic : "";
-	size_t keylen = strlen(source_id) + 1 + strlen(topic);
-	char *key = mosquitto_malloc(keylen + 1);
-	if(!key) return;
-	snprintf(key, keylen + 1, "%s\n%s", source_id, topic);
-
-	struct dap_stats_order_entry *o = NULL;
-	HASH_FIND(hh, e->last_order, key, keylen, o);
-	if(!o){
-		o = mosquitto_calloc(1, sizeof(struct dap_stats_order_entry));
-		if(!o){
-			mosquitto_FREE(key);
-			return;
-		}
-		o->key = key;
-		o->last_order = base_msg->dap_order;
-		HASH_ADD_KEYPTR(hh, e->last_order, o->key, keylen, o);
-		return;
-	}
-	mosquitto_FREE(key);
-
-	if(base_msg->dap_order < o->last_order){
-		e->stats[dap_stat_out_of_order_count]++;
-	}else{
-		o->last_order = base_msg->dap_order;
-	}
 }
 
 /* Write one row per client every stats_interval_ms. */
@@ -184,14 +188,20 @@ void dap_stats__write(bool force)
 	uint64_t wall_ms = dap_stats__now_ms(CLOCK_REALTIME);
 	struct dap_stats_entry *e, *tmp;
 	HASH_ITER(hh, db.dap_stats_list->client_stats, e, tmp){
-		fprintf(stats_file, "%" PRIu64 ",%s,%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRIu64,
+		uint64_t total_out_of_order = 0;
+		struct dap_stats_out_of_order_entry *e2, *tmp2;
+		HASH_ITER(hh, e->sub_out_of_order_stats, e2, tmp2){
+			total_out_of_order += e2->out_of_order_count;
+		}
+
+		fprintf(stats_file, "%" PRIu64 ",%s,%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRId64 ",%" PRIu64 ",%" PRId64 ",%" PRId64 ",%" PRIu64,
 			wall_ms,
 			e->sub_id,
 			e->stats[dap_stat_current_queue_size],
 			e->stats[dap_stat_current_inflight_count],
 			e->stats[dap_stat_dropped_by_policy_count],
 			e->stats[dap_stat_dropped_by_policy_reeval_count],
-			e->stats[dap_stat_out_of_order_count],
+			total_out_of_order,
 			e->stats[dap_stat_ops_originated_from_broker],
 			e->stats[dap_stat_bump_count],
 			e->latency_count
@@ -227,11 +237,10 @@ void dap_stats_close(void)
 
 	struct dap_stats_entry *e, *tmp;
 	HASH_ITER(hh, db.dap_stats_list->client_stats, e, tmp){
-		struct dap_stats_order_entry *o, *otmp;
-		HASH_ITER(hh, e->last_order, o, otmp){
-			HASH_DEL(e->last_order, o);
-			mosquitto_FREE(o->key);
-			mosquitto_FREE(o);
+		struct dap_stats_out_of_order_entry *e2, *tmp2;
+		HASH_ITER(hh, e->sub_out_of_order_stats, e2, tmp2){
+			HASH_DEL(e->sub_out_of_order_stats, e2);
+			mosquitto_FREE(e2);
 		}
 		HASH_DEL(db.dap_stats_list->client_stats, e);
 		mosquitto_FREE(e->sub_id);
