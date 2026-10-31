@@ -57,8 +57,7 @@ enum dap_stat_type {
 // 	dap_stat_max,
 // };
 
-/* Last delivered receipt order for one (publisher, topic) stream, used to detect
- * deliveries that overtake one another. Keyed by "publisher\ntopic". */
+/* Last delivered order per publisher+topic, for out-of-order counts. */
 struct dap_stats_order_entry {
     char *key;                 /* hash key */
     uint64_t last_order;
@@ -69,8 +68,7 @@ struct dap_stats_order_entry {
 struct dap_stats_entry {
     char *sub_id;              /* hash key */
     int64_t stats[dap_stat_max];
-    /* Time through broker for data PUBLISHes written to this client during the
-     * current interval; reset after every row. */
+    /* Time through broker this interval; reset after every row. */
     uint64_t latency_count;
     uint64_t latency_sum_ns;
     uint64_t latency_min_ns;

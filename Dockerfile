@@ -45,8 +45,7 @@ RUN cp src/mosquitto /usr/local/sbin/mosquitto && \
 RUN mkdir -p /etc/mosquitto && \
     cp mosquitto.conf /etc/mosquitto/mosquitto.conf
 
-# Resource usage is read from the container (docker stats), so nothing else runs
-# here: an in-container exporter would be billed to the broker.
+# Only the broker runs here so docker stats measure just the broker.
 EXPOSE 1883
 
 CMD ["/usr/local/sbin/mosquitto", "-c", "/etc/mosquitto/mosquitto.conf"]

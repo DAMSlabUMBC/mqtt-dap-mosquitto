@@ -120,13 +120,7 @@ void dap_stats__int_set(const char* client_id, enum dap_stat_type s, int64_t val
 }
 
 
-/*
- * Record a data PUBLISH being written to a client for the first time: its time
- * through the broker (receipt to write) and whether it overtook a later message
- * from the same publisher on the same topic. Operations, broker-originated and
- * restored messages carry no receipt time and are skipped. Retained deliveries
- * are timed but never counted as out of order, as they replay old messages by design.
- */
+/* Time a data PUBLISH's first write to a client and check its order. Ops and restored messages are skipped. */
 void dap_stats__record_delivery(const char *client_id, const struct mosquitto__base_msg *base_msg, bool retain)
 {
 	if(!stats_file || !client_id || !base_msg) return;
@@ -176,9 +170,7 @@ void dap_stats__record_delivery(const char *client_id, const struct mosquitto__b
 	}
 }
 
-/*
- * Write one row per client to the DAP tracking file every stats_interval_ms.
- */
+/* Write one row per client every stats_interval_ms. */
 void dap_stats__write(bool force)
 {
 	if(!stats_file || db.config->stats_interval_ms == 0) return;
@@ -204,7 +196,7 @@ void dap_stats__write(bool force)
 			e->stats[dap_stat_bump_count],
 			e->latency_count
 			);
-		/* Leave the latency columns empty when nothing was delivered this interval. */
+		/* Empty latency columns when nothing was delivered. */
 		if(e->latency_count){
 			fprintf(stats_file, ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 "\n",
 				e->latency_min_ns, e->latency_max_ns, e->latency_sum_ns / e->latency_count);

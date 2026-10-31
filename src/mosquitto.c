@@ -573,8 +573,7 @@ int main(int argc, char *argv[])
 
 	broker_control__init();
 
-	/* Off by default: a write and flush per message costs the DAP broker CPU and
-	 * disk that the stock baseline does not pay. The 100ms stats file covers runs. */
+	/* Off by default: per-message writes add load the stock baseline doesn't have. */
 	if(config.dap_message_metrics && dap_metrics_init() != 0){
 		log__printf(NULL, MOSQ_LOG_WARNING,
 				"Could not open DAP broker metrics file; per-message metrics will not be written.");

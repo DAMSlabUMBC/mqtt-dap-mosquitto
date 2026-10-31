@@ -391,7 +391,7 @@ struct mosquitto__config
 	bool upgrade_outgoing_qos;
 	char *user;
 	bool metadata_operation_handling;
-	bool dap_message_metrics;	   /* true: write a row per message to /tmp/dap_broker_metrics.csv */
+	bool dap_message_metrics;	   /* per-message rows in /tmp/dap_broker_metrics.csv */
 	bool dap_send_verification;	   /* false: deliver queued data as matched, for ablation */
 	char *dap_recognized_purposes; /* canonical set of recognized purposes; NULL = any (paper 4.3) */
 #if defined(WITH_WEBSOCKETS) && WITH_WEBSOCKETS == WS_IS_LWS
