@@ -55,6 +55,7 @@ Contributors:
 #include <time.h>
 #include "dap/mp_registry.h"
 #include "mosquitto_broker_internal.h"
+#include "prof.h"
 #include "mosquitto/mqtt_protocol.h"
 #include "util_mosq.h"
 #include "dap/dr_registry.h"
@@ -147,6 +148,7 @@ static int subs__dap_send(struct mosquitto__subleaf *leaf, const char *source_id
 {
 	int rc;
 
+	uint64_t prof_r = prof_now();
 	if(db.config->metadata_operation_handling && source_id)
 	{
 		/* On a publisher's first data to this subscriber, send it the subscriber's registered info. */
@@ -161,9 +163,12 @@ static int subs__dap_send(struct mosquitto__subleaf *leaf, const char *source_id
 		}
 	}
 
+	prof_add(PROF_RI, prof_now() - prof_r);
+
 	uint64_t cmsg_id = 0;
 	rc = subs__send(leaf, topic, qos, retain, stored, &cmsg_id);
 
+	uint64_t prof_s = prof_now();
 	/* Stamp the message into the subscription's topic queue for the send-path gate. */
 	if(cmsg_id && leaf->context->id){
 		if(!leaf->dap_queues){
@@ -180,6 +185,8 @@ static int subs__dap_send(struct mosquitto__subleaf *leaf, const char *source_id
 			}
 		}
 	}
+
+	prof_add(PROF_STAMP, prof_now() - prof_s);
 
 	/* Write here; the send-path gate consults the stamp queued above. */
 	(void)db__message_write_inflight_out_latest(leaf->context);
@@ -252,7 +259,10 @@ static int subs__process(struct mosquitto__subhier *hier, const char *source_id,
 			continue;
 		}
 
-		if(!sub__purpose_allows(leaf, stored))
+		uint64_t prof_p = prof_now();
+		bool prof_allowed = sub__purpose_allows(leaf, stored);
+		prof_add(PROF_PURPOSE, prof_now() - prof_p);
+		if(!prof_allowed)
 		{
 			dap_stats__int_inc(leaf->context->id, dap_stat_dropped_by_policy_count, 1);
 			leaf = leaf->next;

@@ -96,6 +96,7 @@ add_executable(mosquitto
 	send_unsuback.c
 	../lib/send_unsubscribe.c
 	session_expiry.c
+	prof.c prof.h
 	subs.c
 	sys_tree.c sys_tree.h
 	../lib/tls_mosq.c

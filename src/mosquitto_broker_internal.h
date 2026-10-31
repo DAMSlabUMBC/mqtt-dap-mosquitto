@@ -512,6 +512,8 @@ struct mosquitto__base_msg
 	uint64_t dap_order;				/* strictly increasing receipt order (ns since the epoch), which
 									 * orders data against operations */
 	uint64_t dap_recv_time_ns_wall; /* CLOCK_REALTIME at PUBLISH receipt, for the metrics row */
+	uint64_t prof_id;
+	uint64_t prof_handle_ns;
 	uint64_t dap_recv_time_ns_mono; /* CLOCK_MONOTONIC at PUBLISH receipt, for delta computation */
 	int dap_subs_matched;			/* leaves the message fanned out to */
 	int dap_subs_resolved;			/* leaves whose verdict (DELIVER/DROP) has landed */
@@ -523,6 +525,8 @@ struct mosquitto__base_msg
 struct mosquitto__client_msg
 {
 	struct mosquitto_client_msg data;
+	uint64_t prof_enq_ns;
+	uint64_t prof_sent_ns;
 	struct mosquitto__client_msg *prev;
 	struct mosquitto__client_msg *next;
 	struct mosquitto__base_msg *base_msg;

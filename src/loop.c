@@ -46,6 +46,7 @@ Contributors:
 #endif
 
 #include "mosquitto_broker_internal.h"
+#include "prof.h"
 #include "mosquitto/mqtt_protocol.h"
 #include "packet_mosq.h"
 #include "property_common.h"
@@ -281,6 +282,7 @@ int mosquitto_main_loop(struct mosquitto__listener_sock *listensock, int listens
 		plugin__handle_tick();
 		session_expiry__check();
 		will_delay__check();
+		uint64_t prof_l = prof_now();
 		dap_deadline__check();
 		
 		if(op_check == 5)
@@ -293,7 +295,11 @@ int mosquitto_main_loop(struct mosquitto__listener_sock *listensock, int listens
 			op_check++;
 		}
 
+		prof_add(PROF_DAP_LOOP, prof_now() - prof_l);
+
 		dap_stats__write(false);
+
+		prof_tick();
 
 		rc = mux__handle(listensock, listensock_count);
 		if(rc){

@@ -52,6 +52,7 @@ Contributors:
 #endif
 
 #include "mosquitto_broker_internal.h"
+#include "prof.h"
 #include "util_mosq.h"
 #include "dap/dap_metrics.h"
 #include "dap/dap_stats.h"
@@ -352,6 +353,7 @@ static void post_shutdown_cleanup(void)
 	log__printf(NULL, MOSQ_LOG_INFO, "mosquitto version %s terminating", VERSION);
 
 	broker_control__cleanup();
+	prof_close();
 	dap_metrics_close();
 	dap_stats_close();
 

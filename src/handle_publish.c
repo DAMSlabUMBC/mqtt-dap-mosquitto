@@ -22,6 +22,7 @@ Contributors:
 #include <string.h>
 
 #include "mosquitto_broker_internal.h"
+#include "prof.h"
 #include "alias_mosq.h"
 #include "mosquitto/mqtt_protocol.h"
 #include "packet_mosq.h"
@@ -419,6 +420,12 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 		db__msg_store_ref_inc(metrics_msg);
 	}
 
+	uint64_t prof_id = stored ? stored->prof_id : 0;
+	uint64_t prof_recv = stored ? stored->dap_recv_time_ns_mono : 0;
+	uint64_t prof_handle = stored ? stored->prof_handle_ns : 0;
+	prof_fanout_subs = 0;
+	prof_in_fanout = 1;
+	uint64_t prof_fan_start = prof_now();
 	switch(stored->data.qos){
 		case 0:
 			rc2 = sub__messages_queue(context->id, stored->data.topic, stored->data.qos, stored->data.retain, &stored);
@@ -472,6 +479,11 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 				break;
 			}
 	}
+	uint64_t prof_fan_end = prof_now();
+	prof_in_fanout = 0;
+	prof_add(PROF_FANOUT, prof_fan_end - prof_fan_start);
+	prof_msg(prof_id, prof_recv, prof_handle, prof_fan_start, prof_fan_end, prof_fanout_subs);
+
 
 	if(metrics_track){
 		metrics_msg->dap_fanout_complete = true;
@@ -701,6 +713,9 @@ int handle__publish(struct mosquitto *context, const struct dap_receipt *receipt
 	if(base_msg == NULL){
 		return MOSQ_ERR_NOMEM;
 	}
+	static uint64_t prof_next_id = 0;
+	base_msg->prof_id = ++prof_next_id;
+	base_msg->prof_handle_ns = prof_now();
 
 	base_msg->is_op = false; // Assume no operation
 

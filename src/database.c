@@ -23,6 +23,7 @@ Contributors:
 #include <utlist.h>
 
 #include "mosquitto_broker_internal.h"
+#include "prof.h"
 #include "send_mosq.h"
 #include "sys_tree.h"
 #include "util_mosq.h"
@@ -734,6 +735,9 @@ int db__message_delete_outgoing(struct mosquitto *context, uint16_t mid, enum mo
 			if(client_msg->data.state == mosq_ms_publish_qos1 || client_msg->data.state == mosq_ms_publish_qos2){
 				db__dap_discard_stamp(context, client_msg);
 			}
+			if(client_msg->prof_sent_ns){
+				prof_ack(context->id, prof_now() - client_msg->prof_sent_ns);
+			}
 			db__message_remove_inflight(context, &context->msgs_out, client_msg);
 			deleted = true;
 			break;
@@ -975,6 +979,9 @@ int db__message_insert_outgoing(struct mosquitto *context, uint64_t cmsg_id, uin
 		client_msg->data.cmsg_id = ++context->last_cmsg_id;
 	}
 	client_msg->base_msg = base_msg;
+	client_msg->prof_enq_ns = prof_now();
+	client_msg->prof_sent_ns = 0;
+	prof_fanout_subs++;
 	db__msg_store_ref_inc(client_msg->base_msg);
 	client_msg->data.mid = mid;
 	client_msg->data.direction = mosq_md_out;
@@ -1931,8 +1938,9 @@ enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct mosqui
 	return DAP_HOOK_SEND;
 }
 
-static int db__message_write_inflight_out_single(struct mosquitto *context, struct mosquitto__client_msg *client_msg)
+static int db__message_write_inflight_out_single_impl(struct mosquitto *context, struct mosquitto__client_msg *client_msg)
 {
+	uint64_t prof_t0;
 	struct mosquitto__base_msg *base_msg;
 	mosquitto_property *base_msg_props = NULL;
 	int rc;
@@ -1990,14 +1998,25 @@ static int db__message_write_inflight_out_single(struct mosquitto *context, stru
 	if(client_msg->data.state == mosq_ms_publish_qos0
 				|| client_msg->data.state == mosq_ms_publish_qos1
 				|| client_msg->data.state == mosq_ms_publish_qos2){
-		if(db__dap_check_send(context, client_msg, true) == DAP_HOOK_HANDLED){
+		uint64_t prof_c = prof_now();
+		enum dap_hook_result prof_h = db__dap_check_send(context, client_msg, true);
+		prof_add(PROF_CHECK_SEND, prof_now() - prof_c);
+		if(prof_h == DAP_HOOK_HANDLED){
 			return MOSQ_ERR_SUCCESS;
 		}
 	}
 
 	switch(client_msg->data.state){
 		case mosq_ms_publish_qos0:
+			prof_t0 = prof_now();
 			rc = send__publish(context, mid, topic, payloadlen, payload, qos, retain, retries, subscription_id, base_msg_props, expiry_interval);
+			prof_add(PROF_SEND_PUBLISH, prof_now() - prof_t0);
+			if(rc == MOSQ_ERR_SUCCESS){
+				client_msg->prof_sent_ns = prof_now();
+			}
+			if(rc == MOSQ_ERR_SUCCESS && !retries){
+				prof_delivery(base_msg->prof_id, base_msg->dap_recv_time_ns_mono, client_msg->prof_enq_ns, prof_in_fanout, prof_now());
+			}
 			if(rc == MOSQ_ERR_SUCCESS){
 				dap_stats__record_delivery(context->id, base_msg);
 				dap_stats__pub_sent(context->id, subscription_id, base_msg->dap_recv_time_ns_mono);
@@ -2010,7 +2029,15 @@ static int db__message_write_inflight_out_single(struct mosquitto *context, stru
 			break;
 
 		case mosq_ms_publish_qos1:
+			prof_t0 = prof_now();
 			rc = send__publish(context, mid, topic, payloadlen, payload, qos, retain, retries, subscription_id, base_msg_props, expiry_interval);
+			prof_add(PROF_SEND_PUBLISH, prof_now() - prof_t0);
+			if(rc == MOSQ_ERR_SUCCESS){
+				client_msg->prof_sent_ns = prof_now();
+			}
+			if(rc == MOSQ_ERR_SUCCESS && !retries){
+				prof_delivery(base_msg->prof_id, base_msg->dap_recv_time_ns_mono, client_msg->prof_enq_ns, prof_in_fanout, prof_now());
+			}
 			if(rc == MOSQ_ERR_SUCCESS){
 				if(!retries){
 					dap_stats__record_delivery(context->id, base_msg);
@@ -2027,7 +2054,15 @@ static int db__message_write_inflight_out_single(struct mosquitto *context, stru
 			break;
 
 		case mosq_ms_publish_qos2:
+			prof_t0 = prof_now();
 			rc = send__publish(context, mid, topic, payloadlen, payload, qos, retain, retries, subscription_id, base_msg_props, expiry_interval);
+			prof_add(PROF_SEND_PUBLISH, prof_now() - prof_t0);
+			if(rc == MOSQ_ERR_SUCCESS){
+				client_msg->prof_sent_ns = prof_now();
+			}
+			if(rc == MOSQ_ERR_SUCCESS && !retries){
+				prof_delivery(base_msg->prof_id, base_msg->dap_recv_time_ns_mono, client_msg->prof_enq_ns, prof_in_fanout, prof_now());
+			}
 			if(rc == MOSQ_ERR_SUCCESS){
 				if(!retries){
 					dap_stats__record_delivery(context->id, base_msg);
@@ -2064,6 +2099,15 @@ static int db__message_write_inflight_out_single(struct mosquitto *context, stru
 			break;
 	}
 	return MOSQ_ERR_SUCCESS;
+}
+
+
+static int db__message_write_inflight_out_single(struct mosquitto *context, struct mosquitto__client_msg *client_msg)
+{
+	uint64_t t = prof_now();
+	int rc = db__message_write_inflight_out_single_impl(context, client_msg);
+	prof_add(PROF_WRITE_SINGLE, prof_now() - t);
+	return rc;
 }
 
 
