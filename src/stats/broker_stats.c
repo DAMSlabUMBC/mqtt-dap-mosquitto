@@ -1,9 +1,4 @@
-/*
-Per-client broker statistics for the MQTT-DAP baseline comparison.
-
-Writes one row per client every stats_interval_ms to /tmp/dap_broker_stats.csv,
-the same path the DAP broker uses, so the benchmark runner collects both alike.
-*/
+/* Per-client stats for the MQTT-DAP baseline, same file as the DAP broker. */
 
 #include "config.h"
 
@@ -70,11 +65,7 @@ void broker_stats__int_set(const char *client_id, enum broker_stat_type s, int64
 	}
 }
 
-/*
- * Record a PUBLISH being written to a client for the first time: its time through
- * the broker (receipt to write). Messages without a receipt time (restored from
- * persistence or plugin-originated) are skipped.
- */
+/* Time a PUBLISH's first write to a client. Restored messages are skipped. */
 void broker_stats__record_delivery(const char *client_id, const struct mosquitto__base_msg *base_msg)
 {
 	if(!stats_file || !client_id || !base_msg || base_msg->stats_recv_time_ns_mono == 0) return;
@@ -93,9 +84,7 @@ void broker_stats__record_delivery(const char *client_id, const struct mosquitto
 	e->latency_count++;
 }
 
-/*
- * Write one row per client every stats_interval_ms.
- */
+/* Write one row per client every stats_interval_ms. */
 void broker_stats__write(bool force)
 {
 	if(!stats_file || db.config->stats_interval_ms == 0) return;
@@ -115,7 +104,7 @@ void broker_stats__write(bool force)
 			e->stats[broker_stat_current_queue_size],
 			e->stats[broker_stat_current_inflight_count],
 			e->latency_count);
-		/* Leave the latency columns empty when nothing was delivered this interval. */
+		/* Empty latency columns when nothing was delivered. */
 		if(e->latency_count){
 			fprintf(stats_file, ",%" PRIu64 ",%" PRIu64 ",%" PRIu64 "\n",
 				e->latency_min_ns, e->latency_max_ns, e->latency_sum_ns / e->latency_count);

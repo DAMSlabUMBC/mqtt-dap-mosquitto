@@ -1,9 +1,4 @@
-/*
-Per-client broker statistics for the MQTT-DAP baseline comparison.
-
-Mirrors the DAP broker's dap_stats module so the stock broker reports the same
-queue size, inflight count and time-through-broker columns.
-*/
+/* Per-client stats for the MQTT-DAP baseline, mirroring the DAP broker's dap_stats. */
 
 #ifndef BROKER_STATS_H
 #define BROKER_STATS_H
@@ -23,8 +18,7 @@ enum broker_stat_type {
 struct broker_stats_entry {
 	char *client_id;           /* hash key */
 	int64_t stats[broker_stat_max];
-	/* Time through broker for PUBLISHes written to this client during the
-	 * current interval; reset after every row. */
+	/* Time through broker this interval; reset after every row. */
 	uint64_t latency_count;
 	uint64_t latency_sum_ns;
 	uint64_t latency_min_ns;

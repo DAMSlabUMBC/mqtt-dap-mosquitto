@@ -1,11 +1,5 @@
-# Instrumented stock Mosquitto v2.1.2 baseline for the MQTT-DAP paper.
-#
-# Built on the same base image, packages and cmake flags as the DAP broker's
-# Dockerfile so resource comparisons are like for like. Drop-in for the
-# eclipse-mosquitto image as used by PSMark's run-paper-matrix.sh: config at
-# /mosquitto/config/mosquitto.conf, persist-sqlite plugin at
-# /usr/lib/mosquitto_persist_sqlite.so. Per-client stats are written to
-# /tmp/dap_broker_stats.csv (see src/stats/broker_stats.c).
+# Instrumented stock Mosquitto 2.1.2, built like the DAP image.
+# Drop-in for eclipse-mosquitto in PSMark's run-paper-matrix.sh.
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
