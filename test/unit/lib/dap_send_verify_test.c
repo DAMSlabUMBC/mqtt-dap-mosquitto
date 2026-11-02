@@ -41,7 +41,7 @@ static struct dap_stamped_msg make_stamp(uint32_t mp, uint32_t sp)
 /* A retained message arrives with no stamp at all; it always passes. */
 static void test_null_stamp_passes(void)
 {
-    assert(dap_verify_for_send(NULL, 5, 7, DAP_OP_ACTION_NONE, false, "test", "test_client") == DAP_SEND_PASS);
+    assert(dap_verify_for_send(NULL, 7, DAP_OP_ACTION_NONE, false, "test", "test_client") == DAP_SEND_PASS);
     printf("ok - a NULL stamp (retained message) passes\n");
 }
 
@@ -49,23 +49,23 @@ static void test_null_stamp_passes(void)
 static void test_all_match_passes(void)
 {
     struct dap_stamped_msg m = make_stamp(3, 4);
-    assert(dap_verify_for_send(&m, 3, 4, DAP_OP_ACTION_NONE, false, "test", "test_client") == DAP_SEND_PASS);
+    assert(dap_verify_for_send(&m, 4, DAP_OP_ACTION_NONE, false, "test", "test_client") == DAP_SEND_PASS);
     printf("ok - matching versions with no pending op passes\n");
 }
 
-/* The MP version moved on since stamping: re-verify. */
-static void test_mp_mismatch_fails(void)
+/* A message keeps the MP it was received under, so a newer MP version changes nothing. */
+static void test_mp_version_ignored(void)
 {
     struct dap_stamped_msg m = make_stamp(3, 4);
-    assert(dap_verify_for_send(&m, 9, 4, DAP_OP_ACTION_NONE, false, "test", "test_client") == DAP_SEND_FAIL_MP_VER);
-    printf("ok - a stale MP version returns FAIL_MP\n");
+    assert(dap_verify_for_send(&m, 4, DAP_OP_ACTION_NONE, false, "test", "test_client") == DAP_SEND_PASS);
+    printf("ok - the MP version does not affect the verdict\n");
 }
 
-/* The SP version moved on since stamping (MP still matches): re-verify. */
+/* The SP version moved on since stamping: re-verify. */
 static void test_sp_mismatch_fails(void)
 {
     struct dap_stamped_msg m = make_stamp(3, 4);
-    assert(dap_verify_for_send(&m, 3, 9, DAP_OP_ACTION_NONE, false, "test", "test_client") == DAP_SEND_FAIL_SP_VER);
+    assert(dap_verify_for_send(&m, 9, DAP_OP_ACTION_NONE, false, "test", "test_client") == DAP_SEND_FAIL_SP_VER);
     printf("ok - a stale SP version returns FAIL_SP\n");
 }
 
@@ -73,7 +73,7 @@ static void test_sp_mismatch_fails(void)
 static void test_restrict_reverifies(void)
 {
     struct dap_stamped_msg m = make_stamp(3, 4);
-    assert(dap_verify_for_send(&m, 3, 4, DAP_OP_ACTION_RESTRICT, false, "test", "test_client") == DAP_SEND_FAIL_RESTRICT);
+    assert(dap_verify_for_send(&m, 4, DAP_OP_ACTION_RESTRICT, false, "test", "test_client") == DAP_SEND_FAIL_RESTRICT);
     printf("ok - a pending RESTRICT returns FAIL_RESTRICT\n");
 }
 
@@ -81,7 +81,7 @@ static void test_restrict_reverifies(void)
 static void test_delete_drops(void)
 {
     struct dap_stamped_msg m = make_stamp(3, 4);
-    assert(dap_verify_for_send(&m, 3, 4, DAP_OP_ACTION_DROP, false, "test", "test_client") == DAP_SEND_DROP_DELETE);
+    assert(dap_verify_for_send(&m, 4, DAP_OP_ACTION_DROP, false, "test", "test_client") == DAP_SEND_DROP_DELETE);
     printf("ok - a pending DELETE returns DROP_DELETE\n");
 }
 
@@ -89,16 +89,16 @@ static void test_delete_drops(void)
 static void test_delete_precedes_version_mismatch(void)
 {
     struct dap_stamped_msg m = make_stamp(3, 4);
-    assert(dap_verify_for_send(&m, 9, 9, DAP_OP_ACTION_DROP, false, "test", "test_client") == DAP_SEND_DROP_DELETE);
-    printf("ok - a DELETE outranks a stale MP/SP version\n");
+    assert(dap_verify_for_send(&m, 9, DAP_OP_ACTION_DROP, false, "test", "test_client") == DAP_SEND_DROP_DELETE);
+    printf("ok - a DELETE outranks a stale SP version\n");
 }
 
 /* Operations are checked for topic. */
 static void test_op_topic(void)
 {
     struct dap_stamped_msg m = make_stamp(3, 4);
-    assert(dap_verify_for_send(&m, 3, 4, DAP_OP_ACTION_NONE, true, "OP_NOTIF/test_client", "test_client") == DAP_SEND_PASS);
-    assert(dap_verify_for_send(&m, 3, 4, DAP_OP_ACTION_NONE, true, "OP_NOTIF/test_client2", "test_client") == DAP_SEND_DROP_INVALID_OP_TOPIC);
+    assert(dap_verify_for_send(&m, 4, DAP_OP_ACTION_NONE, true, "OP_NOTIF/test_client", "test_client") == DAP_SEND_PASS);
+    assert(dap_verify_for_send(&m, 4, DAP_OP_ACTION_NONE, true, "OP_NOTIF/test_client2", "test_client") == DAP_SEND_DROP_INVALID_OP_TOPIC);
     printf("ok - operations are correctly checked for topic\n");
 }
 
@@ -108,7 +108,7 @@ static void test_op_topic(void)
 static void test_decide_no_stamp_delivers(void)
 {
     /* Even with a holding client and a FAIL verdict, no stamp means just deliver. */
-    assert(dap_send_decide(false, true, 7, 7, DAP_SEND_FAIL_MP_VER, true) == DAP_DISP_DELIVER);
+    assert(dap_send_decide(false, true, 7, 7, DAP_SEND_FAIL_SP_VER, true) == DAP_DISP_DELIVER);
     printf("ok - decide: no stamp always delivers\n");
 }
 
@@ -130,20 +130,18 @@ static void test_decide_delete_drops(void)
                 is not to be performed. */
 static void test_decide_failures_bump(void)
 {
-    assert(dap_send_decide(true, false, 0, 11, DAP_SEND_FAIL_MP_VER, false) == DAP_DISP_BUMP);
     assert(dap_send_decide(true, false, 0, 11, DAP_SEND_FAIL_SP_VER, false) == DAP_DISP_BUMP);
     assert(dap_send_decide(true, false, 0, 11, DAP_SEND_FAIL_RESTRICT, false) == DAP_DISP_BUMP);
-    printf("ok - decide: FAIL_MP/SP/OP_MISSING while not holding bump\n");
+    printf("ok - decide: FAIL_SP/OP_MISSING while not holding bump\n");
 }
 
 /* Not holding: every version/op failure notifies for r re-verification if full check
                 is expected to be performed. */
 static void test_decide_failures_recalculate(void)
 {
-    assert(dap_send_decide(true, false, 0, 11, DAP_SEND_FAIL_MP_VER, true) == DAP_DISP_RECALCULATE);
     assert(dap_send_decide(true, false, 0, 11, DAP_SEND_FAIL_SP_VER, true) == DAP_DISP_RECALCULATE);
     assert(dap_send_decide(true, false, 0, 11, DAP_SEND_FAIL_RESTRICT, true) == DAP_DISP_RECALCULATE);
-    printf("ok - decide: FAIL_MP/SP/OP_MISSING while not holding bump\n");
+    printf("ok - decide: FAIL_SP/OP_MISSING while not holding bump\n");
 }
 
 /* Holding, and this is the re-verify candidate (this_id == pending_id): a PASS (the
@@ -190,7 +188,7 @@ int main(void)
 {
     test_null_stamp_passes();
     test_all_match_passes();
-    test_mp_mismatch_fails();
+    test_mp_version_ignored();
     test_sp_mismatch_fails();
     test_restrict_reverifies();
     test_delete_drops();

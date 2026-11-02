@@ -14,7 +14,7 @@ int dap_metrics_init(void)
     metrics_file = fopen("/tmp/dap_broker_metrics.csv", "w");
     if(!metrics_file) return 1;
     fprintf(metrics_file,
-            "recv_time_ns,publisher_id,topic,num_subs_matched,processing_time_ns,bump_count\n");
+            "recv_time_ns,publisher_id,topic,num_subs_matched,processing_time_ns,reeval_count\n");
     fflush(metrics_file);
     return 0;
 }
@@ -40,7 +40,7 @@ void dap_metrics_log_message(const struct mosquitto__base_msg *base_msg)
             topic,
             base_msg->dap_subs_matched,
             (unsigned long long)processing_ns,
-            base_msg->dap_bump_count);
+            base_msg->dap_reeval_count);
     fflush(metrics_file);
 }
 

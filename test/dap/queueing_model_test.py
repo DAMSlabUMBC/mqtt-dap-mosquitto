@@ -611,6 +611,35 @@ def stats_case(new_sps, dropped):
             rows = [r for r in csv.DictReader(f) if r["client_id"] == "subS"]
         check(bool(rows) and int(rows[-1]["dropped_on_reeval"]) == dropped, "dropped_on_reeval is %d after the SP becomes %s (got %s)"
               % (dropped, new_sps, rows[-1]["dropped_on_reeval"] if rows else None))
+        check(bool(rows) and int(rows[-1]["total_reevaluated"]) == 1, "the waiting message counts in total_reevaluated (got %s)"
+              % (rows[-1]["total_reevaluated"] if rows else None))
+        sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
+def stats_mp_case():
+    """A message keeps its MP, so a new MP does not re-evaluate one already waiting."""
+    broker = Broker("stats_interval_ms 100\n")
+    try:
+        sub = Subscriber("subM", receive_maximum=1)
+        sub.subscribe("t/m", ["qa"])
+        pub = Publisher()
+        pub.register("qa", "t/m")
+        pub.publish("t/m", [], payload=b"m1")
+        pub.publish("t/m", [], payload=b"m2")
+        first = sub.read_publishes(idle=0.5, ack=False)
+        pub.register("qb", "t/m")
+        time.sleep(0.2)
+        sub.puback(first[0][2])
+        got = payloads(sub.read_publishes(), "t/m")
+        check(got == [b"m2"], "the waiting message is delivered under its own MP (got %s)" % got)
+        time.sleep(0.5)
+        with open("/tmp/dap_broker_stats.csv", newline="") as f:
+            rows = [r for r in csv.DictReader(f) if r["client_id"] == "subM"]
+        check(bool(rows) and int(rows[-1]["total_reevaluated"]) == 0, "a new MP re-evaluates nothing (got %s)"
+              % (rows[-1]["total_reevaluated"] if rows else None))
         sub.close()
     finally:
         stop_clients()
@@ -850,6 +879,7 @@ def main():
     print("# stats")
     stats_case(["qa", "qz"], 0)
     stats_case(["qb"], 1)
+    stats_mp_case()
     print("# prioritized intake")
     intake_mp_case()
     intake_delete_case()

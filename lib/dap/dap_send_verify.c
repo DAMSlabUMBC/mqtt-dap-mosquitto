@@ -7,7 +7,6 @@
 #include "dap/dap_subscription_queues.h" /* struct dap_stamped_msg */
 
 enum dap_send_verdict dap_verify_for_send(const struct dap_stamped_msg *stamped,
-                                          uint32_t current_mp_version,
                                           uint32_t current_sp_version,
                                           enum dap_op_action current_op_action,
                                           bool is_op,
@@ -29,10 +28,8 @@ enum dap_send_verdict dap_verify_for_send(const struct dap_stamped_msg *stamped,
                 return DAP_SEND_DROP_DELETE;
             }
 
-            /* A stale version means policy changed since stamping: re-verify (MP first). */
-            if (stamped->mp_version != current_mp_version) {
-                return DAP_SEND_FAIL_MP_VER;
-            }
+            /* A stale SP version means policy changed since stamping: re-verify. A message
+             * keeps the MP it was received under, so a newer MP version changes nothing. */
             if (stamped->sp_version != current_sp_version) {
                 return DAP_SEND_FAIL_SP_VER;
             }
@@ -96,7 +93,7 @@ enum dap_send_disposition dap_send_decide(bool stamped_msg,
 
 	/* If the quick verification did NOT pass, we need to do full verification,
 	do this now if requested, otherwise we bump and delay the check */
-	else if(verdict == DAP_SEND_FAIL_MP_VER || verdict == DAP_SEND_FAIL_SP_VER || verdict == DAP_SEND_FAIL_RESTRICT)
+	else if(verdict == DAP_SEND_FAIL_SP_VER || verdict == DAP_SEND_FAIL_RESTRICT)
 	{
         disp = perform_full_check ? DAP_DISP_RECALCULATE : DAP_DISP_BUMP;
 	}

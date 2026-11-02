@@ -1781,16 +1781,9 @@ enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct mosqui
 	/* Determine the ability to send the message based on operation and purpose filter states */
 	const char *pub_id = base_msg->data.source_id;
 	char *original_mp = base_msg->data.has_purpose_filter ? base_msg->data.purpose_filter : NULL;
-	uint32_t cur_mp_ver = 0;
 	const char *revoked = NULL;
 	bool has_stamp = (stamp != NULL);
 	if(has_stamp && db.config->dap_send_verification){
-		struct mp_entry *stored = mp__lookup(pub_id, topic);
-		/* Operation messages have no registration and keep the purpose they were sent with. */
-		if(stored)
-		{
-			cur_mp_ver = stored->version;
-		}
 		uint32_t cur_sp_ver = leaf->sp_version;
 
 		enum dap_op_action action = DAP_OP_ACTION_NONE;
@@ -1801,7 +1794,7 @@ enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct mosqui
 				base_msg->dap_order, NULL, &revoked);
 		}
 
-		verdict = dap_verify_for_send(stamp, cur_mp_ver, cur_sp_ver, action, base_msg->is_op, topic, client_id);
+		verdict = dap_verify_for_send(stamp, cur_sp_ver, action, base_msg->is_op, topic, client_id);
 	}
 	else
 	{
@@ -1827,6 +1820,8 @@ enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct mosqui
 	{
 		if(perform_full_check)
 		{
+			base_msg->dap_reeval_count++;
+			dap_stats__int_inc(context->id, dap_stat_reevaluated_count, 1);
 			/* Note that MP checks need to be done on the original sending MP (the stamped MP),
 			   widing an MP for future messages should NOT allow previously sent messages
 			   through if their original MPs didn't allow it (i.e., don't attempt to predict
@@ -1914,10 +1909,6 @@ enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct mosqui
 			db__msg_add_to_queued_stats(&context->msgs_out, client_msg);
 			dap_stats__int_set(context->id, dap_stat_current_queue_size, context->msgs_out.queued_count);
 			plugin_persist__handle_client_msg_update(context, client_msg);
-			if(base_msg->data.has_purpose_filter){
-				base_msg->dap_bump_count++;
-				dap_stats__int_inc(context->id, dap_stat_bump_count, 1);
-			}
 			context->dap_write_again = true;
 			return DAP_HOOK_HANDLED;
 

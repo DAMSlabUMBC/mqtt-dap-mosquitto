@@ -78,7 +78,7 @@ void dap_stats__init(void)
     stats_file = fopen("/tmp/dap_broker_stats.csv", "w");
     if(!stats_file) return;
     fprintf(stats_file,
-            "timestamp_ms,client_id,queue_size,inflight_count,initially_dropped_by_policy,dropped_on_reeval,out_of_order,op_msgs_from_broker,total_bump_count,"
+            "timestamp_ms,client_id,queue_size,inflight_count,initially_dropped_by_policy,dropped_on_reeval,out_of_order,op_msgs_from_broker,total_reevaluated,"
             "msgs_delivered_interval,time_through_broker_min_ns,time_through_broker_max_ns,time_through_broker_mean_ns\n");
     fflush(stats_file);
 
@@ -203,7 +203,7 @@ void dap_stats__write(bool force)
 			e->stats[dap_stat_dropped_by_policy_reeval_count],
 			total_out_of_order,
 			e->stats[dap_stat_ops_originated_from_broker],
-			e->stats[dap_stat_bump_count],
+			e->stats[dap_stat_reevaluated_count],
 			e->latency_count
 			);
 		/* Empty latency columns when nothing was delivered. */

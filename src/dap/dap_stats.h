@@ -35,7 +35,7 @@ enum dap_stat_type {
 	dap_stat_dropped_by_policy_count = 2,
 	dap_stat_dropped_by_policy_reeval_count = 3,
 	dap_stat_ops_originated_from_broker = 4,
-	dap_stat_bump_count = 5,
+	dap_stat_reevaluated_count = 5,
 	dap_stat_max,
 };
 
