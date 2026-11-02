@@ -8,6 +8,7 @@ the current MP and SP, and prioritized intake of state changes.
 Usage: python3 test/dap/queueing_model_test.py [port]
 """
 import os
+import signal
 import socket
 import struct
 import subprocess
@@ -634,6 +635,30 @@ def intake_delete_case():
         check(broker.stop() == 0, "broker exits cleanly")
 
 
+def intake_other_client_case(size=2):
+    """A SUBSCRIBE from one client goes ahead of data another client got in first."""
+    broker = Broker()
+    try:
+        late = Subscriber("subP")
+        data = RawPublisher("rawdata")
+        data.send(data.packet("$MP_REG", [("DAP-MP", "qa:t/p")]))
+        broker.proc.send_signal(signal.SIGSTOP)
+        data.send(data.packet("t/p", [], b"m" * size))
+        sp = mqtt5_props.gen_string_pair_prop(mqtt5_props.USER_PROPERTY, "DAP-SP", "qa")
+        late.sock.send(mosq_test.gen_subscribe(1, "t/p", 0, proto_ver=5, properties=sp))
+        time.sleep(0.2)
+        broker.proc.send_signal(signal.SIGCONT)
+        cmd, _ = late.read_packet(5)
+        check(cmd & 0xF0 == 0x90, "SUBACK comes first")
+        got = payloads(late.read_publishes(), "t/p")
+        check(len(got) == 1, "a SUBSCRIBE covers %d byte data read with it (got %d)" % (size, len(got)))
+        data.close()
+        late.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
 def intake_disconnect_case(abrupt=False):
     """Data read together with the end of the publisher's connection is still delivered, in order."""
     broker = Broker()
@@ -799,6 +824,8 @@ def main():
     print("# prioritized intake")
     intake_mp_case()
     intake_delete_case()
+    intake_other_client_case()
+    intake_other_client_case(200000)
     intake_disconnect_case()
     intake_disconnect_case(abrupt=True)
     intake_alias_case()
