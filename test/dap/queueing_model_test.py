@@ -7,6 +7,7 @@ the current MP and SP, and prioritized intake of state changes.
 
 Usage: python3 test/dap/queueing_model_test.py [port]
 """
+import csv
 import os
 import signal
 import socket
@@ -591,6 +592,31 @@ def mp_change_case(new_mp, still_allowed, conf="", label=""):
         check(broker.stop() == 0, "broker exits cleanly")
 
 
+def stats_case(new_sps, dropped):
+    """A waiting message that fails its re-check against a new SP counts in dropped_on_reeval."""
+    broker = Broker("stats_interval_ms 100\n")
+    try:
+        sub = Subscriber("subS", receive_maximum=1)
+        sub.subscribe("t/s", ["qa"])
+        pub = Publisher()
+        pub.register("qa|qz", "t/s")
+        pub.publish("t/s", [], payload=b"m1")
+        pub.publish("t/s", [], payload=b"m2")
+        first = sub.read_publishes(idle=0.5, ack=False)
+        sub.subscribe("t/s", new_sps)
+        sub.puback(first[0][2])
+        sub.read_publishes()
+        time.sleep(0.5)
+        with open("/tmp/dap_broker_stats.csv", newline="") as f:
+            rows = [r for r in csv.DictReader(f) if r["client_id"] == "subS"]
+        check(bool(rows) and int(rows[-1]["dropped_on_reeval"]) == dropped, "dropped_on_reeval is %d after the SP becomes %s (got %s)"
+              % (dropped, new_sps, rows[-1]["dropped_on_reeval"] if rows else None))
+        sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
 def intake_mp_case():
     """An MP update read together with earlier data is applied before that data."""
     broker = Broker()
@@ -821,6 +847,9 @@ def main():
     mp_change_case("qz", still_allowed=False, conf="mount_point m/\n", label=" behind a mount point")
     mp_change_case("qz", still_allowed=False, conf="dap_send_verification false\n", label=" with send verification off")
     mp_widen_case()
+    print("# stats")
+    stats_case(["qa", "qz"], 0)
+    stats_case(["qb"], 1)
     print("# prioritized intake")
     intake_mp_case()
     intake_delete_case()
