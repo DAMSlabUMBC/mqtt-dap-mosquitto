@@ -58,6 +58,7 @@ static struct dap__op_property* initialize_dap_properties()
 	dap_op_properties->op_topic_filters = NULL;
 	dap_op_properties->op_purpose_filters = NULL;
 	dap_op_properties->op_client_filters = NULL;
+	dap_op_properties->op_param = NULL;
 	dap_op_properties->op_before = 0;
 	dap_op_properties->op_after = 0;
 	dap_op_properties->op_deadline = 0;
@@ -80,6 +81,7 @@ static void deallocate_dap_properties(struct dap__op_property *dap_op_properties
 	mosquitto_FREE(dap_op_properties->op_topic_filters);
 	mosquitto_FREE(dap_op_properties->op_purpose_filters);
 	mosquitto_FREE(dap_op_properties->op_client_filters);
+	mosquitto_FREE(dap_op_properties->op_param);
 	mosquitto_FREE(dap_op_properties->op_status);
 	mosquitto_FREE(dap_op_properties->op_reason);
 	mosquitto_FREE(dap_op_properties->op_client_id);
@@ -303,6 +305,13 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 				broker_send_response_failure(context->id, dap_op_properties);
 			}
 
+			else if(!strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_RESTRICT)
+					&& (!dap_op_properties->op_param || !dap_op_properties->op_param[0]))
+			{
+				dap_op_set_reason(dap_op_properties, "Missing DAP-OpParam");
+				broker_send_response_failure(context->id, dap_op_properties);
+			}
+
 			/* DELETE and RESTRICT also apply to queued data, through the pending-operation map. */
 			else if(!strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_DELETE) || !strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_RESTRICT))
 			{
@@ -317,7 +326,8 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 					dap_persist__op_add(pending_op_id, context->id,
 							strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_DELETE) ? DAP_OP_RESTRICT : DAP_OP_DELETE,
 							stored->dap_recv_time, deadline, dap_op_properties->op_topic_filters,
-							dap_op_properties->op_purpose_filters, dap_op_properties->op_client_filters);
+							dap_op_properties->op_purpose_filters, dap_op_properties->op_client_filters,
+							dap_op_properties->op_param);
 
 					/* Deadline workflow. Relevant subscribers are those that received
 						* data from this publisher matching the operation's topic/purpose/
@@ -336,7 +346,7 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 							relevant, &stored->data, dap_op_properties, deadline);
 					dr__free_sublist(relevant);
 
-					/* Also remove the retained messages it covers, and for a DELETE the will. */
+					/* Also apply it to the retained messages it covers, and for a DELETE the will. */
 					retain__dap_drop_covered();
 					if(!strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_DELETE))
 					{
@@ -621,6 +631,8 @@ static void read_dap_op_properties(const mosquitto_property *p, struct dap__op_p
 					replace_string(&dap_op_properties->op_purpose_filters, value);
 				} else if(!strcmp(name, MOSQ_DAP_OP_CLIENTS_KEY)){
 					replace_string(&dap_op_properties->op_client_filters, value);
+				} else if(!strcmp(name, MOSQ_DAP_OP_PARAM_KEY)){
+					replace_string(&dap_op_properties->op_param, value);
 				} else if(!strcmp(name, MOSQ_DAP_OP_BEFORE_KEY)){
 					dap_op_properties->op_before = (time_t)strtoll(value, NULL, 10);
 				} else if(!strcmp(name, MOSQ_DAP_OP_AFTER_KEY)){

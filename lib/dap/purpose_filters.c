@@ -357,12 +357,49 @@ bool purpose_mp_permits(const char *mp, char *const *sp, uint32_t sp_count)
     return pf__subset(mp, sp, sp_count, false);
 }
 
-bool purpose_mp_permits_unrevoked(const char *mp, const char *revoked, char *const *sp, uint32_t sp_count)
+bool purpose_mp_permits_restricted(const char *mp, const char *new_mp, char *const *sp, uint32_t sp_count)
 {
-    if(!purpose_mp_permits(mp, sp, sp_count)) return false;
-    if(!revoked || revoked[0] == '\0') return true;
-    if(!strcmp(revoked, "*")) return false;
-    return pf__subset(revoked, sp, sp_count, true);
+    return purpose_mp_permits(mp, sp, sp_count) && (!new_mp || purpose_mp_permits(new_mp, sp, sp_count));
+}
+
+int purpose_mp_narrow(const char *mp, const char *new_mp, char **narrowed)
+{
+    struct pf_cursor a = {mp, NULL, 0};
+    struct pf_cursor b = {new_mp, NULL, 0};
+    bool have_a, have_b;
+    char *out;
+    size_t n = 0;
+
+    if(!strcmp(mp, "*")) mp = new_mp;
+    else if(!strcmp(new_mp, "*")) new_mp = mp;
+    if(mp == new_mp){
+        *narrowed = mosquitto_strdup(mp);
+        return *narrowed ? 0 : 1;
+    }
+
+    out = mosquitto_malloc(strlen(mp) + 1);
+    if(!out) return 1;
+    have_a = pf__next(&a);
+    have_b = pf__next(&b);
+    while(have_a && have_b){
+        size_t min = a.len < b.len ? a.len : b.len;
+        int r = memcmp(a.tok, b.tok, min);
+        if(!r) r = (a.len > b.len) - (a.len < b.len);
+        if(r < 0){
+            have_a = pf__next(&a);
+        }else if(r > 0){
+            have_b = pf__next(&b);
+        }else{
+            if(n) out[n++] = '|';
+            memcpy(out + n, a.tok, a.len);
+            n += a.len;
+            have_a = pf__next(&a);
+            have_b = pf__next(&b);
+        }
+    }
+    out[n] = '\0';
+    *narrowed = out;
+    return 0;
 }
 
 bool purpose_set_recognized(const char *recognized, char *const *set, uint32_t n)

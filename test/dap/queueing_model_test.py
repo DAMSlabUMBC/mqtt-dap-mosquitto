@@ -108,8 +108,10 @@ class Publisher:
         self.publish("$MP_REG", [("DAP-MP", f"{mp}:{topic}")], qos=0)
         time.sleep(0.2)
 
-    def operation(self, op, topic_filter, purposes=None, deadline=None):
+    def operation(self, op, topic_filter, purposes=None, deadline=None, new_mp=None):
         pairs = [("DAP-OpType", op), ("DAP-OpTFs", topic_filter)]
+        if new_mp is not None:
+            pairs.append(("DAP-OpParam", new_mp))
         if purposes is not None:
             pairs.append(("DAP-OpPFs", purposes))
         if deadline is not None:
@@ -310,10 +312,10 @@ def delete_case(overflow=False, gap=False):
         check(broker.stop() == 0, "broker exits cleanly")
 
 
-def scoped_op_case(op, topic_filter, purposes, sps_kept):
+def scoped_op_case(op, topic_filter, purposes, sps_kept, new_mp=None):
     """An operation reaches the queued copies whose topic matches its DAP-OpTFs and
-    whose subscription's SP shares a purpose with its DAP-OpPFs. A RESTRICT revokes
-    those purposes, so it drops a copy whose SP uses one of them."""
+    whose subscription's SP shares a purpose with its DAP-OpPFs. A RESTRICT gives those
+    copies the MP in its DAP-OpParam, so it drops a copy that MP doesn't permit."""
     broker = Broker("use_metadata_operation_support true\n")
     try:
         subs = {}
@@ -328,7 +330,7 @@ def scoped_op_case(op, topic_filter, purposes, sps_kept):
             check(payloads(sub.read_publishes(), "t/s/1") == [b"m0"], "SP %s receives data before the %s" % (sp, op))
             sub.disconnect()
         pub.publish("t/s/1", [], payload=b"m1")
-        pub.operation(op, topic_filter, purposes)
+        pub.operation(op, topic_filter, purposes, new_mp=new_mp)
         check(wait_for(lambda: pub.msgs), "requester gets a reply to the %s" % op)
         for sp, sub in subs.items():
             sub.connect()
@@ -366,7 +368,55 @@ def same_second_case():
         check(broker.stop() == 0, "broker exits cleanly")
 
 
-def op_outlives_deadline_case(op, purposes=None):
+def restrict_needs_new_mp_case():
+    """A RESTRICT without DAP-OpParam is refused and changes nothing."""
+    broker = Broker("use_metadata_operation_support true\n")
+    try:
+        sub = Subscriber("subN", persistent=True)
+        sub.subscribe("t/n", ["qa"])
+        pub = Publisher()
+        pub.register("qa", "t/n")
+        pub.publish("t/n", [], payload=b"m0")
+        check(payloads(sub.read_publishes(), "t/n") == [b"m0"], "subscriber receives data before the RESTRICT")
+        sub.disconnect()
+        pub.publish("t/n", [], payload=b"m1")
+        pub.operation("RESTRICT", "t/n")
+        check(wait_for(lambda: pub.got_status("Failure")), "a RESTRICT without a new MP gets a Failure")
+        check(pub.got_status("Failure")[0][1].get("DAP-Reason") == "Missing DAP-OpParam",
+              "the Failure names the missing property")
+        sub.connect()
+        check(payloads(sub.read_publishes(), "t/n") == [b"m1"], "the refused RESTRICT drops nothing")
+        sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
+def restrict_spares_later_data_case():
+    """A RESTRICT changes the MP of data received before it, not after it."""
+    broker = Broker("use_metadata_operation_support true\n")
+    try:
+        sub = Subscriber("subL", persistent=True)
+        sub.subscribe("t/l", ["qa"])
+        pub = Publisher()
+        pub.register("qa|qb", "t/l")
+        pub.publish("t/l", [], payload=b"m0")
+        check(payloads(sub.read_publishes(), "t/l") == [b"m0"], "subscriber receives data before the RESTRICT")
+        sub.disconnect()
+        pub.publish("t/l", [], payload=b"m1")
+        pub.operation("RESTRICT", "t/l", new_mp="qb")
+        pub.publish("t/l", [], payload=b"m2")
+        check(wait_for(lambda: pub.got_status("Pending")), "requester gets a Pending ack for the RESTRICT")
+        sub.connect()
+        got = payloads(sub.read_publishes(), "t/l")
+        check(got == [b"m2"], "the RESTRICT drops m1 but not m2 published right after it (got %s)" % got)
+        sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
+def op_outlives_deadline_case(op, purposes=None, new_mp=None):
     """Covered data stays dropped for a subscriber that returns after the deadline."""
     broker = Broker("use_metadata_operation_support true\n")
     try:
@@ -378,7 +428,7 @@ def op_outlives_deadline_case(op, purposes=None):
         check(payloads(sub.read_publishes(), "t/o") == [b"m0"], "subscriber receives data before the %s" % op)
         sub.disconnect()
         pub.publish("t/o", [], payload=b"m1")
-        pub.operation(op, "t/o", purposes, deadline=int(time.time()) + 2)
+        pub.operation(op, "t/o", purposes, deadline=int(time.time()) + 2, new_mp=new_mp)
         check(wait_for(lambda: pub.got_status("Pending")), "requester gets a Pending ack for the %s" % op)
         time.sleep(3.5)  # past the deadline: the operation is reclaimed
         pub.publish("t/o", [], payload=b"m2")
@@ -856,13 +906,18 @@ def main():
     op_request_survives_full_queue_case_with_buffer()
     op_request_survives_full_queue_case_without_buffer()
     op_outlives_deadline_case("DELETE")
-    op_outlives_deadline_case("RESTRICT", "qa")
+    op_outlives_deadline_case("RESTRICT", "qa", new_mp="qb")
     scoped_op_case("DELETE", "t/+/1", "qb", {"qa": True, "qb": False, "qa|qc": True, "qb|qc": False})
     scoped_op_case("DELETE", "t/s/#", "qx", {"qa": True, "qb": True})
     scoped_op_case("DELETE", "t/other", None, {"qa": True})
     print("# RESTRICT on queued messages")
-    scoped_op_case("RESTRICT", "t/s/1", "qa", {"qa": False, "qb": True, "qb|qc": True, "qa|qb": False})
-    scoped_op_case("RESTRICT", "t/s/1", None, {"qa": False, "qb|qc": False})
+    # DAP-OpPFs picks the copies; DAP-OpParam is what they're checked against.
+    scoped_op_case("RESTRICT", "t/s/1", "qa", {"qa": True, "qb": True, "qb|qc": True, "qa|qb": False}, new_mp="qa")
+    scoped_op_case("RESTRICT", "t/s/1", "qa", {"qa": False, "qb": True}, new_mp="qb")
+    scoped_op_case("RESTRICT", "t/s/1", None, {"qa": False, "qb|qc": True}, new_mp="qb|qc")
+    scoped_op_case("RESTRICT", "t/other", None, {"qa": True}, new_mp="qb")
+    restrict_needs_new_mp_case()
+    restrict_spares_later_data_case()
     print("# re-verification of stale stamps")
     stale_mp_case()
     drop_then_stale_case()

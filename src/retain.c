@@ -252,7 +252,7 @@ static int retain__process(struct mosquitto__retainhier *branch, struct mosquitt
 	}
 	if(retained->data.source_id){
 		struct mp_entry *current = mp__lookup(retained->data.source_id, retained->data.topic);
-		const char *revoked = NULL;
+		const char *new_mp = NULL;
 		enum dap_op_action action;
 
 		if(current && !purpose_mp_permits(current->purpose_filter, sub->purpose_filters, sub->purpose_filter_count)){
@@ -260,10 +260,10 @@ static int retain__process(struct mosquitto__retainhier *branch, struct mosquitt
 		}
 		/* A pending DELETE or RESTRICT applies as at the send-path gate. */
 		action = dap_pending_ops_match(db.dap_pending_ops, retained->data.source_id, retained->data.topic,
-				sub->purpose_filters, sub->purpose_filter_count, context->id, retained->dap_order, NULL, &revoked);
+				sub->purpose_filters, sub->purpose_filter_count, context->id, retained->dap_order, NULL, &new_mp);
 		if(action == DAP_OP_ACTION_DROP
-				|| (action == DAP_OP_ACTION_RESTRICT && !purpose_mp_permits_unrevoked(retained->data.purpose_filter,
-						revoked, sub->purpose_filters, sub->purpose_filter_count))){
+				|| (action == DAP_OP_ACTION_RESTRICT && !purpose_mp_permits_restricted(retained->data.purpose_filter,
+						new_mp, sub->purpose_filters, sub->purpose_filter_count))){
 			return MOSQ_ERR_SUCCESS;
 		}
 	}
@@ -402,17 +402,46 @@ int retain__queue(struct mosquitto *context, const struct mosquitto_subscription
 }
 
 
+/* Give a retained message a RESTRICT's new MP, under a new MP version. False when no
+ * purpose is left, so the message should go. */
+static bool retain__dap_apply_new_mp(struct mosquitto__base_msg *retained, const char *new_mp)
+{
+	char *narrowed = NULL;
+
+	if(!new_mp || !retained->data.has_purpose_filter
+			|| purpose_mp_narrow(retained->data.purpose_filter, new_mp, &narrowed) || !narrowed[0]){
+
+		mosquitto_FREE(narrowed);
+		return false;
+	}
+	if(!strcmp(narrowed, retained->data.purpose_filter)){
+		mosquitto_FREE(narrowed);
+		return true;
+	}
+	mosquitto_FREE(retained->data.purpose_filter);
+	retained->data.purpose_filter = narrowed;
+	retained->data.purpose_filter_version++;
+	if(retained->stored){
+		plugin_persist__handle_base_msg_delete(retained);
+		plugin_persist__handle_base_msg_add(retained);
+	}
+	return true;
+}
+
+
 static void retain__dap_drop_covered_branch(struct mosquitto__retainhier **retainhier)
 {
 	struct mosquitto__retainhier *peer, *retainhier_tmp;
 
 	HASH_ITER(hh, *retainhier, peer, retainhier_tmp){
 		struct mosquitto__base_msg *retained = peer->retained;
+		const char *new_mp = NULL;
 
 		retain__dap_drop_covered_branch(&peer->children);
 		if(retained && retained->data.source_id
 				&& dap_pending_ops_cover_stored(db.dap_pending_ops, retained->data.source_id, retained->data.topic,
-						retained->data.has_purpose_filter ? retained->data.purpose_filter : NULL, retained->dap_order)){
+						retained->data.has_purpose_filter ? retained->data.purpose_filter : NULL, retained->dap_order, &new_mp)
+				&& !retain__dap_apply_new_mp(retained, new_mp)){
 
 			plugin_persist__handle_retain_msg_delete(retained);
 			db__msg_store_ref_dec(&peer->retained);

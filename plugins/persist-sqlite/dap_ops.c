@@ -25,7 +25,8 @@ int persist_sqlite__dap_init(struct mosquitto_sqlite *ms)
 			"topic_filters TEXT,"
 			"purpose_filters TEXT,"
 			"client_filters TEXT,"
-			"deadline INT64"
+			"deadline INT64,"
+			"new_mp TEXT"
 			");",
 			NULL, NULL, NULL);
 	if(rc){
@@ -33,6 +34,7 @@ int persist_sqlite__dap_init(struct mosquitto_sqlite *ms)
 	}
 	/* Tables created before deadlines were persisted lack the column. */
 	sqlite3_exec(ms->db, "ALTER TABLE dap_ops ADD COLUMN deadline INT64", NULL, NULL, NULL);
+	sqlite3_exec(ms->db, "ALTER TABLE dap_ops ADD COLUMN new_mp TEXT", NULL, NULL, NULL);
 
 	rc = sqlite3_exec(ms->db,
 			"CREATE TABLE IF NOT EXISTS dap_tracked_ops "
@@ -112,8 +114,8 @@ int persist_sqlite__dap_init(struct mosquitto_sqlite *ms)
 
 	rc = sqlite3_prepare_v3(ms->db,
 			"INSERT OR REPLACE INTO dap_ops "
-			"(op_id, publisher_id, op_type, timestamp, topic_filters, purpose_filters, client_filters, deadline) "
-			"VALUES(?,?,?,?,?,?,?,?)",
+			"(op_id, publisher_id, op_type, timestamp, topic_filters, purpose_filters, client_filters, deadline, new_mp) "
+			"VALUES(?,?,?,?,?,?,?,?,?)",
 			-1, SQLITE_PREPARE_PERSISTENT,
 			&ms->dap_op_add_stmt, NULL);
 	if(rc){
@@ -280,6 +282,7 @@ int persist_sqlite__dap_op_add_cb(int event, void *event_data, void *userdata)
 			&& bind_text(stmt, 6, ed->data.purpose_filters) == SQLITE_OK
 			&& bind_text(stmt, 7, ed->data.client_filters) == SQLITE_OK
 			&& sqlite3_bind_int64(stmt, 8, (int64_t)ed->data.deadline) == SQLITE_OK
+			&& bind_text(stmt, 9, ed->data.new_mp) == SQLITE_OK
 			){
 
 		return step_and_reset(ms, stmt);
@@ -496,7 +499,7 @@ static int dap_op_restore(struct mosquitto_sqlite *ms)
 	long count = 0, failed = 0;
 
 	rc = sqlite3_prepare_v2(ms->db,
-			"SELECT op_id, publisher_id, op_type, timestamp, topic_filters, purpose_filters, client_filters, deadline "
+			"SELECT op_id, publisher_id, op_type, timestamp, topic_filters, purpose_filters, client_filters, deadline, new_mp "
 			"FROM dap_ops ORDER BY op_id",
 			-1, &stmt, NULL);
 	if(rc != SQLITE_OK){
@@ -515,6 +518,7 @@ static int dap_op_restore(struct mosquitto_sqlite *ms)
 		op.purpose_filters = (const char *)sqlite3_column_text(stmt, 5);
 		op.client_filters = (const char *)sqlite3_column_text(stmt, 6);
 		op.deadline = (time_t)sqlite3_column_int64(stmt, 7);
+		op.new_mp = (const char *)sqlite3_column_text(stmt, 8);
 
 		if(mosquitto_persist_dap_op_add(&op) == MOSQ_ERR_SUCCESS){
 			count++;

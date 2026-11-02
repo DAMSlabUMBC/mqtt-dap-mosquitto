@@ -119,7 +119,8 @@ struct mosquitto_dap_op {
 	const char *purpose_filters; /* NULL = any */
 	const char *client_filters;  /* NULL = any */
 	time_t deadline;             /* reclaimed after this; 0 = unknown */
-	void *future[3];
+	const char *new_mp;          /* a RESTRICT's DAP-OpParam; NULL for a DELETE */
+	void *future[2];
 };
 
 /* A DAP flow: deliveries from a publisher on a topic to a subscriber under one SP. */

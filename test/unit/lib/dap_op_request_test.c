@@ -91,8 +91,18 @@ static void test_restriction_inserts_restrict(void)
     dap_pending_ops_init(&map);
 
     uint64_t op_id = 0;
-    assert(request_insert(&map, "pub1", MOSQ_DAP_OP_RESTRICT,
-                                 "sensors/a", "*", "*", 1000, &op_id) == 0);
+    struct dap__op_property props = {0};
+    props.op_id = MOSQ_DAP_OP_RESTRICT;
+    props.op_topic_filters = "sensors/a";
+
+    /* A RESTRICT needs its new MP. */
+    assert(dap_op_request_insert(&map, "pub1", &props, 1000, 0, &op_id) != 0);
+    props.op_param = "";
+    assert(dap_op_request_insert(&map, "pub1", &props, 1000, 0, &op_id) != 0);
+    assert(count_ops(&map, "pub1") == 0);
+
+    props.op_param = "research";
+    assert(dap_op_request_insert(&map, "pub1", &props, 1000, 0, &op_id) == 0);
     assert(op_id != 0);
 
     uint64_t matched = 0;

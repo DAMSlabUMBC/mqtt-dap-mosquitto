@@ -602,7 +602,7 @@ static bool db__dap_covered(struct mosquitto *context, struct mosquitto__client_
 {
 	struct mosquitto__base_msg *base_msg = client_msg->base_msg;
 	struct mosquitto__subleaf *leaf = NULL;
-	const char *revoked = NULL;
+	const char *new_mp = NULL;
 	enum dap_op_action action;
 
 	if(!base_msg || !base_msg->data.has_purpose_filter || !base_msg->data.source_id){
@@ -611,10 +611,10 @@ static bool db__dap_covered(struct mosquitto *context, struct mosquitto__client_
 	if(db__dap_find_stamp(context, client_msg, &leaf)){
 		action = dap_pending_ops_match(db.dap_pending_ops, base_msg->data.source_id, base_msg->data.topic,
 				leaf->purpose_filters, leaf->purpose_filter_count, context->id,
-				base_msg->dap_order, NULL, &revoked);
+				base_msg->dap_order, NULL, &new_mp);
 		return action == DAP_OP_ACTION_DROP
-			|| (action == DAP_OP_ACTION_RESTRICT && !purpose_mp_permits_unrevoked(base_msg->data.purpose_filter,
-					revoked, leaf->purpose_filters, leaf->purpose_filter_count));
+			|| (action == DAP_OP_ACTION_RESTRICT && !purpose_mp_permits_restricted(base_msg->data.purpose_filter,
+					new_mp, leaf->purpose_filters, leaf->purpose_filter_count));
 	}
 	return base_msg->dap_restored
 		&& dap_pending_ops_match(db.dap_pending_ops, base_msg->data.source_id, base_msg->data.topic,
@@ -1781,7 +1781,7 @@ enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct mosqui
 	/* Determine the ability to send the message based on operation and purpose filter states */
 	const char *pub_id = base_msg->data.source_id;
 	char *original_mp = base_msg->data.has_purpose_filter ? base_msg->data.purpose_filter : NULL;
-	const char *revoked = NULL;
+	const char *new_mp = NULL;
 	bool has_stamp = (stamp != NULL);
 	if(has_stamp && db.config->dap_send_verification){
 		uint32_t cur_sp_ver = leaf->sp_version;
@@ -1791,7 +1791,7 @@ enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct mosqui
 		{
 			action = dap_pending_ops_match(db.dap_pending_ops, pub_id, topic,
 				leaf->purpose_filters, leaf->purpose_filter_count, client_id,
-				base_msg->dap_order, NULL, &revoked);
+				base_msg->dap_order, NULL, &new_mp);
 		}
 
 		verdict = dap_verify_for_send(stamp, cur_sp_ver, action, base_msg->is_op, topic, client_id);
@@ -1826,7 +1826,7 @@ enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct mosqui
 			   widing an MP for future messages should NOT allow previously sent messages
 			   through if their original MPs didn't allow it (i.e., don't attempt to predict
 			   whether a user wants the current MP to apply to already in-flight messages) */
-			if(!purpose_mp_permits_unrevoked(original_mp, revoked,
+			if(!purpose_mp_permits_restricted(original_mp, new_mp,
 					leaf->purpose_filters, leaf->purpose_filter_count))
 			{
 				dap_stats__int_inc(leaf->context->id, dap_stat_dropped_by_policy_reeval_count, 1);

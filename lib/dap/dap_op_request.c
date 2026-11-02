@@ -18,10 +18,13 @@ int dap_op_request_insert(struct dap_pending_ops *map,
     /* Only erasure and restriction become pending operations; the broker's existing
      * right handlers deal with every other DAP-OpType string. */
     enum dap_op_type type;
+    const char *new_mp = NULL;
     if(!strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_DELETE)){
         type = DAP_OP_DELETE;
     }else if(!strcmp(dap_op_properties->op_id, MOSQ_DAP_OP_RESTRICT)){
         type = DAP_OP_RESTRICT;
+        new_mp = dap_op_properties->op_param;
+        if(!new_mp || new_mp[0] == '\0') return 1;
     }else{
         return 1;
     }
@@ -30,5 +33,5 @@ int dap_op_request_insert(struct dap_pending_ops *map,
      * comma-separated list (NULL/"" -> "any"). */
     return dap_pending_ops_insert_operation(map, pub_id, type, order, deadline,
                                             dap_op_properties->op_topic_filters, dap_op_properties->op_purpose_filters,
-                                            dap_op_properties->op_client_filters, op_id_out);
+                                            dap_op_properties->op_client_filters, new_mp, op_id_out);
 }

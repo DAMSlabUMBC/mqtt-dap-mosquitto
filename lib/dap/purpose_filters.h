@@ -40,8 +40,13 @@ int purpose_filter_canonical(const char *filters, char **canonical);
  * SP set (Pi(SP) subset of Pi(MP)), or the MP is "*". An empty SP is permitted nothing. */
 bool purpose_mp_permits(const char *mp, char *const *sp, uint32_t sp_count);
 
-/* As purpose_mp_permits, with the canonical revoked purposes (a RESTRICT) taken out of the MP. */
-bool purpose_mp_permits_unrevoked(const char *mp, const char *revoked, char *const *sp, uint32_t sp_count);
+/* As purpose_mp_permits, when a RESTRICT also applies: the new MP must permit the SP too,
+ * so a RESTRICT can't widen a message's MP. A NULL new_mp means no RESTRICT applies. */
+bool purpose_mp_permits_restricted(const char *mp, const char *new_mp, char *const *sp, uint32_t sp_count);
+
+/* The canonical purposes both canonical MPs permit ("" for none), for the caller to
+ * free. Returns non-zero on allocation failure. */
+int purpose_mp_narrow(const char *mp, const char *new_mp, char **narrowed);
 
 /* True when the canonical recognized set (NULL = any) contains every purpose of the
  * sorted set (paper 4.3). */

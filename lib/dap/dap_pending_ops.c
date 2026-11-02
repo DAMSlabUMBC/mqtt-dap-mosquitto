@@ -34,6 +34,7 @@ static void dap__free_op(struct dap_pending_op *op)
 {
     dap__free_filter_list(op->topic_filters, op->num_topic_filters);
     mosquitto_FREE(op->purposes);
+    mosquitto_FREE(op->new_mp);
     dap__free_filter_list(op->subscriber_filters, op->num_subscriber_filters);
     mosquitto_FREE(op);
 }
@@ -108,7 +109,8 @@ static int dap__add_operation(struct dap_pending_ops *map,
                               time_t deadline,
                               const char *topic_filters,
                               const char *purpose_filters,
-                              const char *subscriber_filters)
+                              const char *subscriber_filters,
+                              const char *new_mp)
 {
     struct dap_pending_op *op = mosquitto_calloc(1, sizeof(*op));
     if(!op) return 1;
@@ -127,6 +129,10 @@ static int dap__add_operation(struct dap_pending_ops *map,
             dap__free_op(op);
             return 1;
         }
+    }
+    if(new_mp && purpose_filter_canonical(new_mp, &op->new_mp)){
+        dap__free_op(op);
+        return 1;
     }
 
     /* Find or create the publisher's entry. */
@@ -173,13 +179,14 @@ int dap_pending_ops_insert_operation(struct dap_pending_ops *map,
                                      const char *topic_filters,
                                      const char *purpose_filters,
                                      const char *subscriber_filters,
+                                     const char *new_mp,
                                      uint64_t *op_id_out)
 {
     if(!map || !pub_id) return 1;
 
     uint64_t op_id = map->next_op_id;
     if(dap__add_operation(map, op_id, pub_id, type, order, deadline,
-                          topic_filters, purpose_filters, subscriber_filters)){
+                          topic_filters, purpose_filters, subscriber_filters, new_mp)){
         return 1;
     }
     map->next_op_id++;
@@ -196,13 +203,14 @@ int dap_pending_ops_restore_operation(struct dap_pending_ops *map,
                                       time_t deadline,
                                       const char *topic_filters,
                                       const char *purpose_filters,
-                                      const char *subscriber_filters)
+                                      const char *subscriber_filters,
+                                      const char *new_mp)
 {
     if(!map || !pub_id || op_id == 0) return 1;
     if(dap__op_id_present(map, op_id)) return 1;
 
     if(dap__add_operation(map, op_id, pub_id, type, order, deadline,
-                          topic_filters, purpose_filters, subscriber_filters)){
+                          topic_filters, purpose_filters, subscriber_filters, new_mp)){
         return 1;
     }
     dap_pending_ops_reserve_op_id(map, op_id);
@@ -358,8 +366,12 @@ static bool dap__op_applies(const struct dap_pending_op *op, const char *topic,
 }
 
 bool dap_pending_ops_cover_stored(struct dap_pending_ops *map, const char *pub_id,
-                                  const char *topic, const char *mp, uint64_t msg_order)
+                                  const char *topic, const char *mp, uint64_t msg_order,
+                                  const char **new_mp_out)
 {
+    const struct dap_pending_op *best_restrict = NULL;
+
+    if(new_mp_out) *new_mp_out = NULL;
     if(!map || !pub_id) return false;
 
     struct dap_pub_entry *entry = dap__find_publisher(map, pub_id);
@@ -369,9 +381,13 @@ bool dap_pending_ops_cover_stored(struct dap_pending_ops *map, const char *pub_i
         if(msg_order > op->order) continue;
         if(!dap__topic_list_matches(op->topic_filters, op->num_topic_filters, topic)) continue;
         if(op->purposes && mp && !purpose_sets_intersect(op->purposes, mp)) continue;
-        return true;
+        if(op->type == DAP_OP_DELETE) return true;
+        if(!best_restrict || op->order > best_restrict->order) best_restrict = op;
     }
-    return false;
+    if(best_restrict && new_mp_out){
+        *new_mp_out = best_restrict->new_mp ? best_restrict->new_mp : "";
+    }
+    return best_restrict != NULL;
 }
 
 enum dap_op_action dap_pending_ops_match(struct dap_pending_ops *map,
@@ -382,10 +398,10 @@ enum dap_op_action dap_pending_ops_match(struct dap_pending_ops *map,
                                          const char *subscriber_id,
                                          uint64_t msg_order,
                                          uint64_t *op_id_out,
-                                         const char **revoked_out)
+                                         const char **new_mp_out)
 {
     if(op_id_out) *op_id_out = 0;
-    if(revoked_out) *revoked_out = NULL;
+    if(new_mp_out) *new_mp_out = NULL;
     if(!map || !pub_id) return DAP_OP_ACTION_NONE;
 
     struct dap_pub_entry *entry = dap__find_publisher(map, pub_id);
@@ -409,7 +425,7 @@ enum dap_op_action dap_pending_ops_match(struct dap_pending_ops *map,
 
     if(best_restrict){
         if(op_id_out) *op_id_out = best_restrict->op_id;
-        if(revoked_out) *revoked_out = best_restrict->purposes ? best_restrict->purposes : "*";
+        if(new_mp_out) *new_mp_out = best_restrict->new_mp ? best_restrict->new_mp : "";
         return DAP_OP_ACTION_RESTRICT;
     }
     return DAP_OP_ACTION_NONE;

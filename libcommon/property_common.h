@@ -53,6 +53,8 @@ struct dap__op_property {
 	char *op_topic_filters;
 	char *op_purpose_filters;
 	char *op_client_filters;
+	/* DAP-OpParam: the operation's parameter, a RESTRICT's new MP. */
+	char *op_param;
 	/* DAP-OpBefore / DAP-OpAfter: the operation's receipt-time bounds (decimal
 	 * seconds; 0 = unbounded), used by the relevance query. */
 	time_t op_before;

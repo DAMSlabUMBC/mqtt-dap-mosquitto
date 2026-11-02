@@ -24,7 +24,7 @@
  * (NULL for an unknown SP). */
 static enum dap_op_action match(struct dap_pending_ops *map, const char *pub, const char *topic,
                                 const char *sp_filters, const char *sub, uint64_t order,
-                                uint64_t *op_id, const char **revoked)
+                                uint64_t *op_id, const char **new_mp)
 {
     char **sp = NULL;
     uint32_t n = 0;
@@ -33,7 +33,7 @@ static enum dap_op_action match(struct dap_pending_ops *map, const char *pub, co
     if(sp_filters){
         assert(purpose_set_expand(sp_filters, &sp, &n) == 0);
     }
-    a = dap_pending_ops_match(map, pub, topic, sp_filters ? sp : NULL, n, sub, order, op_id, revoked);
+    a = dap_pending_ops_match(map, pub, topic, sp_filters ? sp : NULL, n, sub, order, op_id, new_mp);
     purpose_set_free(sp, n);
     return a;
 }
@@ -69,9 +69,9 @@ static void test_insert_assigns_increasing_ids(void)
     uint64_t id1 = 0, id2 = 0, id3 = 0;
 
     dap_pending_ops_init(&map);
-    assert(dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_RESTRICT, 100, 0, "*", "*", "*", &id1) == 0);
-    assert(dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 100, 0, "*", "*", "*", &id2) == 0);
-    assert(dap_pending_ops_insert_operation(&map, "pub2", DAP_OP_RESTRICT, 100, 0, "*", "*", "*", &id3) == 0);
+    assert(dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_RESTRICT, 100, 0, "*", "*", "*", NULL, &id1) == 0);
+    assert(dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 100, 0, "*", "*", "*", NULL, &id2) == 0);
+    assert(dap_pending_ops_insert_operation(&map, "pub2", DAP_OP_RESTRICT, 100, 0, "*", "*", "*", NULL, &id3) == 0);
 
     /* Ids are broker-assigned, start at 1 and never repeat across publishers. */
     assert(id1 == 1 && id2 == 2 && id3 == 3);
@@ -88,7 +88,7 @@ static void test_enqueue_time_gate(void)
     dap_pending_ops_init(&map);
 
     /* DELETE invoked at t=100, matching anything. */
-    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 100, 0, "*", "*", "*", NULL);
+    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 100, 0, "*", "*", "*", NULL, NULL);
 
     /* A message received before the op is affected... */
     assert(match(&map, "pub1", "t/a", "p", "sub1", 50, NULL, NULL) == DAP_OP_ACTION_DROP);
@@ -106,7 +106,7 @@ static void test_only_requesting_publisher(void)
     struct dap_pending_ops map;
     dap_pending_ops_init(&map);
 
-    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 100, 0, "*", "*", "*", NULL);
+    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 100, 0, "*", "*", "*", NULL, NULL);
 
     assert(match(&map, "pub1", "t/a", "p", "sub1", 50, NULL, NULL) == DAP_OP_ACTION_DROP);
     /* A different publisher's messages are untouched. */
@@ -123,7 +123,7 @@ static void test_filters_must_match(void)
 
     /* A specific topic/purpose/subscriber operation. */
     dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 100, 0,
-                                     "sensors/temp", "billing", "sub1", NULL);
+                                     "sensors/temp", "billing", "sub1", NULL, NULL);
 
     /* Exact match on all three applies. */
     assert(match(&map, "pub1", "sensors/temp", "billing", "sub1", 50, NULL, NULL) == DAP_OP_ACTION_DROP);
@@ -143,7 +143,7 @@ static void test_topic_filter_list(void)
 
     /* A comma-separated list of topic filters - any one of them may match. */
     dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 100, 0,
-                                     "sensors/temp,sensors/humidity", "*", "*", NULL);
+                                     "sensors/temp,sensors/humidity", "*", "*", NULL, NULL);
 
     /* A message on either listed topic is matched... */
     assert(match(&map, "pub1", "sensors/temp", "p", "sub1", 50, NULL, NULL) == DAP_OP_ACTION_DROP);
@@ -162,7 +162,7 @@ static void test_wildcard_within_list(void)
 
     /* "*" sitting anywhere in a list still means "any". */
     dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_RESTRICT, 100, 0,
-                                     "sensors/temp,*", "*", "*", NULL);
+                                     "sensors/temp,*", "*", "*", NULL, NULL);
 
     assert(match(&map, "pub1", "completely/unrelated", "p", "sub1", 50, NULL, NULL) == DAP_OP_ACTION_RESTRICT);
 
@@ -177,7 +177,7 @@ static void test_lists_across_all_filters(void)
 
     /* Lists on every dimension; matching is any-within-a-list but all-lists-must-match. */
     dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 100, 0,
-                                     "*", "billing,research", "sub1,sub2", NULL);
+                                     "*", "billing,research", "sub1,sub2", NULL, NULL);
 
     /* Purpose and subscriber both hit a listed element. */
     assert(match(&map, "pub1", "t/a", "research", "sub2", 50, NULL, NULL) == DAP_OP_ACTION_DROP);
@@ -196,7 +196,7 @@ static void test_topic_filters_are_mqtt_filters(void)
     dap_pending_ops_init(&map);
 
     dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 100, 0,
-                                     "sensors/+/temp,factory/#", "*", "*", NULL);
+                                     "sensors/+/temp,factory/#", "*", "*", NULL, NULL);
 
     assert(match(&map, "pub1", "sensors/a/temp", "p", "sub1", 50, NULL, NULL) == DAP_OP_ACTION_DROP);
     assert(match(&map, "pub1", "factory/line/1", "p", "sub1", 50, NULL, NULL) == DAP_OP_ACTION_DROP);
@@ -215,7 +215,7 @@ static void test_purpose_filters_intersect_sp(void)
 
     /* A ','-list of '|'-joined filters, with braces, describes one purpose set. */
     dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 100, 0,
-                                     "*", "maintenance/{predictive,routine}|quality,vendor", "*", NULL);
+                                     "*", "maintenance/{predictive,routine}|quality,vendor", "*", NULL, NULL);
 
     /* The subscription's SP shares a purpose with the operation's. */
     assert(match(&map, "pub1", "t/a", "maintenance/routine", "sub1", 50, NULL, NULL) == DAP_OP_ACTION_DROP);
@@ -231,28 +231,73 @@ static void test_purpose_filters_intersect_sp(void)
     printf("ok - DAP-OpPFs apply when they share a purpose with the subscription's SP\n");
 }
 
-static void test_restrict_reports_revoked_purposes(void)
+static void test_restrict_reports_new_mp(void)
 {
     struct dap_pending_ops map;
-    const char *revoked = NULL;
+    const char *new_mp = NULL;
     dap_pending_ops_init(&map);
 
     dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_RESTRICT, 100, 0,
-                                     "t/a", "operations/forecast,ads", "*", NULL);
-    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_RESTRICT, 100, 0, "t/b", NULL, "*", NULL);
-
-    assert(match(&map, "pub1", "t/a", "ads", "sub1", 50, NULL, &revoked) == DAP_OP_ACTION_RESTRICT);
-    assert(!strcmp(revoked, "ads|operations/forecast"));
-    /* A RESTRICT without DAP-OpPFs revokes every purpose. */
-    revoked = NULL;
-    assert(match(&map, "pub1", "t/b", "ads", "sub1", 50, NULL, &revoked) == DAP_OP_ACTION_RESTRICT);
-    assert(!strcmp(revoked, "*"));
-    /* Only a RESTRICT reports revoked purposes. */
-    assert(match(&map, "pub1", "t/c", "ads", "sub1", 50, NULL, &revoked) == DAP_OP_ACTION_NONE);
-    assert(revoked == NULL);
+                                     "t/a", "ads", "*", "qb,qa", NULL);
+    assert(match(&map, "pub1", "t/a", "ads", "sub1", 50, NULL, &new_mp) == DAP_OP_ACTION_RESTRICT);
+    assert(!strcmp(new_mp, "qa|qb"));
+    /* DAP-OpPFs only scopes the operation. */
+    new_mp = NULL;
+    assert(match(&map, "pub1", "t/a", "qa", "sub1", 50, NULL, &new_mp) == DAP_OP_ACTION_NONE);
+    assert(new_mp == NULL);
+    /* An invalid new MP is refused. */
+    assert(dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_RESTRICT, 100, 0,
+                                            "t/a", "*", "*", "q{a", NULL) != 0);
 
     dap_pending_ops_destroy(&map);
-    printf("ok - a RESTRICT reports the purposes it revokes\n");
+    printf("ok - a RESTRICT reports its new MP\n");
+}
+
+static void test_restrict_most_recent_new_mp_wins(void)
+{
+    struct dap_pending_ops map;
+    const char *new_mp = NULL;
+    dap_pending_ops_init(&map);
+
+    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_RESTRICT, 100, 0, "t/a", "*", "*", "old", NULL);
+    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_RESTRICT, 200, 0, "t/a", "*", "*", "new", NULL);
+    assert(match(&map, "pub1", "t/a", "ads", "sub1", 50, NULL, &new_mp) == DAP_OP_ACTION_RESTRICT);
+    assert(!strcmp(new_mp, "new"));
+
+    dap_pending_ops_destroy(&map);
+    printf("ok - the most recent RESTRICT decides the new MP\n");
+}
+
+static void test_restore_keeps_new_mp(void)
+{
+    struct dap_pending_ops map;
+    const char *new_mp = NULL;
+    dap_pending_ops_init(&map);
+
+    assert(dap_pending_ops_restore_operation(&map, 3, "pub1", DAP_OP_RESTRICT, 100, 0, "t/a", "*", "*", "qa") == 0);
+    assert(match(&map, "pub1", "t/a", "ads", "sub1", 50, NULL, &new_mp) == DAP_OP_ACTION_RESTRICT);
+    assert(!strcmp(new_mp, "qa"));
+
+    dap_pending_ops_destroy(&map);
+    printf("ok - a restored RESTRICT keeps its new MP\n");
+}
+
+static void test_cover_stored_new_mp(void)
+{
+    struct dap_pending_ops map;
+    const char *new_mp = "unset";
+    dap_pending_ops_init(&map);
+
+    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_RESTRICT, 100, 0, "t/a", "qa", "*", "qb", NULL);
+    assert(dap_pending_ops_cover_stored(&map, "pub1", "t/a", "qa|qb", 50, &new_mp));
+    assert(!strcmp(new_mp, "qb"));
+    /* A DELETE wins, and reports no new MP. */
+    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 90, 0, "t/a", "*", "*", NULL, NULL);
+    assert(dap_pending_ops_cover_stored(&map, "pub1", "t/a", "qa|qb", 50, &new_mp));
+    assert(new_mp == NULL);
+
+    dap_pending_ops_destroy(&map);
+    printf("ok - a stored message learns the new MP that covers it\n");
 }
 
 static void test_restrict_most_recent_wins(void)
@@ -263,8 +308,8 @@ static void test_restrict_most_recent_wins(void)
     dap_pending_ops_init(&map);
 
     /* Two RESTRICTs that both apply to the same message; the newer one wins. */
-    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_RESTRICT, 100, 0, "sensors/temp", "*", "*", NULL);
-    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_RESTRICT, 200, 0, "*", "*", "*", &newer_id);
+    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_RESTRICT, 100, 0, "sensors/temp", "*", "*", NULL, NULL);
+    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_RESTRICT, 200, 0, "*", "*", "*", NULL, &newer_id);
 
     assert(match(&map, "pub1", "sensors/temp", "p", "sub1", 50, &chosen, NULL) == DAP_OP_ACTION_RESTRICT);
     assert(chosen == newer_id);
@@ -281,8 +326,8 @@ static void test_delete_supersedes_restrict(void)
     dap_pending_ops_init(&map);
 
     /* A RESTRICT with a larger timestamp than the DELETE - DELETE still wins. */
-    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_RESTRICT, 300, 0, "*", "*", "*", NULL);
-    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 100, 0, "*", "*", "*", NULL);
+    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_RESTRICT, 300, 0, "*", "*", "*", NULL, NULL);
+    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 100, 0, "*", "*", "*", NULL, NULL);
 
     assert(match(&map, "pub1", "t/a", "p", "sub1", 50, &chosen, NULL) == DAP_OP_ACTION_DROP);
 
@@ -296,8 +341,8 @@ static void test_remove_operation(void)
     uint64_t del_id = 0, res_id = 0;
 
     dap_pending_ops_init(&map);
-    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 100, 0, "*", "*", "*", &del_id);
-    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_RESTRICT, 200, 0, "*", "*", "*", &res_id);
+    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 100, 0, "*", "*", "*", NULL, &del_id);
+    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_RESTRICT, 200, 0, "*", "*", "*", NULL, &res_id);
 
     /* Removing the DELETE leaves the RESTRICT, which then decides the message. */
     assert(dap_pending_ops_remove_operation_by_id(&map, del_id) == 0);
@@ -306,9 +351,9 @@ static void test_remove_operation(void)
 
     /* With the newer op gone, older ops still decide older messages. */
     uint64_t old_id = 0;
-    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 100, 0, "*", "*", "*", &old_id);
+    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 100, 0, "*", "*", "*", NULL, &old_id);
     uint64_t new_id = 0;
-    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 900, 0, "*", "*", "*", &new_id);
+    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 900, 0, "*", "*", "*", NULL, &new_id);
     assert(match(&map, "pub1", "t/a", "p", "sub1", 500, NULL, NULL) == DAP_OP_ACTION_DROP);
     assert(dap_pending_ops_remove_operation_by_id(&map, new_id) == 0);
     assert(match(&map, "pub1", "t/a", "p", "sub1", 500, NULL, NULL) == DAP_OP_ACTION_NONE);
@@ -338,7 +383,7 @@ static void test_allocate_op_id_shares_counter(void)
      * operations that do not enter the map (HISTORY/UPDATE) never collide with
      * DELETE/RESTRICT op ids. */
     assert(dap_pending_ops_allocate_op_id(&map) == 1);
-    assert(dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 100, 0, "*", "*", "*", &inserted) == 0);
+    assert(dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 100, 0, "*", "*", "*", NULL, &inserted) == 0);
     assert(inserted == 2);
     assert(dap_pending_ops_allocate_op_id(&map) == 3);
     assert(dap_pending_ops_allocate_op_id(NULL) == 0);
@@ -354,7 +399,7 @@ static void test_restore_keeps_op_id_and_matches(void)
 
     dap_pending_ops_init(&map);
     assert(dap_pending_ops_restore_operation(&map, 7, "pub1", DAP_OP_RESTRICT, 1000, 0,
-                                             "t/a,t/b", "p", "*") == 0);
+                                             "t/a,t/b", "p", "*", NULL) == 0);
     assert(op_count(&map, "pub1") == 1);
     assert(match(&map, "pub1", "t/b", "p", "sub1", 900, &matched, NULL) == DAP_OP_ACTION_RESTRICT);
     assert(matched == 7);
@@ -370,9 +415,9 @@ static void test_restore_advances_id_counter(void)
     uint64_t id = 0;
 
     dap_pending_ops_init(&map);
-    assert(dap_pending_ops_restore_operation(&map, 5, "pub1", DAP_OP_DELETE, 100, 0, "*", "*", "*") == 0);
-    assert(dap_pending_ops_restore_operation(&map, 3, "pub2", DAP_OP_DELETE, 100, 0, "*", "*", "*") == 0);
-    assert(dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_RESTRICT, 100, 0, "*", "*", "*", &id) == 0);
+    assert(dap_pending_ops_restore_operation(&map, 5, "pub1", DAP_OP_DELETE, 100, 0, "*", "*", "*", NULL) == 0);
+    assert(dap_pending_ops_restore_operation(&map, 3, "pub2", DAP_OP_DELETE, 100, 0, "*", "*", "*", NULL) == 0);
+    assert(dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_RESTRICT, 100, 0, "*", "*", "*", NULL, &id) == 0);
     assert(id == 6);
     assert(dap_pending_ops_allocate_op_id(&map) == 7);
 
@@ -385,10 +430,10 @@ static void test_restore_rejects_bad_or_duplicate_ids(void)
     struct dap_pending_ops map;
 
     dap_pending_ops_init(&map);
-    assert(dap_pending_ops_restore_operation(&map, 0, "pub1", DAP_OP_DELETE, 100, 0, "*", "*", "*") != 0);
-    assert(dap_pending_ops_restore_operation(&map, 4, NULL, DAP_OP_DELETE, 100, 0, "*", "*", "*") != 0);
-    assert(dap_pending_ops_restore_operation(&map, 4, "pub1", DAP_OP_DELETE, 100, 0, "*", "*", "*") == 0);
-    assert(dap_pending_ops_restore_operation(&map, 4, "pub2", DAP_OP_RESTRICT, 100, 0, "*", "*", "*") != 0);
+    assert(dap_pending_ops_restore_operation(&map, 0, "pub1", DAP_OP_DELETE, 100, 0, "*", "*", "*", NULL) != 0);
+    assert(dap_pending_ops_restore_operation(&map, 4, NULL, DAP_OP_DELETE, 100, 0, "*", "*", "*", NULL) != 0);
+    assert(dap_pending_ops_restore_operation(&map, 4, "pub1", DAP_OP_DELETE, 100, 0, "*", "*", "*", NULL) == 0);
+    assert(dap_pending_ops_restore_operation(&map, 4, "pub2", DAP_OP_RESTRICT, 100, 0, "*", "*", "*", NULL) != 0);
     assert(op_count(&map, "pub1") == 1);
     assert(op_count(&map, "pub2") == 0);
 
@@ -423,16 +468,16 @@ static void test_cover_stored(void)
     uint64_t id = 0;
 
     dap_pending_ops_init(&map);
-    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_RESTRICT, 100, 0, "t/#", "qa", "subX", &id);
+    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_RESTRICT, 100, 0, "t/#", "qa", "subX", NULL, &id);
 
     /* DAP-OpClients is ignored; the MP must share a purpose with DAP-OpPFs. */
-    assert(dap_pending_ops_cover_stored(&map, "pub1", "t/a", "qa|qb", 50));
-    assert(dap_pending_ops_cover_stored(&map, "pub1", "t/a", "*", 50));
-    assert(dap_pending_ops_cover_stored(&map, "pub1", "t/a", NULL, 50));
-    assert(!dap_pending_ops_cover_stored(&map, "pub1", "t/a", "qb", 50));
-    assert(!dap_pending_ops_cover_stored(&map, "pub1", "u/a", "qa", 50));
-    assert(!dap_pending_ops_cover_stored(&map, "pub1", "t/a", "qa", 150));
-    assert(!dap_pending_ops_cover_stored(&map, "pub2", "t/a", "qa", 50));
+    assert(dap_pending_ops_cover_stored(&map, "pub1", "t/a", "qa|qb", 50, NULL));
+    assert(dap_pending_ops_cover_stored(&map, "pub1", "t/a", "*", 50, NULL));
+    assert(dap_pending_ops_cover_stored(&map, "pub1", "t/a", NULL, 50, NULL));
+    assert(!dap_pending_ops_cover_stored(&map, "pub1", "t/a", "qb", 50, NULL));
+    assert(!dap_pending_ops_cover_stored(&map, "pub1", "u/a", "qa", 50, NULL));
+    assert(!dap_pending_ops_cover_stored(&map, "pub1", "t/a", "qa", 150, NULL));
+    assert(!dap_pending_ops_cover_stored(&map, "pub2", "t/a", "qa", 50, NULL));
 
     dap_pending_ops_destroy(&map);
     printf("ok - an operation covers stored messages by topic, MP and receipt order\n");
@@ -445,9 +490,9 @@ static void test_remove_expired(void)
     int removed = 0;
 
     dap_pending_ops_init(&map);
-    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 100, 50, "*", "*", "*", &early);
-    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 900, 80, "*", "*", "*", &late);
-    dap_pending_ops_insert_operation(&map, "pub2", DAP_OP_RESTRICT, 100, 0, "*", "*", "*", &none);
+    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 100, 50, "*", "*", "*", NULL, &early);
+    dap_pending_ops_insert_operation(&map, "pub1", DAP_OP_DELETE, 900, 80, "*", "*", "*", NULL, &late);
+    dap_pending_ops_insert_operation(&map, "pub2", DAP_OP_RESTRICT, 100, 0, "*", "*", "*", NULL, &none);
 
     /* Nothing has expired yet. */
     assert(!dap_pending_ops_any_expired(&map, 49));
@@ -485,7 +530,10 @@ int main(void)
     test_lists_across_all_filters();
     test_topic_filters_are_mqtt_filters();
     test_purpose_filters_intersect_sp();
-    test_restrict_reports_revoked_purposes();
+    test_restrict_reports_new_mp();
+    test_restrict_most_recent_new_mp_wins();
+    test_restore_keeps_new_mp();
+    test_cover_stored_new_mp();
     test_restrict_most_recent_wins();
     test_delete_supersedes_restrict();
     test_remove_operation();

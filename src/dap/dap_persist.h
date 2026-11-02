@@ -12,7 +12,7 @@ struct mp_entry;
 
 /* DELETE/RESTRICT op added to the pending-op map. */
 void dap_persist__op_add(uint64_t op_id, const char *publisher_id, int op_type, time_t timestamp,
-		time_t deadline, const char *topic_filters, const char *purpose_filters, const char *client_filters);
+		time_t deadline, const char *topic_filters, const char *purpose_filters, const char *client_filters, const char *new_mp);
 
 /* DELETE/RESTRICT op reclaimed from the pending-op map. */
 void dap_persist__op_delete(uint64_t op_id);

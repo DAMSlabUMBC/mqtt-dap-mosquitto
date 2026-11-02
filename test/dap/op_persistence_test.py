@@ -363,7 +363,12 @@ def main():
     time.sleep(0.3)
     data(pub1, "sensors/humidity", b"humidity-after-restart")
     wait_for(lambda: subX.got("sensors/humidity"))
-    pub1.publish(OSYS, [("DAP-OpType", "RESTRICT"), ("DAP-OpTFs", "sensors/humidity")])
+    pub1.publish("$MP_REG", [("DAP-MP", f"{MP}|maintenance:sensors/narrow")], qos=0)
+    time.sleep(0.2)
+    pub1.publish("sensors/narrow", [], payload=b"narrowed", retain=True)
+    time.sleep(0.2)
+    pub1.publish(OSYS, [("DAP-OpType", "RESTRICT"), ("DAP-OpTFs", "sensors/humidity,sensors/narrow"),
+                        ("DAP-OpParam", MP)])
     check(wait_for(lambda: len(pub1.got(OP_NOTIF, **{"DAP-Status": "Pending"})) >= 1),
           "a new operation is accepted after the restart")
     new_pending = pub1.got(OP_NOTIF, **{"DAP-Status": "Pending"})
@@ -395,6 +400,10 @@ def main():
     ops = sorted(r[0] for r in db.execute("SELECT op_id FROM dap_ops").fetchall())
     check(int(short_id) not in ops and int(new_id) in ops,
           f"the expired DELETE is reclaimed from disk, the live RESTRICT is kept: {ops}")
+    new_mp = db.execute("SELECT new_mp FROM dap_ops WHERE op_id=?", (int(new_id),)).fetchone()
+    check(new_mp == (MP,), f"the RESTRICT's new MP is on disk: {new_mp}")
+    narrowed = db.execute("SELECT purpose_filter FROM base_msgs WHERE topic='sensors/narrow'").fetchall()
+    check(narrowed == [(MP,)], f"the retained message's new MP is on disk: {narrowed}")
     settled = db.execute("SELECT settled FROM dap_tracked_ops WHERE op_id=?", (int(op_id),)).fetchone()
     check(settled == (1,), f"the settled operation is marked settled on disk: {settled}")
     version = db.execute("SELECT version FROM dap_mps WHERE topic='sensors/humidity'").fetchone()

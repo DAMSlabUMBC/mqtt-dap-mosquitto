@@ -143,6 +143,7 @@ enum mosq_transport_t {
 #define MOSQ_DAP_OP_TFS_KEY "DAP-OpTFs"         /* operation topic filters (comma-separated) */
 #define MOSQ_DAP_OP_PFS_KEY "DAP-OpPFs"         /* operation purpose filters (comma-separated) */
 #define MOSQ_DAP_OP_CLIENTS_KEY "DAP-OpClients" /* operation client filters (comma-separated) */
+#define MOSQ_DAP_OP_PARAM_KEY "DAP-OpParam" /* operation parameter: a RESTRICT's new MP */
 #define MOSQ_DAP_OP_BEFORE_KEY "DAP-OpBefore" /* operation applies to data received at or before this time (decimal seconds; absent/0 = no upper bound) */
 #define MOSQ_DAP_OP_AFTER_KEY "DAP-OpAfter"   /* operation applies to data received at or after this time (decimal seconds; absent/0 = no lower bound) */
 #define MOSQ_DAP_STATUS_KEY "DAP-Status"

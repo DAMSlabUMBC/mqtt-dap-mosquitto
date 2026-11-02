@@ -22,7 +22,7 @@ extern "C" {
  * other value is left to the existing right handlers and nothing is inserted. The
  * filter strings are the DAP-OpTFs / DAP-OpPFs / DAP-OpClients lists (NULL or ""
  * means any) and are forwarded to dap_pending_ops_insert_operation, which copies
- * and parses them.
+ * and parses them. A restriction also needs its new MP, DAP-OpParam.
  *
  * On a successful insert the assigned op id is written to *op_id_out (when
  * non-NULL) and 0 is returned. Returns non-zero, inserting nothing, when the

@@ -21,7 +21,7 @@ struct dap_stamped_msg;
 enum dap_send_verdict {
     DAP_SEND_PASS = 0,        /* deliver the message as stamped */
     DAP_SEND_FAIL_SP_VER,         /* SP version changed since stamping - re-verify */
-    DAP_SEND_FAIL_RESTRICT,   /* a RESTRICT now applies - re-verify against the purposes it revoked */
+    DAP_SEND_FAIL_RESTRICT,   /* a RESTRICT now applies - re-verify against its new MP */
     DAP_SEND_DROP_DELETE,     /* a DELETE now applies - drop without delivering */
     DAP_SEND_DROP_INVALID_OP_TOPIC
 };
@@ -36,7 +36,7 @@ enum dap_send_verdict {
  *
  * Precedence: a pending DELETE (DAP_OP_ACTION_DROP) drops the message regardless
  * of version; otherwise a stale SP version forces re-verification; finally a
- * pending RESTRICT forces re-verification against the purposes it revoked.
+ * pending RESTRICT forces re-verification against its new MP.
  *
  * A NULL stamp (e.g. a retained message that was never stamped) always passes.
  */

@@ -69,7 +69,7 @@ static void test_sp_mismatch_fails(void)
     printf("ok - a stale SP version returns FAIL_SP\n");
 }
 
-/* A RESTRICT applies: re-verify against the purposes it revoked. */
+/* A RESTRICT applies: re-verify against its new MP. */
 static void test_restrict_reverifies(void)
 {
     struct dap_stamped_msg m = make_stamp(3, 4);

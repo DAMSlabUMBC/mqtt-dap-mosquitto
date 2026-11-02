@@ -360,23 +360,56 @@ def case_delete_scopes_retained(pub):
     return [m[1] for m in late.got("sensors/")] == [b"kept-b"]
 
 
-def case_restrict_scopes_retained(pub):
-    # A RESTRICT removes only the retained messages it covers.
+def case_restrict_narrows_retained(pub):
+    # A retained message the RESTRICT covers takes the new MP; others keep theirs.
     pub.publish("$MP_REG", [("DAP-MP", f"{MP}|maintenance:sensors/r1"),
                             ("DAP-MP", "maintenance:sensors/r2")], qos=0)
     time.sleep(0.2)
     subscribers_with_data(pub, ["subA"])
-    pub.publish("sensors/r1", [], payload=b"restricted", retain=True)
+    pub.publish("sensors/r1", [], payload=b"narrowed", retain=True)
     pub.publish("sensors/r2", [], payload=b"kept", retain=True)
-    pub.publish(OSYS, [("DAP-OpType", "RESTRICT"), ("DAP-OpTFs", "sensors/#"), ("DAP-OpPFs", MP)])
+    pub.publish(OSYS, [("DAP-OpType", "RESTRICT"), ("DAP-OpTFs", "sensors/#"), ("DAP-OpPFs", MP),
+                       ("DAP-OpParam", "maintenance")])
     if not wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Pending"})):
         return False
     time.sleep(0.3)
-    late = Client("subLate2").connect()
-    late.subscribe("sensors/r1", "maintenance")
-    late.subscribe("sensors/r2", "maintenance")
+    allowed = Client("subAllowed").connect()
+    allowed.subscribe("sensors/r1", "maintenance")
+    allowed.subscribe("sensors/r2", "maintenance")
+    denied = Client("subDenied").connect()
+    denied.subscribe("sensors/r1", MP)
     time.sleep(0.5)
-    return [m[1] for m in late.got("sensors/")] == [b"kept"]
+    return sorted(m[1] for m in allowed.got("sensors/")) == [b"kept", b"narrowed"] and not denied.got("sensors/")
+
+
+def case_restrict_removes_unreachable_retained(pub):
+    # No purpose is left once the new MP and the message's MP share nothing.
+    pub.publish("$MP_REG", [("DAP-MP", f"{MP}:sensors/r1")], qos=0)
+    time.sleep(0.2)
+    subscribers_with_data(pub, ["subA"])
+    pub.publish("sensors/r1", [], payload=b"gone", retain=True)
+    pub.publish(OSYS, [("DAP-OpType", "RESTRICT"), ("DAP-OpTFs", "sensors/#"), ("DAP-OpParam", "maintenance")])
+    if not wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Pending"})):
+        return False
+    time.sleep(0.3)
+    late = Client("subLate3").connect()
+    late.subscribe("sensors/r1", MP)
+    time.sleep(0.5)
+    return not late.got("sensors/")
+
+
+def case_restrict_forwards_new_mp(pub):
+    sub = subscribers_with_data(pub, ["subA"])[0]
+    pub.publish(OSYS, [("DAP-OpType", "RESTRICT"), ("DAP-OpTFs", TOPIC), ("DAP-OpParam", "maintenance")])
+    if not wait_for(lambda: sub.got(f"{OP_REQ}/subA")):
+        return False
+    return sub.got(f"{OP_REQ}/subA")[0][2].get("DAP-OpParam") == "maintenance"
+
+
+def case_restrict_needs_new_mp(pub):
+    subscribers_with_data(pub, ["subA"])
+    pub.publish(OSYS, [("DAP-OpType", "RESTRICT"), ("DAP-OpTFs", TOPIC)])
+    return wait_for(lambda: pub.got(OP_NOTIF, **{"DAP-Status": "Failure", "DAP-Reason": "Missing DAP-OpParam"}))
 
 
 def case_deadline_in_the_past(pub):
@@ -432,7 +465,10 @@ CASES = [
     ("a deadline that has already passed gets a Failure", case_deadline_in_the_past, True),
     ("a deadline more than 31 days ahead gets a Failure", case_deadline_too_far, True),
     ("a DELETE removes only the retained messages it covers", case_delete_scopes_retained, True),
-    ("a RESTRICT removes only the retained messages it covers", case_restrict_scopes_retained, True),
+    ("a RESTRICT gives the retained messages it covers the new MP", case_restrict_narrows_retained, True),
+    ("a RESTRICT removes a retained message left with no purpose", case_restrict_removes_unreachable_retained, True),
+    ("a RESTRICT forwards the new MP to subscribers", case_restrict_forwards_new_mp, True),
+    ("a RESTRICT without a new MP gets a Failure", case_restrict_needs_new_mp, True),
     ("an O: operation runs the subscriber workflow", case_client_defined_operation, True),
     ("the requester can ask for an operation's status", case_status_request, True),
     ("an O: operation without a name is unknown", case_client_defined_operation_needs_a_name, True),

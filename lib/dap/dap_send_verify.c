@@ -34,7 +34,7 @@ enum dap_send_verdict dap_verify_for_send(const struct dap_stamped_msg *stamped,
                 return DAP_SEND_FAIL_SP_VER;
             }
 
-            /* A RESTRICT re-verifies the message against the purposes it revoked. */
+            /* A RESTRICT re-verifies the message against its new MP. */
             if (current_op_action == DAP_OP_ACTION_RESTRICT) {
                 return DAP_SEND_FAIL_RESTRICT;
             }

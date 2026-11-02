@@ -249,6 +249,11 @@ static mosquitto_property *dap__request_properties(struct mosquitto_base_msg *ms
     mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY,
         MOSQ_DAP_OP_KEY, dap_op_properties->op_id);
 
+    if(dap_op_properties->op_param){
+        mosquitto_property_add_string_pair(&props, MQTT_PROP_USER_PROPERTY,
+            MOSQ_DAP_OP_PARAM_KEY, dap_op_properties->op_param);
+    }
+
     /* Carry the broker-assigned numeric id so the subscriber can reference it in its
      * status reply. */
     if(dap_op_properties->op_id_num != 0){

@@ -16,7 +16,8 @@
 
 
 void dap_persist__op_add(uint64_t op_id, const char *publisher_id, int op_type, time_t timestamp,
-		time_t deadline, const char *topic_filters, const char *purpose_filters, const char *client_filters)
+		time_t deadline, const char *topic_filters, const char *purpose_filters, const char *client_filters,
+		const char *new_mp)
 {
 	struct mosquitto_evt_persist_dap_op event_data;
 	struct mosquitto__callback *cb_base, *cb_next;
@@ -36,6 +37,7 @@ void dap_persist__op_add(uint64_t op_id, const char *publisher_id, int op_type, 
 	event_data.data.topic_filters = topic_filters;
 	event_data.data.purpose_filters = purpose_filters;
 	event_data.data.client_filters = client_filters;
+	event_data.data.new_mp = new_mp;
 
 	DL_FOREACH_SAFE(opts->plugin_callbacks.persist_dap_op_add, cb_base, cb_next){
 		cb_base->cb(MOSQ_EVT_PERSIST_DAP_OP_ADD, &event_data, cb_base->userdata);
@@ -301,7 +303,7 @@ BROKER_EXPORT int mosquitto_persist_dap_op_add(const struct mosquitto_dap_op *op
 	time_t deadline = op->deadline ? op->deadline : op->timestamp + MOSQ_DAP_DEFAULT_DEADLINE_SECS;
 	if(dap_pending_ops_restore_operation(db.dap_pending_ops, op->op_id, op->publisher_id,
 			(enum dap_op_type)op->op_type, order, deadline,
-			op->topic_filters, op->purpose_filters, op->client_filters)){
+			op->topic_filters, op->purpose_filters, op->client_filters, op->new_mp)){
 
 		return MOSQ_ERR_INVAL;
 	}

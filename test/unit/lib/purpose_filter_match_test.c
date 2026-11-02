@@ -12,6 +12,7 @@
 #include "purpose_filters.h"
 
 extern void mosquitto_free(void *mem);
+extern char *mosquitto_strdup(const char *s);
 
 /* Expand a collection and check it describes exactly the expected purposes, in sorted order. */
 static void expect_set(const char *filters, const char **expected, uint32_t n)
@@ -53,17 +54,18 @@ static bool permits(const char *mp_filters, const char *sp_filters)
     return r;
 }
 
-static bool permits_unrevoked(const char *mp_filters, const char *revoked_filters, const char *sp_filters)
+static bool permits_restricted(const char *mp_filters, const char *new_mp_filters, const char *sp_filters)
 {
     char *mp = canonical(mp_filters);
-    char *revoked = canonical(revoked_filters);
+    char *new_mp = NULL;
+    if(new_mp_filters) new_mp = new_mp_filters[0] ? canonical(new_mp_filters) : mosquitto_strdup("");
     char **sp = NULL;
     uint32_t sp_n = 0;
     assert(purpose_set_expand(sp_filters, &sp, &sp_n) == 0);
-    bool r = purpose_mp_permits_unrevoked(mp, revoked, sp, sp_n);
+    bool r = purpose_mp_permits_restricted(mp, new_mp, sp, sp_n);
     purpose_set_free(sp, sp_n);
     mosquitto_free(mp);
-    mosquitto_free(revoked);
+    mosquitto_free(new_mp);
     return r;
 }
 
@@ -151,17 +153,39 @@ static void test_matching(void)
 
 static void test_restrict(void)
 {
-    /* RESTRICT revokes the OpPFs purposes from the MP. */
-    assert(permits_unrevoked("quality/assurance|operations/forecast", "operations/forecast",
-                             "quality/assurance"));
-    assert(!permits_unrevoked("quality/assurance|operations/forecast", "operations/forecast",
-                              "operations/forecast"));
-    assert(!permits_unrevoked("quality/assurance|operations/forecast", "operations/forecast",
-                              "quality/assurance|operations/forecast"));
-    assert(!permits_unrevoked("*", "operations/forecast", "operations/forecast"));
-    assert(permits_unrevoked("*", "operations/forecast", "quality/assurance"));
-    assert(!permits_unrevoked("quality/assurance", "*", "quality/assurance"));
-    printf("ok - a RESTRICT takes its purposes out of the MP\n");
+    /* The new MP decides, and a RESTRICT can't widen the message's MP. */
+    assert(permits_restricted("qa|qb", "qa", "qa"));
+    assert(!permits_restricted("qa|qb", "qa", "qb"));
+    assert(!permits_restricted("qa|qb", "qa", "qa|qb"));
+    assert(!permits_restricted("qa", "qa|qz", "qz"));
+    assert(permits_restricted("*", "qa", "qa"));
+    assert(!permits_restricted("*", "qa", "qb"));
+    assert(permits_restricted("qa", "*", "qa"));
+    assert(!permits_restricted("qa", "*", "qb"));
+    /* No RESTRICT applies. */
+    assert(permits_restricted("qa", NULL, "qa"));
+    /* A RESTRICT restored from before new MPs existed permits nothing. */
+    assert(!permits_restricted("qa", "", "qa"));
+    printf("ok - a RESTRICT checks the SP against its new MP\n");
+}
+
+static void check_narrowed(const char *mp, const char *new_mp, const char *expected)
+{
+    char *out = NULL;
+    assert(purpose_mp_narrow(mp, new_mp, &out) == 0);
+    assert(!strcmp(out, expected));
+    mosquitto_free(out);
+}
+
+static void test_narrow(void)
+{
+    check_narrowed("qa|qb|qc", "qb|qc|qd", "qb|qc");
+    check_narrowed("qa|qb", "qa|qb", "qa|qb");
+    check_narrowed("qa", "qb", "");
+    check_narrowed("*", "qa|qb", "qa|qb");
+    check_narrowed("qa|qb", "*", "qa|qb");
+    check_narrowed("*", "*", "*");
+    printf("ok - narrowing keeps the purposes both MPs permit\n");
 }
 
 static void test_intersection(void)
@@ -244,6 +268,7 @@ int main(void)
     test_collections();
     test_matching();
     test_restrict();
+    test_narrow();
     test_intersection();
     test_limit();
     test_invalid_terms();
