@@ -13,8 +13,8 @@ struct dap_receipt;
  * The data is handled when the pass ends, in the order it was read, under the
  * receipt stamp it was given on reading. A client's own packets keep their order,
  * except that a QoS 0 PUBLISH to $MP_REG or $OP_SYS without a topic alias goes
- * ahead of the client's own data. A pass whose ready sockets show no state change
- * skips the hold and handles data as it is read.
+ * ahead of the client's own data. The epoll loop reads clients showing a state
+ * change first, finishes their hold, then handles other clients' data as it is read.
  */
 
 /* Stamp a packet's receipt: the broker's total order over the PUBLISHes it reads. */
@@ -26,9 +26,6 @@ void dap_intake__end(void);
 
 /* True if the client's next read may complete a state-changing packet. */
 bool dap_intake__peek_state(struct mosquitto *context);
-
-/* Handle this pass's data as it is read. */
-void dap_intake__skip_hold(void);
 
 /* Handle the PUBLISH in context->in_packet, or set it aside during a pass. */
 int dap_intake__publish(struct mosquitto *context);

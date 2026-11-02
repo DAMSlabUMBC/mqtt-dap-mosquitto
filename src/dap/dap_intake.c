@@ -181,12 +181,6 @@ void dap_intake__begin(void)
 }
 
 
-void dap_intake__skip_hold(void)
-{
-	intake_deferring = false;
-}
-
-
 /* A read takes one packet buffer of bytes, or finishes the packet in progress and
  * takes nothing after it, so this sees every packet the coming read can complete.
  * Anything it cannot parse counts as a state change. */

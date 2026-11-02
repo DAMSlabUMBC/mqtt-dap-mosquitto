@@ -160,6 +160,7 @@ int mux_epoll__handle(void)
 	struct mosquitto__listener_sock *listensock;
 	int event_count;
 	int i;
+	int state_clients;
 
 	memset(&ev, 0, sizeof(struct epoll_event));
 #if defined(WITH_WEBSOCKETS)
@@ -180,16 +181,21 @@ int mux_epoll__handle(void)
 		case 0:
 			break;
 		default:
+			/* Read clients with a state change first and hold only their data, so
+			 * the other clients' data is read after the change and needs no hold. */
+			state_clients = 0;
 			for(i=0; i<event_count; i++){
 				context = ep_events[i].data.ptr;
 				if(context->ident == id_client && (ep_events[i].events & EPOLLIN) && dap_intake__peek_state(context)){
-					break;
+					struct epoll_event swap = ep_events[state_clients];
+					ep_events[state_clients++] = ep_events[i];
+					ep_events[i] = swap;
 				}
 			}
-			if(i == event_count){
-				dap_intake__skip_hold();
-			}
 			for(i=0; i<event_count; i++){
+				if(i == state_clients){
+					dap_intake__end();
+				}
 				context = ep_events[i].data.ptr;
 				if(context->ident == id_client){
 					loop_handle_reads_writes(context, ep_events[i].events);
