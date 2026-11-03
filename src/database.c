@@ -622,6 +622,14 @@ static bool db__dap_covered(struct mosquitto *context, struct mosquitto__client_
 }
 
 
+static void db__dap_count_op_drop(struct mosquitto *context, struct mosquitto__client_msg *client_msg)
+{
+	client_msg->base_msg->dap_reeval_count++;
+	dap_stats__int_inc(context->id, dap_stat_reevaluated_count, 1);
+	dap_stats__int_inc(context->id, dap_stat_dropped_by_policy_reeval_count, 1);
+}
+
+
 void db__dap_drop_covered(void)
 {
 	struct mosquitto *context, *ctx_tmp;
@@ -639,6 +647,7 @@ void db__dap_drop_covered(void)
 						|| client_msg->data.state == mosq_ms_publish_qos2)
 					&& db__dap_covered(context, client_msg)){
 
+				db__dap_count_op_drop(context, client_msg);
 				db__dap_discard_stamp(context, client_msg);
 				db__dap_resolved(client_msg->base_msg);
 				if(client_msg->data.qos > 0){
@@ -650,6 +659,7 @@ void db__dap_drop_covered(void)
 		}
 		DL_FOREACH_SAFE(context->msgs_out.queued, client_msg, tmp){
 			if(db__dap_covered(context, client_msg)){
+				db__dap_count_op_drop(context, client_msg);
 				db__dap_discard_stamp(context, client_msg);
 				db__dap_resolved(client_msg->base_msg);
 				db__message_remove_queued(context, &context->msgs_out, client_msg);
@@ -1870,6 +1880,9 @@ enum dap_hook_result db__dap_check_send(struct mosquitto *context, struct mosqui
 			return DAP_HOOK_SEND;
 
 		case DAP_DISP_DROP:
+			if(verdict == DAP_SEND_DROP_DELETE){
+				db__dap_count_op_drop(context, client_msg);
+			}
 			if(has_stamp){
 				dap_subscription_queues_remove(leaf->dap_queues, topic, stamp);
 				dap_stamped_msg_free(stamp);

@@ -669,6 +669,39 @@ def stats_case(new_sps, dropped):
         check(broker.stop() == 0, "broker exits cleanly")
 
 
+def stats_op_drop_case(deadline_s):
+    """A waiting message an operation removes counts as re-evaluated and dropped, whether
+    the send gate or the sweep at the operation's deadline removes it."""
+    broker = Broker("stats_interval_ms 100\nuse_metadata_operation_support true\n")
+    try:
+        sub = Subscriber("subD", receive_maximum=1)
+        sub.subscribe("t/d", ["qa"])
+        pub = Publisher()
+        pub.register("qa", "t/d")
+        pub.publish("t/d", [], payload=b"m1")
+        pub.publish("t/d", [], payload=b"m2")
+        first = sub.read_publishes(idle=0.5, ack=False)
+        pub.operation("DELETE", "t/d", deadline=int(time.time()) + deadline_s if deadline_s else None)
+        check(wait_for(lambda: pub.got_status("Pending")), "requester gets a Pending ack")
+        if deadline_s:
+            time.sleep(deadline_s + 1.5)
+        sub.puback(first[0][2])
+        got = payloads(sub.read_publishes(), "t/d")
+        check(got == [], "the DELETE removes the waiting message (got %s)" % got)
+        time.sleep(0.5)
+        with open("/tmp/dap_broker_stats.csv", newline="") as f:
+            rows = [r for r in csv.DictReader(f) if r["client_id"] == "subD"]
+        label = "sweep" if deadline_s else "send gate"
+        check(bool(rows) and int(rows[-1]["dropped_on_reeval"]) == 1, "%s drop counts in dropped_on_reeval (got %s)"
+              % (label, rows[-1]["dropped_on_reeval"] if rows else None))
+        check(bool(rows) and int(rows[-1]["total_reevaluated"]) == 1, "%s drop counts in total_reevaluated (got %s)"
+              % (label, rows[-1]["total_reevaluated"] if rows else None))
+        sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
 def stats_mp_case():
     """A message keeps its MP, so a new MP does not re-evaluate one already waiting."""
     broker = Broker("stats_interval_ms 100\n")
@@ -935,6 +968,8 @@ def main():
     stats_case(["qa", "qz"], 0)
     stats_case(["qb"], 1)
     stats_mp_case()
+    stats_op_drop_case(0)
+    stats_op_drop_case(2)
     print("# prioritized intake")
     intake_mp_case()
     intake_delete_case()
