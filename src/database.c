@@ -551,6 +551,17 @@ static void db__dap_resolved(struct mosquitto__base_msg *base_msg)
 	}
 }
 
+/* The message has fanned out; log its metrics if every delivery is already decided. */
+void db__dap_fanout_done(struct mosquitto__base_msg *base_msg)
+{
+	base_msg->dap_fanout_complete = true;
+	if(!base_msg->dap_metrics_emitted
+			&& base_msg->dap_subs_matched == base_msg->dap_subs_resolved){
+		dap_metrics_log_message(base_msg);
+		base_msg->dap_metrics_emitted = true;
+	}
+}
+
 static void db__message_remove_inflight(struct mosquitto *context, struct mosquitto_msg_data *msg_data, struct mosquitto__client_msg *item)
 {
 	if(!context || !msg_data || !item){
@@ -1635,6 +1646,9 @@ int db__message_release_incoming(struct mosquitto *context, uint16_t mid)
 			}else{
 				rc = sub__messages_queue(source_id, topic, 2, retain, &client_msg->base_msg);
 				if(rc == MOSQ_ERR_SUCCESS || rc == MOSQ_ERR_NO_SUBSCRIBERS){
+					if(client_msg->base_msg->data.has_purpose_filter){
+						db__dap_fanout_done(client_msg->base_msg);
+					}
 					db__message_remove_inflight(context, &context->msgs_in, client_msg);
 					deleted = true;
 				}else{

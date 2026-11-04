@@ -36,7 +36,6 @@ Contributors:
 #include "dap/dap_persist.h"
 #include "dap/dap_timestamp.h"
 #include "dap/dap_topics.h"
-#include "dap/dap_metrics.h"
 #include "dap/purpose_filters.h"
 #include "property_common.h"
 #include "property_mosq.h"
@@ -484,11 +483,9 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 	}
 
 	if(metrics_track){
-		metrics_msg->dap_fanout_complete = true;
-		if(!metrics_msg->dap_metrics_emitted
-				&& metrics_msg->dap_subs_matched == metrics_msg->dap_subs_resolved){
-			dap_metrics_log_message(metrics_msg);
-			metrics_msg->dap_metrics_emitted = true;
+		/* QoS 2 fans out at PUBREL, so db__message_release_incoming does this. */
+		if(metrics_msg->data.qos != 2){
+			db__dap_fanout_done(metrics_msg);
 		}
 		db__msg_store_ref_dec(&metrics_msg);
 	}

@@ -7,6 +7,7 @@ the current MP and SP, and prioritized intake of state changes.
 
 Usage: python3 test/dap/queueing_model_test.py [port]
 """
+import contextlib
 import csv
 import os
 import signal
@@ -702,6 +703,37 @@ def stats_op_drop_case(deadline_s):
         check(broker.stop() == 0, "broker exits cleanly")
 
 
+def metrics_row_case(qos):
+    """Each message's metrics row is written after its fan-out, with its matched leaves
+    and re-evaluations. QoS 2 fans out at PUBREL, not at PUBLISH."""
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink("/tmp/dap_broker_metrics.csv")
+    broker = Broker("dap_message_metrics true\nuse_metadata_operation_support true\n")
+    try:
+        sub = Subscriber("subR", receive_maximum=1)
+        sub.subscribe("t/r", ["qa"])
+        pub = Publisher()
+        pub.register("qa", "t/r")
+        pub.publish("t/r", [], payload=b"m1", qos=qos)
+        pub.publish("t/r", [], payload=b"m2", qos=qos)
+        first = sub.read_publishes(idle=0.5, ack=False)
+        pub.operation("DELETE", "t/r")
+        check(wait_for(lambda: pub.got_status("Pending")), "requester gets a Pending ack")
+        sub.puback(first[0][2])
+        check(payloads(sub.read_publishes(), "t/r") == [], "the DELETE removes the waiting message")
+        time.sleep(0.5)
+        with open("/tmp/dap_broker_metrics.csv", newline="") as f:
+            rows = [r for r in csv.DictReader(f) if r["topic"] == "t/r"]
+        check([r["num_subs_matched"] for r in rows] == ["1", "1"],
+              "qos %d rows have the matched leaves (got %s)" % (qos, rows))
+        check(sorted(r["reeval_count"] for r in rows) == ["0", "1"],
+              "qos %d rows have the re-evaluation (got %s)" % (qos, rows))
+        sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
 def stats_mp_case():
     """A message keeps its MP, so a new MP does not re-evaluate one already waiting."""
     broker = Broker("stats_interval_ms 100\n")
@@ -970,6 +1002,8 @@ def main():
     stats_mp_case()
     stats_op_drop_case(0)
     stats_op_drop_case(2)
+    metrics_row_case(1)
+    metrics_row_case(2)
     print("# prioritized intake")
     intake_mp_case()
     intake_delete_case()
