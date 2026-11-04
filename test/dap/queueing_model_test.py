@@ -734,6 +734,40 @@ def metrics_row_case(qos):
         check(broker.stop() == 0, "broker exits cleanly")
 
 
+def metrics_qos2_timing_case():
+    """A QoS 2 row times the PUBLISH handling plus PUBREL to send or drop, so it leaves out
+    the wait for PUBREL but keeps a wait for the subscriber's inflight slot."""
+    with contextlib.suppress(FileNotFoundError):
+        os.unlink("/tmp/dap_broker_metrics.csv")
+    broker = Broker("dap_message_metrics true\n")
+    try:
+        sub = Subscriber("subT", receive_maximum=1)
+        sub.subscribe("t/w", ["qa"])
+        pub = RawPublisher("rawT")
+        pub.send(pub.packet("$MP_REG", [("DAP-MP", "qa:t/w")]),
+                 pub.packet("t/w", [], b"m1", qos=2, mid=7), pub.packet("t/w", [], b"m2", qos=2, mid=8))
+        time.sleep(1)
+        pub.send(mosq_test.gen_pubrel(7, proto_ver=5), mosq_test.gen_pubrel(8, proto_ver=5))
+        first = sub.read_publishes(idle=0.5, ack=False)
+        check(payloads(first, "t/w") == [b"m1"], "the first message goes out after PUBREL")
+        time.sleep(1)
+        sub.puback(first[0][2])
+        check(payloads(sub.read_publishes(), "t/w") == [b"m2"], "the second goes out once the slot frees")
+        time.sleep(0.3)
+        with open("/tmp/dap_broker_metrics.csv", newline="") as f:
+            rows = [r for r in csv.DictReader(f) if r["topic"] == "t/w"]
+        check(len(rows) == 2 and all(r["num_subs_matched"] == "1" for r in rows),
+              "both rows have the matched leaf (got %s)" % rows)
+        times = sorted(int(r["processing_time_ns"]) for r in rows)
+        check(len(times) == 2 and times[0] < 500000000, "the PUBREL wait is left out (got %s)" % times)
+        check(len(times) == 2 and 1000000000 < times[1] < 2000000000, "the wait for a slot counts (got %s)" % times)
+        pub.close()
+        sub.close()
+    finally:
+        stop_clients()
+        check(broker.stop() == 0, "broker exits cleanly")
+
+
 def stats_mp_case():
     """A message keeps its MP, so a new MP does not re-evaluate one already waiting."""
     broker = Broker("stats_interval_ms 100\n")
@@ -1004,6 +1038,7 @@ def main():
     stats_op_drop_case(2)
     metrics_row_case(1)
     metrics_row_case(2)
+    metrics_qos2_timing_case()
     print("# prioritized intake")
     intake_mp_case()
     intake_delete_case()

@@ -513,6 +513,8 @@ struct mosquitto__base_msg
 									 * orders data against operations */
 	uint64_t dap_recv_time_ns_wall; /* CLOCK_REALTIME at PUBLISH receipt, for the metrics row */
 	uint64_t dap_recv_time_ns_mono; /* CLOCK_MONOTONIC at PUBLISH receipt, for delta computation */
+	uint64_t dap_processing_ns;		/* QoS 2: time spent handling the PUBLISH */
+	uint64_t dap_release_ns_mono;	/* QoS 2: CLOCK_MONOTONIC at PUBREL, restarts the processing clock */
 	int dap_subs_matched;			/* leaves the message fanned out to */
 	int dap_subs_resolved;			/* leaves whose verdict (DELIVER/DROP) has landed */
 	int dap_reeval_count;			/* re-evaluations against changed policy */

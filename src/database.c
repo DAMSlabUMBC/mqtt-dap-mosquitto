@@ -1644,6 +1644,7 @@ int db__message_release_incoming(struct mosquitto *context, uint16_t mid)
 				db__message_remove_inflight(context, &context->msgs_in, client_msg);
 				deleted = true;
 			}else{
+				client_msg->base_msg->dap_release_ns_mono = dap_metrics_now_ns();
 				rc = sub__messages_queue(source_id, topic, 2, retain, &client_msg->base_msg);
 				if(rc == MOSQ_ERR_SUCCESS || rc == MOSQ_ERR_NO_SUBSCRIBERS){
 					if(client_msg->base_msg->data.has_purpose_filter){

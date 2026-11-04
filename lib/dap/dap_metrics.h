@@ -6,6 +6,8 @@
 extern "C" {
 #endif
 
+#include <stdint.h>
+
 struct mosquitto__base_msg;
 
 /*
@@ -14,6 +16,11 @@ struct mosquitto__base_msg;
  * Returns 0 on success, non-zero on fopen failure.
  */
 int dap_metrics_init(void);
+
+uint64_t dap_metrics_now_ns(void);
+
+/* Nanoseconds the broker has spent on the message, leaving out the wait for a QoS 2 PUBREL. */
+uint64_t dap_metrics_elapsed_ns(const struct mosquitto__base_msg *base_msg);
 
 /*
  * Write one CSV row describing a fully-resolved base_msg: receipt wall-clock

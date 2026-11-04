@@ -19,17 +19,30 @@ int dap_metrics_init(void)
     return 0;
 }
 
+uint64_t dap_metrics_now_ns(void)
+{
+    struct timespec now_mono;
+    clock_gettime(CLOCK_MONOTONIC, &now_mono);
+    return (uint64_t)now_mono.tv_sec * 1000000000ULL + (uint64_t)now_mono.tv_nsec;
+}
+
+uint64_t dap_metrics_elapsed_ns(const struct mosquitto__base_msg *base_msg)
+{
+    uint64_t now_ns = dap_metrics_now_ns();
+
+    if(base_msg->dap_release_ns_mono > 0){
+        return base_msg->dap_processing_ns + (now_ns - base_msg->dap_release_ns_mono);
+    }
+    return (base_msg->dap_recv_time_ns_mono > 0 && now_ns >= base_msg->dap_recv_time_ns_mono)
+           ? (now_ns - base_msg->dap_recv_time_ns_mono)
+           : 0;
+}
+
 void dap_metrics_log_message(const struct mosquitto__base_msg *base_msg)
 {
     if(!metrics_file || !base_msg) return;
 
-    struct timespec now_mono;
-    clock_gettime(CLOCK_MONOTONIC, &now_mono);
-    uint64_t now_ns = (uint64_t)now_mono.tv_sec * 1000000000ULL + (uint64_t)now_mono.tv_nsec;
-    uint64_t processing_ns = (base_msg->dap_recv_time_ns_mono > 0
-                              && now_ns >= base_msg->dap_recv_time_ns_mono)
-                             ? (now_ns - base_msg->dap_recv_time_ns_mono)
-                             : 0;
+    uint64_t processing_ns = dap_metrics_elapsed_ns(base_msg);
 
     const char *publisher_id = base_msg->data.source_id ? base_msg->data.source_id : "";
     const char *topic = base_msg->data.topic ? base_msg->data.topic : "";

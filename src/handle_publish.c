@@ -22,6 +22,7 @@ Contributors:
 #include <string.h>
 
 #include "mosquitto_broker_internal.h"
+#include "dap/dap_metrics.h"
 #include "alias_mosq.h"
 #include "mosquitto/mqtt_protocol.h"
 #include "packet_mosq.h"
@@ -484,7 +485,11 @@ int handle__accepted_publish(struct mosquitto *context, struct mosquitto__base_m
 
 	if(metrics_track){
 		/* QoS 2 fans out at PUBREL, so db__message_release_incoming does this. */
-		if(metrics_msg->data.qos != 2){
+		if(metrics_msg->data.qos == 2){
+			if(!metrics_msg->dap_processing_ns){ /* a resend keeps the first time */
+				metrics_msg->dap_processing_ns = dap_metrics_elapsed_ns(metrics_msg);
+			}
+		}else{
 			db__dap_fanout_done(metrics_msg);
 		}
 		db__msg_store_ref_dec(&metrics_msg);
